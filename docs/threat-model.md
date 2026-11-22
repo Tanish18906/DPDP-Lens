@@ -1,46 +1,54 @@
 # Threat model: DPDP Lens
 
-Draft by Tanish and Anmol. Scope: the auditor itself and its demo setup. The deliverable the Cyber track may ask for. Confirm the exact format with the organisers and reshape this to fit.
+Scope: the auditor itself (engine, dashboard, fix sandbox, HTML report) and its demo setup on localhost. Written by Tanish and Anmol. Last updated 2026-11-23, matches the code at that date.
 
 ## 1. What we protect
-- Personal data seen during a scan (even though the demo data is synthetic, the tool must treat it as real).
+- Personal data seen during a scan (the demo data is synthetic, but the tool treats it as real).
 - The target app's source and database during a fix.
-- The integrity of findings and of "verified" status (a false "verified" is worse than no fix).
+- The integrity of findings and of the "verified" status (a false "verified" is worse than no fix).
 - The machine running the auditor.
 
 ## 2. System and trust boundaries
-Dashboard (browser) to Engine API (localhost :8100) to Target app (localhost :8000) and to the sandbox copy. Third party hosts appear only as request targets from the target page and are stubbed in the demo.
-Boundary 1: dashboard to engine. Boundary 2: engine to target. Boundary 3: engine to sandbox processes. Boundary 4: the machine to the internet (we avoid crossing it).
+Dashboard (browser, :5174) to Engine API (127.0.0.1:8100) to Target app (:8000, frontend :5173) and to a sandbox copy of the target. Third-party hosts appear only as request targets from the target page and are stubbed.
+- Boundary 1: dashboard to engine.
+- Boundary 2: engine to target.
+- Boundary 3: engine to sandbox processes (uvicorn and a static server on free ports, plus `vite build` for the frontend fix).
+- Boundary 4: the machine to the internet. We avoid crossing it.
 
 ## 3. Assumptions
 - Runs on a developer laptop, localhost only.
 - Scans only apps the operator owns.
 - Demo data is synthetic.
+- The operator trusts the code under test (see T6).
 
 ## 4. Threats and mitigations (STRIDE style)
-| # | Threat | Type | Mitigation |
-|---|--------|------|------------|
-| T1 | Auditor stores or shows raw PII in evidence, logs or reports | Information disclosure | Masking at the source, evidence stores masked samples only, tests check that no raw Aadhaar or PAN appears in the JSON |
-| T2 | Engine API is called by another site or local process and triggers scans | Spoofing, tampering | Bind to 127.0.0.1, CORS limited to the dashboard origin for non demo use, no auth needed for the hackathon but documented as a limit |
-| T3 | Scanning a target the operator does not own | Misuse | Targets restricted to localhost and private ranges by an allow check in the engine, README states the scope |
-| T4 | Patch breaks the app or damages data | Tampering | Patch only a temp copy with a copied DB, never the original, verification needs re-scan pass and the tests to pass |
-| T5 | Sandbox process left running or port conflict | Denial of service | Free port per run, process group kill in a finally block, timeouts |
-| T6 | Malicious target code executed by the fix loop (running the target's backend) | Elevation of privilege | Only run the demo target in the demo. Documented limit: run the auditor on code you trust, ideally in a container |
-| T7 | Destructive probes in scans | Tampering | GET only for probes except the controlled erasure probe on a synthetic user, no payload fuzzing, request caps |
-| T8 | A false "verified" status | Repudiation, integrity | The status is computed from the re-scan result and pytest exit code, never set by hand, cached mode is labelled |
-| T9 | Supply chain: malicious dependency or data file | Tampering | Small pinned dependency set, licences credited, services.json committed with source noted, no install scripts run at demo time |
-| T10 | LLM prompt or data leakage if an LLM explains a fix | Information disclosure | LLM not required, never send raw data, send only code snippets and masked evidence, off by default |
-| T11 | Secrets in the repo (API keys, JWT secrets, real credentials) | Information disclosure | .gitignore, demo only secrets clearly marked as demo, no real keys committed |
-| T12 | Third party requests leak data when the browser scan loads the page | Information disclosure | External hosts stubbed with page.route, no real data sent, synthetic data only |
+| # | Threat | Type | Mitigation (as built) |
+|---|--------|------|-----------------------|
+| T1 | Auditor stores or shows raw PII in evidence, logs or reports | Information disclosure | Masking at the source (Aadhaar `XXXX XXXX 1234`, email `a***@x.com`, phone `98XXXXXX10`). Evidence holds masked samples only. Tests check that no raw Aadhaar or PAN is in the JSON. The HTML report escapes everything, has no scripts and sends a CSP header |
+| T2 | Another site or local process calls the engine API and triggers scans | Spoofing, tampering | Engine runs on 127.0.0.1. CORS is open for localhost origins only. No authentication in this version, listed as a known limit |
+| T3 | Scanning a target the operator does not own, or reading files outside the project | Misuse | `POST /scan` accepts only localhost or private-IP targets. `repo_path` and `db_path` must exist and sit inside the repo root (`DPDP_REPO_ROOT` overrides). Anything else is a 400 |
+| T4 | A patch breaks the app or damages data | Tampering | Patches go to a temp copy with a copied DB, never the original folder. Each fix is verified alone on a copy of the original app |
+| T5 | Sandbox process left running or port conflict | Denial of service | Free port per run, process-group kill and temp-dir delete on exit, 30 s scanner timeout and 60 s fix limit |
+| T6 | Target code is executed by the fix loop (the sandbox runs the target's backend and `vite build`) | Elevation of privilege | Only the demo target is meant to run. Documented limit: run the auditor only on code you trust, ideally in a container |
+| T7 | Destructive probes | Tampering | Scans are GET only, except the controlled `erasure_scan`. It signs up one synthetic user, deletes it and removes its own marker rows. This WRITES to the target DB, so a live scan changes `demo.db` and `run_demo.sh` re-seeds it. No payload fuzzing |
+| T8 | A false "verified" status | Repudiation, integrity | `verified` is computed: the finding must be gone in the re-scan AND the app tests must pass. If the template's scanner failed in the re-scan, `verify_fix` raises instead of reading it as "gone". A patch that does not apply is a 422 with no fallback. A completed but unverified run is shown as unverified |
+| T9 | Cached golden result shown as a live result | Repudiation | Cached results fall back only on infrastructure failure or the time limit, are written only from a verified live run, and the dashboard and report show "Cached golden patch mode" with the reason. Sample mode fixes are labelled "Simulated (sample data)" |
+| T10 | Supply chain: malicious dependency or data file | Tampering | Small dependency set, licences credited in README, `services.json` committed with its source noted, no install scripts run at demo time |
+| T11 | LLM data leakage | Information disclosure | No LLM is used in the engine. Nothing is sent to an LLM |
+| T12 | Secrets in the repo | Information disclosure | `.gitignore` covers `.env`, `scan.json`, `demo.db` and logs. The demo JWT secret and logins are synthetic and demo-only |
+| T13 | Third-party requests leak data when the browser scan loads the page | Information disclosure | External hosts are stubbed with an empty 200 (`page.route`), so nothing leaves the machine |
+| T14 | Intentionally vulnerable demo app exposed to a network | Information disclosure | `run_demo.sh` binds the backend to 127.0.0.1. TutorNest must never be deployed (its JWT secret is a hard-coded demo value). README says so |
 
 ## 5. Out of scope and known limits
 - No authentication on the engine API in this version.
-- Only SQLite and a FastAPI style target are tested.
+- Scans and fix results are kept in memory only and lost on restart.
+- Only a FastAPI + SQLite target is tested.
 - Checks are a subset of DPDP duties. A clean scan does not mean compliance.
+- Under-18 signup without parental consent (V8) is planted in the demo app but not detected yet.
 - No protection against a hostile target app beyond running on localhost.
 
 ## 6. What we would do next
-Container sandbox for the fix loop, API token for the engine, signed scan reports, more targets and stacks.
+Container sandbox for the fix loop, an API token for the engine, signed scan reports, more targets and stacks.
 
 ## 7. Safe use rules (also in README)
 Use only on your own apps. Use synthetic data. Treat reports as sensitive. Never run on production.

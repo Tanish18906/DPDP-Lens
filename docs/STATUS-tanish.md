@@ -17,6 +17,7 @@
 - [x] T13 notice_drift (scanners/notice_drift.py, htmltext.py, observe() in db_scan and api_scan, runner fills ScanResult.notice_drift, test_notice_drift.py: 15 tests). Declared fields come from the notice's list items. Real scan: declared name, email, phone, undeclared dob, aadhaar, parent_pan. A scan without the frontend is now 7 findings, score 23 (with the frontend 9 findings, score 8).
 - [x] T8 browser helper and browser_scan (browser.py, scanners/browser_scan.py, netutil.py, test_browser_scan.py: 16 tests). Real scan with the frontend on :5173: 8 findings, score 13 (adds tracker_before_consent F-007 and consent_bundled F-008).
 - [x] T9 fix sandbox (fixer/sandbox.py, test_sandbox.py: 3 tests pass). `with Sandbox(repo, db) as sb:` copies the app and DB, patch files under `sb.repo`, then `sb.start()` returns the URL. Exiting kills the process group and deletes the temp dir.
+- [ ] T15 docs and submission files: run_demo.sh, README final, threat-model.md final written. NOT DONE until the gate passes: `./run_demo.sh` with ports 8000, 5173, 8100, 5174 free brings up all four servers and a CLI scan gives 9 findings, score 8. Only the busy-port guard and `bash -n` were checked so far (servers on those ports could not be stopped by the agent).
 
 ## Notes for later
 - V3 patch snippet is `logger.info("signup email=%s aadhaar=%s", req.email, req.aadhaar)` in app/main.py. V1 snippet is under `# PLANTED V1` in app/main.py.
