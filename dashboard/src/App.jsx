@@ -446,8 +446,13 @@ export default function App() {
     setCurrentStepIndex(-1)
   }
 
+  // Live scan: open the engine's report in a new tab. Sample mode (or no scan yet): print this page.
   const handleExportReport = () => {
-    window.print()
+    if (!sampleMode && scanData.scan_id) {
+      window.open(`${API_BASE}/report/${encodeURIComponent(scanData.scan_id)}`, '_blank', 'noopener')
+    } else {
+      window.print()
+    }
   }
 
   const score = animatedScore

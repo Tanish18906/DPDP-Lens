@@ -8,13 +8,14 @@ from typing import Literal
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from .fixer.templates import TEMPLATES, PatchError
 from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
 from .netutil import is_local as _is_local
 from .models import Fix, ScanResult, compute_counts, compute_score
+from .report import render_report
 from .runner import run_scan
 
 LOCAL_ORIGIN = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
@@ -40,6 +41,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
     app.state.scans = scans
     lock = threading.Lock()
     fix_lock = threading.Lock()
+    fix_modes: dict = {}  # scan_id -> {finding_id: {mode, fallback_reason}}, so the report never shows a cached fix as live
 
     def error(status: int, detail: str) -> JSONResponse:
         return JSONResponse(status_code=status, content={"error": HTTPStatus(status).phrase, "detail": detail})
@@ -95,6 +97,19 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             return scan
         raise HTTPException(500, scan["detail"])
 
+    @app.get("/report/{scan_id}")
+    def get_report(scan_id: str):
+        scan = scans.get(scan_id)
+        if scan is None:
+            raise HTTPException(404, f"Unknown scan {scan_id}")
+        if not isinstance(scan, ScanResult):
+            if scan["status"] == "running":
+                raise HTTPException(409, f"Scan {scan_id} is not finished")
+            raise HTTPException(500, scan["detail"])
+        return HTMLResponse(render_report(scan, fix_modes.get(scan_id, {})), headers={
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",  # no scripts, nothing external
+            "X-Content-Type-Options": "nosniff"})
+
     @app.post("/findings/{finding_id}/fix")
     def fix_finding(finding_id: str, scan_id: str, mode: Literal["live", "cached"] = "live"):
         scan = scans.get(scan_id)
@@ -141,6 +156,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             updated = scan.model_copy(update={
                 "findings": findings, "score": compute_score(findings), "counts": compute_counts(findings)})
             scans[scan_id] = updated
+            fix_modes.setdefault(scan_id, {})[finding_id] = {"mode": used, "fallback_reason": reason}
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
                 "mode": used, "fallback_reason": reason}
 
