@@ -114,6 +114,29 @@ async function runEngineScan() {
   throw new Error('The scan did not finish within 15 seconds')
 }
 
+function countOpen(findings) {
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 }
+  findings.forEach((f) => {
+    if (f.status === 'open') counts[f.severity] += 1
+  })
+  return counts
+}
+
+// Ask the engine to fix and verify one finding. Throws an Error with the engine's own text on failure.
+async function requestFix(scanId, findingId) {
+  let res
+  try {
+    res = await fetch(
+      `${API_BASE}/findings/${encodeURIComponent(findingId)}/fix?scan_id=${encodeURIComponent(scanId)}&mode=live`,
+      { method: 'POST' }
+    )
+  } catch {
+    throw new Error(`Could not reach the engine at ${API_BASE}`)
+  }
+  if (!res.ok) throw await engineError(res)
+  return res.json()
+}
+
 function formatLocation(loc) {
   if (!loc) return null
   if (loc.file) return `${loc.file}${loc.line ? `:${loc.line}` : ''}`
@@ -127,7 +150,7 @@ function DiffViewer({ diffText }) {
   const lines = diffText.split('\n')
 
   return (
-    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] overflow-x-auto text-[13px] font-mono p-3.5 leading-relaxed">
+    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] overflow-x-auto text-[13px] font-mono p-3 leading-snug">
       {lines.map((line, idx) => {
         let lineStyle = 'text-[#E6EDF3]'
         let lineBg = 'transparent'
@@ -146,7 +169,7 @@ function DiffViewer({ diffText }) {
         }
 
         return (
-          <div key={idx} className={`px-2 py-0.5 rounded-[2px] ${lineStyle} ${lineBg}`}>
+          <div key={idx} className={`px-2 rounded-[2px] whitespace-pre-wrap break-words ${lineStyle} ${lineBg}`}>
             {line || ' '}
           </div>
         )
@@ -202,6 +225,9 @@ export default function App() {
   const [currentStepIndex, setCurrentStepIndex] = useState(-1)
   const [animatedScore, setAnimatedScore] = useState(null)
   const [scoreHistory, setScoreHistory] = useState(null)
+  const [fixError, setFixError] = useState(null)
+  const [fixMeta, setFixMeta] = useState({}) // finding id -> { mode, fallbackReason } for results of this session
+  const [copyState, setCopyState] = useState(null) // { id, ok } after a click on "Copy diff"
 
   // Check Engine health on mount
   useEffect(() => {
@@ -254,6 +280,8 @@ export default function App() {
   const handleUseSample = () => {
     setSampleMode(true)
     setScanError(null)
+    setFixError(null)
+    setFixMeta({})
     setScanData(sampleScan)
     setAnimatedScore(sampleScan.score)
     setScoreHistory(null)
@@ -265,6 +293,8 @@ export default function App() {
     setIsScanning(true)
     setScanStepIndex(0)
     setScanError(null)
+    setFixError(null)
+    setFixMeta({})
 
     const stepInterval = setInterval(() => {
       setScanStepIndex((prev) => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev))
@@ -291,10 +321,25 @@ export default function App() {
     }
   }
 
-  // Fix and verify handler
-  const handleFixAndVerify = (finding) => {
-    if (!finding || fixingFindingId !== null || !sampleMode) return
+  function animateScore(from, to) {
+    const startTime = performance.now()
+    function animate(now) {
+      const progress = Math.min(1, (now - startTime) / 400)
+      setAnimatedScore(Math.round(from + (to - from) * progress))
+      if (progress < 1) requestAnimationFrame(animate)
+    }
+    requestAnimationFrame(animate)
+  }
 
+  // Fix and verify: sample mode simulates it, live mode asks the engine.
+  const handleFixAndVerify = (finding) => {
+    if (!finding || fixingFindingId !== null) return
+    setFixError(null)
+    if (sampleMode) runSimulatedFix(finding)
+    else runEngineFix(finding)
+  }
+
+  const runSimulatedFix = (finding) => {
     setFixingFindingId(finding.id)
     setCurrentStepIndex(0)
 
@@ -310,70 +355,93 @@ export default function App() {
     }, 850)
   }
 
+  // The 5 steps are only a loading display. They wait on the last step until the engine answers.
+  const runEngineFix = async (finding) => {
+    setFixingFindingId(finding.id)
+    setCurrentStepIndex(0)
+    const ticker = setInterval(() => setCurrentStepIndex((i) => Math.min(i + 1, FIX_STEPS.length - 1)), 850)
+    try {
+      const { finding: updated, score_before, score_after, mode, fallback_reason } = await requestFix(
+        scanData.scan_id,
+        finding.id
+      )
+      setScanData((prev) => {
+        const findings = prev.findings.map((f) => (f.id === updated.id ? updated : f))
+        return { ...prev, findings, score: score_after, counts: countOpen(findings) }
+      })
+      setFixMeta((prev) => ({ ...prev, [updated.id]: { mode, fallbackReason: fallback_reason } }))
+      if (updated.status === 'verified_fixed') {
+        animateScore(score_before, score_after)
+        setScoreHistory((prev) => ({ before: prev?.before ?? score_before, after: score_after }))
+      }
+    } catch (e) {
+      setFixError(e.message) // the finding stays open
+    } finally {
+      clearInterval(ticker)
+      setFixingFindingId(null)
+      setCurrentStepIndex(-1)
+    }
+  }
+
   const finishFix = (finding) => {
     const scoreBefore = scanData.score
-    const weightGain = SEVERITY_WEIGHTS[finding.severity] || 10
-    const scoreAfter = Math.min(100, scoreBefore + weightGain)
-
-    const startScore = scoreBefore
-    const endScore = scoreAfter
-    const duration = 400
-    const startTime = performance.now()
-
-    function animate(currentTime) {
-      const elapsed = currentTime - startTime
-      const progress = Math.min(1, elapsed / duration)
-      const current = Math.round(startScore + (endScore - startScore) * progress)
-      setAnimatedScore(current)
-
-      if (progress < 1) {
-        requestAnimationFrame(animate)
-      }
-    }
-    requestAnimationFrame(animate)
+    const scoreAfter = Math.min(100, scoreBefore + (SEVERITY_WEIGHTS[finding.severity] || 10))
+    animateScore(scoreBefore, scoreAfter)
 
     setScanData((prev) => {
-      const updatedFindings = prev.findings.map((f) => {
-        if (f.id === finding.id) {
-          return {
-            ...f,
-            status: 'verified_fixed',
-            fix: {
-              ...f.fix,
-              verified: true,
-              rescan_passed: true,
-              tests_passed: true,
-              score_before: scoreBefore,
-              score_after: scoreAfter,
-              is_cached_patch: true
+      const updatedFindings = prev.findings.map((f) =>
+        f.id === finding.id
+          ? {
+              ...f,
+              status: 'verified_fixed',
+              fix: {
+                ...f.fix,
+                verified: true,
+                rescan_passed: true,
+                tests_passed: true,
+                score_before: scoreBefore,
+                score_after: scoreAfter
+              }
             }
-          }
-        }
-        return f
-      })
-
-      const updatedCounts = {
-        ...prev.counts,
-        [finding.severity]: Math.max(0, (prev.counts[finding.severity] || 1) - 1)
-      }
-
-      return {
-        ...prev,
-        score: scoreAfter,
-        counts: updatedCounts,
-        findings: updatedFindings
-      }
+          : f
+      )
+      return { ...prev, score: scoreAfter, counts: countOpen(updatedFindings), findings: updatedFindings }
     })
 
+    setFixMeta((prev) => ({ ...prev, [finding.id]: { mode: 'simulated', fallbackReason: null } }))
     setScoreHistory({ before: scoreBefore, after: scoreAfter })
     setFixingFindingId(null)
     setCurrentStepIndex(-1)
+  }
+
+  const copyDiff = async (finding) => {
+    let ok = true
+    try {
+      await navigator.clipboard.writeText(finding.fix.diff)
+    } catch {
+      ok = false
+    }
+    setCopyState({ id: finding.id, ok })
+    setTimeout(() => setCopyState(null), 2000)
+  }
+
+  const downloadPatch = (finding) => {
+    const url = URL.createObjectURL(new Blob([finding.fix.diff], { type: 'text/x-diff' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${finding.id}-${finding.check}.patch`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
   }
 
   const handleResetDemo = () => {
     setScanData(sampleScan)
     setAnimatedScore(sampleScan.score)
     setScoreHistory(null)
+    setFixMeta({})
+    setFixError(null)
     setFixingFindingId(null)
     setCurrentStepIndex(-1)
   }
@@ -395,6 +463,12 @@ export default function App() {
   const allUniqueFieldsSet = new Set([...declaredList, ...observedFieldNames])
   const totalUniqueFields = allUniqueFieldsSet.size
   const undeclaredCount = undeclaredList.length
+
+  const fix = selectedFinding?.fix || {}
+  const fixMode = selectedFinding ? fixMeta[selectedFinding.id] : null
+  const showResult =
+    Boolean(selectedFinding) &&
+    (selectedFinding.status === 'verified_fixed' || fix.rescan_passed != null || fix.tests_passed != null)
 
   return (
     <div className="min-h-screen bg-[#0B0F14] text-[#E6EDF3] flex flex-col font-sans">
@@ -440,7 +514,7 @@ export default function App() {
             <span className="text-[12px] text-[#8B98A8] border border-[#263140] px-2.5 py-0.5 rounded-[6px] hidden lg:inline">
               Readiness report, not a compliance certificate
             </span>
-            {scoreHistory && (
+            {sampleMode && scoreHistory && (
               <button
                 type="button"
                 onClick={handleResetDemo}
@@ -477,6 +551,15 @@ export default function App() {
           className="bg-[#FF5C5C]/15 border-b border-[#FF5C5C]/40 px-6 py-2 text-center text-[14px] text-[#FF5C5C] print:hidden"
         >
           <strong>Scan failed:</strong> {scanError}
+        </div>
+      )}
+
+      {fixError && (
+        <div
+          role="alert"
+          className="bg-[#FF5C5C]/15 border-b border-[#FF5C5C]/40 px-6 py-2 text-center text-[14px] text-[#FF5C5C] print:hidden"
+        >
+          <strong>Fix failed:</strong> {fixError}. The finding stays open.
         </div>
       )}
 
@@ -712,7 +795,7 @@ export default function App() {
                               : 'bg-[#0B0F14] text-[#8B98A8] border-[#263140]'
                           }`}
                         >
-                          {isFixed ? 'Verified' : 'Open'}
+                          {isFixed ? 'Verified fixed' : 'Open'}
                         </span>
                       </div>
                     </div>
@@ -723,7 +806,7 @@ export default function App() {
 
             {/* Right Column: Finding Detail Panel */}
             <section
-              className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-4 flex flex-col gap-3 sticky top-14 shadow-lg"
+              className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-4 flex flex-col gap-3 sticky top-14 shadow-lg max-h-[calc(100vh-12rem)] overflow-y-auto"
               aria-label="Finding detail"
             >
               {selectedFinding ? (
@@ -887,51 +970,109 @@ export default function App() {
                       </div>
                     )}
 
-                    {selectedFinding.status === 'verified_fixed' ? (
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#19212C] border border-[#263140] rounded-[8px] p-3.5">
+                    {showResult && (
+                      <div className="flex flex-col gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 bg-[#19212C] border border-[#263140] rounded-[8px] p-3">
                           <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge label="Re-scan passed" passed={selectedFinding.fix?.rescan_passed} />
-                            <StatusBadge label="Tests passed" passed={selectedFinding.fix?.tests_passed} />
-                            <StatusBadge label="Verified" passed={selectedFinding.fix?.verified} />
+                            <StatusBadge label="Re-scan passed" passed={fix.rescan_passed} />
+                            <StatusBadge label="Tests passed" passed={fix.tests_passed} />
+                            <StatusBadge label="Verified" passed={fix.verified} />
                           </div>
-
-                          {selectedFinding.fix?.is_cached_patch && (
-                            <span className="text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
-                              Cached golden patch mode
+                          {fix.score_before != null && fix.score_after != null && (
+                            <span className="mono text-[12px] text-[#8B98A8]">
+                              Score {fix.score_before} → {fix.score_after}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3.5 py-2.5 rounded-[6px] border border-[#3DDC97]/30">
-                          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>Verified. Re-scan passed and the app's tests still pass.</span>
-                        </div>
+                        {sampleMode ? (
+                          <span className="self-start text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
+                            Simulated (sample data)
+                          </span>
+                        ) : fixMode?.mode === 'cached_golden' ? (
+                          <div className="flex flex-wrap items-center gap-2 text-[13px] px-3 py-2 rounded-[6px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
+                            <span className="font-semibold">Cached golden patch mode</span>
+                            <span>
+                              {fixMode.fallbackReason
+                                ? `Live run could not finish: ${fixMode.fallbackReason}`
+                                : 'Replayed from a saved verified run, not run just now.'}
+                            </span>
+                          </div>
+                        ) : null}
 
-                        {selectedFinding.fix?.diff && (
+                        {fix.verified ? (
+                          <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3 py-2 rounded-[6px] border border-[#3DDC97]/30">
+                            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>
+                              {sampleMode
+                                ? 'Simulated. No real re-scan or tests were run.'
+                                : fixMode?.mode === 'cached_golden'
+                                ? 'Verified in a saved run. It was not run just now.'
+                                : "Verified. Re-scan passed and the app's tests still pass."}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-[#FF5C5C] text-[14px] font-medium bg-[#FF5C5C]/10 px-3 py-2 rounded-[6px] border border-[#FF5C5C]/30">
+                            Not verified.
+                            {fix.rescan_passed === false && ' The problem is still found after the fix.'}
+                            {fix.tests_passed === false && " The app's tests failed."} The finding stays open.
+                          </div>
+                        )}
+
+                        {fix.diff && (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
-                              Deterministic Patch Unified Diff
+                              Patch (unified diff)
                             </span>
-                            <DiffViewer diffText={selectedFinding.fix.diff} />
+                            <DiffViewer diffText={fix.diff} />
+                          </div>
+                        )}
+
+                        {!sampleMode && fix.verified && fix.diff && (
+                          <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-[#8B98A8]">
+                            <span>Verified on a sandbox copy. Your original code is unchanged. Download the patch to apply it.</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => copyDiff(selectedFinding)}
+                                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] cursor-pointer"
+                              >
+                                {copyState?.id === selectedFinding.id ? (copyState.ok ? 'Copied' : 'Copy failed') : 'Copy diff'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => downloadPatch(selectedFinding)}
+                                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] cursor-pointer"
+                              >
+                                Download patch
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
-                    ) : selectedFinding.fix?.available ? (
+                    )}
+
+                    {selectedFinding.status !== 'verified_fixed' && (
                       <div className="flex items-center justify-between w-full gap-4">
                         <div className="flex flex-col">
                           <span className="text-[14px] text-[#E6EDF3] font-medium">
-                            {sampleMode ? 'Automated verified fix available' : 'Fix and verify is not available yet'}
+                            {fix.available
+                              ? sampleMode
+                                ? 'Simulated fix (sample data)'
+                                : 'Automated verified fix available'
+                              : 'This finding needs a manual change'}
                           </span>
                           <span className="text-[13px] text-[#8B98A8]">
-                            {sampleMode
-                              ? 'Deterministic patch template ready to test in sandbox'
-                              : 'The engine has not built this step yet, so no fix can be verified.'}
+                            {fix.available
+                              ? sampleMode
+                                ? 'No real sandbox run happens in sample mode'
+                                : 'Runs on a sandbox copy: patch, re-scan, then the app\'s tests'
+                              : 'No patch template exists for it yet'}
                           </span>
                         </div>
-                        {sampleMode ? (
+                        {fix.available ? (
                           <button
                             type="button"
                             disabled={fixingFindingId !== null}
@@ -947,16 +1088,11 @@ export default function App() {
                           <button
                             type="button"
                             disabled
-                            title="Not available yet"
                             className="px-5 py-2 rounded-[6px] bg-[#19212C] border border-[#263140] text-[#8B98A8] font-semibold text-[15px] cursor-not-allowed shrink-0"
                           >
-                            Not available yet
+                            No automated fix yet
                           </button>
                         )}
-                      </div>
-                    ) : (
-                      <div className="text-[13px] text-[#8B98A8] italic bg-[#0B0F14] p-3 rounded-[6px] border border-[#263140]">
-                        Manual architectural remediation required (no automated patch template available).
                       </div>
                     )}
                   </div>
