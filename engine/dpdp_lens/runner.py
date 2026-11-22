@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .models import Clause, ScanResult, compute_counts, compute_score
-from .scanners import api_scan, db_scan, idor_probe, log_scan
+from .scanners import api_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan
 
 log = logging.getLogger("dpdp_lens")
 CLAUSES = Path(__file__).resolve().parents[2] / "contract" / "clauses.json"
@@ -19,6 +19,8 @@ SCANNERS = [
     ("idor_probe", lambda target, repo, db: idor_probe.scan(target)),
     ("db_scan", lambda target, repo, db: db_scan.scan(db)),
     ("log_scan", lambda target, repo, db: log_scan.scan(repo)),
+    ("erasure_scan", lambda target, repo, db: erasure_scan.scan(target, db)),  # writes a synthetic user, then removes it
+    ("contact_scan", lambda target, repo, db: contact_scan.scan(target)),
 ]
 
 

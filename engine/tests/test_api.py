@@ -13,17 +13,17 @@ def test_health():
     assert TestClient(create_app()).get("/health").json() == {"ok": True}
 
 
-def test_scan_then_get_matches_run_scan(target, fresh_db):
+def test_scan_then_get_matches_run_scan(target, target_db):
     c = TestClient(create_app())
-    r = c.post("/scan", json=body(target, fresh_db))
+    r = c.post("/scan", json=body(target, target_db))
     assert r.status_code == 200 and r.json() == {"scan_id": "S-001"}
     got = c.get("/scan/S-001").json()
-    expected = run_scan(target, str(BACKEND), str(fresh_db)).model_dump()
+    expected = run_scan(target, str(BACKEND), str(target_db)).model_dump()
     for d in (got, expected):
         d.pop("scanned_at")
     assert got == expected
-    assert len(got["findings"]) == 4 and got["score"] == 40
-    assert c.post("/scan", json=body(target, fresh_db)).json() == {"scan_id": "S-002"}
+    assert len(got["findings"]) == 6 and got["score"] == 28
+    assert c.post("/scan", json=body(target, target_db)).json() == {"scan_id": "S-002"}
 
 
 def test_running_scan_returns_status():

@@ -6,5 +6,7 @@ DEMO_USERS = {
     "admin": {"email": "admin@tutornest.test", "password": "AdminPass123!"},
 }
 
+FRONTEND_URL = "http://localhost:5173"  # TutorNest signup page, checked by contact_scan when it is running
+
 HTTP_TIMEOUT = 10  # seconds per request
 MAX_REQUESTS = 50  # per scanner

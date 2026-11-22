@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -24,24 +25,10 @@ def seed_copy(tmp: Path):
     return backend, db, env
 
 
-@pytest.fixture
-def fresh_db(tmp_path):
-    return seed_copy(tmp_path)[1]
-
-
-@pytest.fixture
-def raw_pii(fresh_db):
-    """Raw Aadhaar, PAN, phone and email from the seeded DB. Tests use them to prove findings never hold raw data."""
-    con = sqlite3.connect(fresh_db)
-    rows = con.execute("SELECT aadhaar, parent_pan, phone, email FROM students").fetchall()
-    con.close()
-    return [v for row in rows for v in row if v]
-
-
-@pytest.fixture(scope="session")
-def target(tmp_path_factory):
-    """TutorNest on a free port, on its own seeded temp DB."""
-    backend, _, env = seed_copy(tmp_path_factory.mktemp("tutornest"))
+@contextmanager
+def run_target(tmp: Path):
+    """TutorNest on a free port with its own seeded temp DB. Yields (url, db_path)."""
+    backend, db, env = seed_copy(tmp)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -59,7 +46,46 @@ def target(tmp_path_factory):
                 time.sleep(0.25)
         else:
             pytest.fail("target did not start")
-        yield url
+        yield url, db
     finally:
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=10)
+
+
+@pytest.fixture
+def fresh_db(tmp_path):
+    return seed_copy(tmp_path)[1]
+
+
+@pytest.fixture
+def raw_pii(fresh_db):
+    """Raw Aadhaar, PAN, phone and email from the seeded DB. Tests use them to prove findings never hold raw data."""
+    con = sqlite3.connect(fresh_db)
+    rows = con.execute("SELECT aadhaar, parent_pan, phone, email FROM students").fetchall()
+    con.close()
+    return [v for row in rows for v in row if v]
+
+
+@pytest.fixture(scope="session")
+def target_server(tmp_path_factory):
+    """Shared target for read-only tests. The erasure probe cleans up after itself, so sharing is safe."""
+    with run_target(tmp_path_factory.mktemp("tutornest")) as server:
+        yield server
+
+
+@pytest.fixture
+def target(target_server):
+    return target_server[0]
+
+
+@pytest.fixture
+def target_db(target_server):
+    """The DB file the shared target is using."""
+    return target_server[1]
+
+
+@pytest.fixture
+def fresh_target(tmp_path):
+    """Own target per test, for tests that change its data. Yields (url, db_path)."""
+    with run_target(tmp_path) as server:
+        yield server
