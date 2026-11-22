@@ -1,11 +1,9 @@
 """Engine API on :8100. Start: uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100 (docs/03)."""
-import ipaddress
 import os
 import threading
 from http import HTTPStatus
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +13,7 @@ from pydantic import BaseModel
 
 from .fixer.templates import TEMPLATES, PatchError
 from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
+from .netutil import is_local as _is_local
 from .models import Fix, ScanResult, compute_counts, compute_score
 from .runner import run_scan
 
@@ -30,21 +29,6 @@ class ScanRequest(BaseModel):
     target_url: str
     repo_path: str
     db_path: str
-
-
-def _is_local(url: str) -> bool:
-    """Threat T3: only scan localhost or private addresses."""
-    parsed = urlparse(url)
-    host = parsed.hostname
-    if parsed.scheme not in ("http", "https") or not host:
-        return False
-    if host == "localhost":
-        return True
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return ip.is_loopback or ip.is_private
 
 
 def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR) -> FastAPI:

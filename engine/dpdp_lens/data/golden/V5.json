@@ -1,0 +1,10 @@
+{
+  "golden_id": "V5",
+  "check": "tracker_before_consent",
+  "source": "live",
+  "saved_at": "2026-11-22T20:55:33+00:00",
+  "diff": "--- a/frontend/index.html\n+++ b/frontend/index.html\n@@ -5,8 +5,7 @@\n     <link rel=\"icon\" type=\"image/svg+xml\" href=\"/favicon.svg\" />\n     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n     <title>TutorNest - Student Registration</title>\n-    <!-- PLANTED V5 -->\n-    <script async src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>\n+    <!-- PLANTED V5 (fixed: the tracker loads only after the consent box is ticked, see src/App.jsx) -->\n   </head>\n   <body>\n     <div id=\"root\"></div>\n--- a/frontend/src/App.jsx\n+++ b/frontend/src/App.jsx\n@@ -1,5 +1,15 @@\n import React, { useState } from 'react'\n import './App.css'\n+\n+// Marketing pixel: loaded only after the user ticks the consent box, never when the page opens.\n+function loadTrackingPixel() {\n+  if (document.getElementById('fb-pixel')) return\n+  const script = document.createElement('script')\n+  script.id = 'fb-pixel'\n+  script.async = true\n+  script.src = 'https://connect.facebook.net/en_US/fbevents.js'\n+  document.head.appendChild(script)\n+}\n \n export default function App() {\n   const [formData, setFormData] = useState({\n@@ -209,7 +219,10 @@\n                   type=\"checkbox\"\n                   id=\"consent\"\n                   checked={agreed}\n-                  onChange={(e) => setAgreed(e.target.checked)}\n+                  onChange={(e) => {\n+                    setAgreed(e.target.checked)\n+                    if (e.target.checked) loadTrackingPixel()\n+                  }}\n                 />\n                 <span>I agree to the Terms and to marketing messages</span>\n               </label>\n",
+  "verified": true,
+  "rescan_passed": true,
+  "tests_passed": true
+}

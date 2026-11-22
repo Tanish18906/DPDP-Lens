@@ -12,7 +12,10 @@ from pathlib import Path
 import httpx
 import pytest
 
+from dpdp_lens import config
+
 BACKEND = Path(__file__).resolve().parents[2] / "target-app" / "backend"
+FRONTEND = BACKEND.parent / "frontend"
 
 
 def seed_copy(tmp: Path):
@@ -50,6 +53,12 @@ def run_target(tmp: Path):
     finally:
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=10)
+
+
+@pytest.fixture(autouse=True)
+def no_frontend(monkeypatch):
+    """A frontend left running on :5173 must not change test results. Tests that need one pass its URL."""
+    monkeypatch.setattr(config, "FRONTEND_URL", None)
 
 
 @pytest.fixture

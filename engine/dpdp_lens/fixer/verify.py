@@ -45,24 +45,37 @@ def _left(deadline: float) -> float:
     return left
 
 
-def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, template: Template | None = None,
+def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend_dir=None, template: Template | None = None,
                score_before: int | None = None, golden_dir=GOLDEN_DIR, timeout: float = FIX_TIMEOUT) -> Verification:
     template = template or TEMPLATES.get(finding.check)
     if template is None:
         raise PatchError(f"no fix template for {finding.check}")
     tests_dir = Path(tests_dir or Path(repo_path).parent / "tests")
+    frontend_dir = Path(frontend_dir or Path(repo_path).parent / "frontend") if template.needs_frontend else None
     deadline = time.monotonic() + timeout
 
-    with Sandbox(repo_path, db_path, start_timeout=min(START_TIMEOUT, timeout)) as sb:
-        original, patched = apply_template(template, sb.repo)
-        try:
-            py_compile.compile(str(sb.repo / template.file), doraise=True)
-        except py_compile.PyCompileError as e:
-            raise PatchError(f"patched {template.file} does not compile: {e.msg}") from e
+    with Sandbox(repo_path, db_path, start_timeout=min(START_TIMEOUT, timeout), frontend_path=frontend_dir) as sb:
+        changes = apply_template(template, {"backend": sb.repo, "frontend": sb.frontend})
+        for change in changes:
+            if change.label.endswith(".py"):
+                try:
+                    py_compile.compile(str(sb.repo / change.label), doraise=True)
+                except py_compile.PyCompileError as e:
+                    raise PatchError(f"patched {change.label} does not compile: {e.msg}") from e
+        extra = {}
+        if template.needs_frontend:
+            sb.build_frontend()  # PatchError if the patched frontend does not build
+            _left(deadline)
         url = sb.start()
+        if template.needs_frontend:
+            extra["frontend_url"] = sb.start_frontend()  # the re-scan looks at the patched page, not the original
         _left(deadline)
         # Re-scan first: pytest signs users up and deletes them, which would change the sandbox DB and the score.
-        rescan = run_scan(url, str(sb.repo), str(sb.db), timeout=min(SCANNER_TIMEOUT, _left(deadline)))
+        errors: list[str] = []
+        rescan = run_scan(url, str(sb.repo), str(sb.db), timeout=min(SCANNER_TIMEOUT, _left(deadline)), errors=errors, **extra)
+        broken = [e for e in errors if e.startswith(f"{template.scanner}:")]
+        if broken:  # a scanner that could not run must never read as "the finding is gone"
+            raise RuntimeError(f"the re-scan could not run {template.scanner}: {broken[0]}")
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "pytest", str(tests_dir), "-q", "-p", "no:cacheprovider"],
@@ -72,9 +85,9 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, template
             raise FixTimeout("the app's tests did not finish in time") from e
 
     gone = all(_key(f) != _key(finding) for f in rescan.findings)
-    tests_ok = proc.returncode == 0
-    diff = "".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
-                                        f"a/{template.file}", f"b/{template.file}"))
+    tests_ok = proc.returncode == 0  # for a frontend patch this also means the patched frontend built
+    diff = "".join(line for c in changes for line in difflib.unified_diff(
+        c.original.splitlines(True), c.patched.splitlines(True), f"a/{c.label}", f"b/{c.label}"))
     fix = Fix(available=True, diff=diff, verified=gone and tests_ok, rescan_passed=gone, tests_passed=tests_ok,
               score_before=score_before, score_after=rescan.score)
     if fix.verified:

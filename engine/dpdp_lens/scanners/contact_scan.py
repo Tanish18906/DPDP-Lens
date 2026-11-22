@@ -1,10 +1,10 @@
 """missing_contact: no DPO or grievance contact on the notice page or the frontend home. Visible text only."""
 import re
-from html.parser import HTMLParser
 
 import httpx
 
 from .. import config
+from ..htmltext import visible_text
 from ..models import Evidence, Finding, Fix, Location
 
 # Strict on purpose: a generic "contact us" line does not count as a DPO or grievance contact.
@@ -13,28 +13,8 @@ _REACH = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|(?<!\d)(?:\+91[\s-]?)?[6-9]\d{9}(
 _NEAR = 100  # chars either side of the keyword
 
 
-class _VisibleText(HTMLParser):
-    """Text a visitor can read. HTML comments, scripts and styles are dropped."""
-
-    def __init__(self):
-        super().__init__()
-        self.parts, self._hidden = [], 0
-
-    def handle_starttag(self, tag, attrs):
-        self._hidden += tag in ("script", "style")
-
-    def handle_endtag(self, tag):
-        self._hidden = max(0, self._hidden - (tag in ("script", "style")))
-
-    def handle_data(self, data):
-        if not self._hidden:
-            self.parts.append(data)
-
-
 def has_contact(html: str) -> bool:
-    p = _VisibleText()
-    p.feed(html)
-    text = " ".join(" ".join(p.parts).split())
+    text = visible_text(html)
     return any(_REACH.search(text[max(0, m.start() - _NEAR):m.end() + _NEAR]) for m in _KEYWORD.finditer(text))
 
 

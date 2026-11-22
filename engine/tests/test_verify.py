@@ -6,9 +6,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from conftest import BACKEND, seed_copy
+from conftest import BACKEND, FRONTEND, seed_copy
 from dpdp_lens.fixer.sandbox import Sandbox
-from dpdp_lens.fixer.templates import V1, V3, PatchError, Template, apply_template
+from dpdp_lens.fixer.templates import V1, V3, V5, PatchError, Template, apply_template
 from dpdp_lens.fixer.verify import load_golden, verify_fix
 from dpdp_lens.models import Evidence, Finding, Location
 from test_sandbox import tree_hash
@@ -30,13 +30,13 @@ def uvicorn_count():
 
 def test_v1_fix_is_verified(tmp_path, fresh_db):
     golden, tree_before, dirs_before, procs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs(), uvicorn_count()
-    result = verify_fix(V1_FINDING, BACKEND, fresh_db, score_before=28, golden_dir=golden)
+    result = verify_fix(V1_FINDING, BACKEND, fresh_db, score_before=23, golden_dir=golden)
     fix = result.fix
     assert fix.verified and fix.rescan_passed and fix.tests_passed
     assert "get_admin_user" in fix.diff and fix.diff.startswith("--- a/app/main.py\n+++ b/app/main.py")
-    assert (fix.score_before, fix.score_after) == (28, 48)  # re-scan: V1 gone, five other findings stay
+    assert (fix.score_before, fix.score_after) == (23, 43)  # re-scan: V1 gone, five other findings stay
     assert [f.check for f in result.rescan.findings] == [
-        "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "missing_contact"]
+        "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "missing_contact", "notice_drift"]
     assert "passed" in result.tests_output
     # golden saved from the verified live run only
     saved = load_golden("V1", golden)
@@ -54,14 +54,14 @@ V3_FINDING = Finding(
 
 def test_v3_fix_is_verified_and_the_log_holds_no_personal_data(tmp_path, fresh_db):
     golden, tree_before, dirs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs()
-    result = verify_fix(V3_FINDING, BACKEND, fresh_db, score_before=28, golden_dir=golden)
+    result = verify_fix(V3_FINDING, BACKEND, fresh_db, score_before=23, golden_dir=golden)
     fix = result.fix
     assert fix.verified and fix.rescan_passed and fix.tests_passed
     assert '+    logger.info("signup ok user_id=%s", student_id)' in fix.diff
     assert '-    logger.info("signup email=%s aadhaar=%s", req.email, req.aadhaar)' in fix.diff
-    assert (fix.score_before, fix.score_after) == (28, 38)  # log_pii (high) gone, the five others stay
+    assert (fix.score_before, fix.score_after) == (23, 33)  # log_pii (high) gone, the five others stay
     assert [f.check for f in result.rescan.findings] == [
-        "api_pii_exposure", "api_idor", "db_plaintext_pii", "erasure_incomplete", "missing_contact"]
+        "api_pii_exposure", "api_idor", "db_plaintext_pii", "erasure_incomplete", "missing_contact", "notice_drift"]
     assert load_golden("V3", golden)["verified"] is True
     assert tree_hash(TARGET_APP) == tree_before and temp_dirs() == dirs_before
 
@@ -85,7 +85,7 @@ def test_signup_log_before_and_after_the_v3_patch(fresh_db, patched):
 
 
 def test_noop_patch_is_not_verified_even_if_tests_pass(tmp_path, fresh_db):
-    noop = Template(check=V1.check, golden_id="V1", file=V1.file, edits=(("# PLANTED V1\n", "# PLANTED V1\n"),))
+    noop = Template(check=V1.check, golden_id="V1", scanner="api_scan", edits=(("backend", "app/main.py", "# PLANTED V1\n", "# PLANTED V1\n"),))
     fix = verify_fix(V1_FINDING, BACKEND, fresh_db, template=noop, golden_dir=tmp_path / "golden").fix
     assert fix.tests_passed is True and fix.rescan_passed is False and fix.verified is False
     assert load_golden("V1", tmp_path / "golden") is None  # never saved from an unverified run
@@ -114,3 +114,56 @@ def test_unknown_check_has_no_template(tmp_path, fresh_db):
     other = V1_FINDING.model_copy(update={"check": "api_idor"})
     with pytest.raises(PatchError, match="no fix template"):
         verify_fix(other, BACKEND, fresh_db)
+
+
+# --- V5: the frontend fix. Needs target-app/frontend with node_modules (npm install).
+needs_node = pytest.mark.skipif(not (FRONTEND / "node_modules").is_dir(), reason="run npm install in target-app/frontend")
+V5_FINDING = Finding(
+    id="F-007", check="tracker_before_consent", layer="browser", severity="high", title="t", explanation="e", clauses=[],
+    evidence=Evidence(kind="network", summary="s", location=Location(url="http://localhost:5173")))
+
+
+def node_procs():
+    return subprocess.run(["pgrep", "-fc", "http.server"], capture_output=True, text=True).stdout.strip()
+
+
+@needs_node
+def test_v5_fix_is_verified_on_a_patched_copy_of_the_frontend(tmp_path, fresh_db):
+    golden, tree_before, dirs_before, procs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs(), node_procs()
+    result = verify_fix(V5_FINDING, BACKEND, fresh_db, score_before=8, golden_dir=golden)
+    fix, checks = result.fix, [f.check for f in result.rescan.findings]
+    assert fix.verified and fix.rescan_passed and fix.tests_passed
+    assert "tracker_before_consent" not in checks
+    assert "consent_bundled" in checks  # the patched page still rendered its form, so the browser scan really ran
+    assert "--- a/frontend/index.html" in fix.diff and "--- a/frontend/src/App.jsx" in fix.diff
+    assert "-    <script async src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>" in fix.diff
+    assert "+function loadTrackingPixel() {" in fix.diff
+    assert load_golden("V5", golden)["verified"] is True
+    assert tree_hash(TARGET_APP) == tree_before and temp_dirs() == dirs_before and node_procs() == procs_before
+
+
+@needs_node
+def test_a_frontend_patch_that_does_not_build_is_a_patch_error(tmp_path, fresh_db):
+    broken = Template(check=V5.check, golden_id="V5", scanner="browser_scan", edits=(
+        ("frontend", "src/App.jsx", "export default function App() {\n", "export default function App() {\n  const = ;\n"),))
+    dirs_before, procs_before = temp_dirs(), node_procs()
+    with pytest.raises(PatchError, match="does not build"):
+        verify_fix(V5_FINDING, BACKEND, fresh_db, template=broken, golden_dir=tmp_path / "golden")
+    assert load_golden("V5", tmp_path / "golden") is None and temp_dirs() == dirs_before and node_procs() == procs_before
+
+
+@needs_node
+def test_a_browser_scan_that_could_not_run_is_never_a_pass(tmp_path, fresh_db, monkeypatch):
+    """If the patched page cannot be scanned, 'the tracker is gone' proves nothing, so verification must raise."""
+    monkeypatch.setattr(Sandbox, "start_frontend", lambda self: "http://127.0.0.1:9")
+    with pytest.raises(RuntimeError, match="could not run browser_scan"):
+        verify_fix(V5_FINDING, BACKEND, fresh_db, golden_dir=tmp_path / "golden")
+    assert load_golden("V5", tmp_path / "golden") is None
+
+
+def test_frontend_patch_without_node_modules_raises_a_setup_error(tmp_path, fresh_db):
+    import shutil
+    bare = tmp_path / "frontend"
+    shutil.copytree(FRONTEND, bare, ignore=shutil.ignore_patterns("node_modules", "dist"))
+    with pytest.raises(RuntimeError, match="npm install"):
+        verify_fix(V5_FINDING, BACKEND, fresh_db, frontend_dir=bare, golden_dir=tmp_path / "golden")
