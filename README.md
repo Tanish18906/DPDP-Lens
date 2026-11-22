@@ -6,6 +6,25 @@ It is a readiness report, never a compliance certificate. The main DPDP duties a
 
 Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Protection (DPDP) Compliance Auditor). Everything runs on localhost against our own synthetic demo app. All demo data is fake.
 
+## Quick start (localhost only)
+
+    python3 -m venv .venv && source .venv/bin/activate
+    pip install fastapi "uvicorn[standard]" httpx python-stdnum pydantic pyjwt pytest playwright
+
+    # 1. Target app (deliberately vulnerable, synthetic data). demo.db is generated, not committed.
+    cd target-app/backend
+    python seed.py                                    # creates demo.db, run it before starting the backend
+    uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+    # 2. Scan it (new terminal, repo root)
+    cd engine && python -m dpdp_lens scan --target http://localhost:8000 \
+      --repo ../target-app/backend --db ../target-app/backend/demo.db --out scan.json
+
+    # 3. Engine API for the dashboard (port 8100)
+    cd engine && python -m uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100
+
+The erasure check signs up and deletes a synthetic user, so a live scan writes to `demo.db`. Run `python seed.py` again to reset it.
+
 ## AI tools used
 
 Claude Code and Antigravity. Both team members can explain every file.
