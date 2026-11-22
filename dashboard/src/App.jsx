@@ -139,7 +139,7 @@ export default function App() {
   const [fixingFindingId, setFixingFindingId] = useState(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(-1)
   const [animatedScore, setAnimatedScore] = useState(sampleScan.score ?? 45)
-  const [scoreHistory, setScoreHistory] = useState(null) // { before: 45, after: 65 }
+  const [scoreHistory, setScoreHistory] = useState(null)
 
   // Sort findings: critical first, then high, medium, low
   const sortedFindings = [...(scanData.findings || [])].sort(
@@ -180,7 +180,6 @@ export default function App() {
     setFixingFindingId(finding.id)
     setCurrentStepIndex(0)
 
-    // 5-step progress (about 800ms per step)
     let step = 0
     const interval = setInterval(() => {
       step += 1
@@ -198,7 +197,6 @@ export default function App() {
     const weightGain = SEVERITY_WEIGHTS[finding.severity] || 10
     const scoreAfter = Math.min(100, scoreBefore + weightGain)
 
-    // Animate score from scoreBefore to scoreAfter over 400ms
     const startScore = scoreBefore
     const endScore = scoreAfter
     const duration = 400
@@ -216,7 +214,6 @@ export default function App() {
     }
     requestAnimationFrame(animate)
 
-    // Update scanData state in place
     setScanData((prev) => {
       const updatedFindings = prev.findings.map((f) => {
         if (f.id === finding.id) {
@@ -265,6 +262,18 @@ export default function App() {
 
   const score = animatedScore
   const scoreColor = score < 50 ? '#FF5C5C' : score < 80 ? '#FF9F43' : '#3DDC97'
+
+  // Notice drift computed properties
+  const drift = scanData.notice_drift || { declared: [], observed: [], undeclared: [] }
+  const declaredList = drift.declared || []
+  const observedList = drift.observed || []
+  const undeclaredList = drift.undeclared || []
+
+  // All unique fields across declared and observed
+  const observedFieldNames = observedList.map((o) => o.field)
+  const allUniqueFieldsSet = new Set([...declaredList, ...observedFieldNames])
+  const totalUniqueFields = allUniqueFieldsSet.size
+  const undeclaredCount = undeclaredList.length
 
   return (
     <div className="min-h-screen bg-[#0B0F14] text-[#E6EDF3] flex flex-col font-sans">
@@ -437,6 +446,11 @@ export default function App() {
             }`}
           >
             Notice vs Runtime
+            {undeclaredCount > 0 && (
+              <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#FF5C5C]/20 border border-[#FF5C5C]/40 text-[#FF5C5C] font-semibold">
+                {undeclaredCount} drift
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -675,7 +689,6 @@ export default function App() {
 
                   {/* 5. Fix & Verify Interactive Block (Phase A3) */}
                   <div className="pt-4 border-t border-[#263140] flex flex-col gap-4">
-                    {/* Stepper active execution state */}
                     {fixingFindingId === selectedFinding.id && (
                       <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-4 flex flex-col gap-2.5">
                         <div className="flex items-center justify-between">
@@ -713,10 +726,8 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Fixed Result State */}
                     {selectedFinding.status === 'verified_fixed' ? (
                       <div className="flex flex-col gap-4">
-                        {/* Three Badges + Cached Mode Indicator */}
                         <div className="flex flex-wrap items-center justify-between gap-3 bg-[#19212C] border border-[#263140] rounded-[8px] p-3.5">
                           <div className="flex flex-wrap items-center gap-2">
                             <StatusBadge label="Re-scan passed" passed={selectedFinding.fix?.rescan_passed} />
@@ -731,7 +742,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Verified Banner */}
                         <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3.5 py-2.5 rounded-[6px] border border-[#3DDC97]/30">
                           <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -739,7 +749,6 @@ export default function App() {
                           <span>Verified. Re-scan passed and the app's tests still pass.</span>
                         </div>
 
-                        {/* Unified Diff View */}
                         {selectedFinding.fix?.diff && (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
@@ -786,9 +795,220 @@ export default function App() {
             </section>
           </div>
         )}
+
+        {/* 5. Tab 2: Notice vs Runtime (Phase A8 Headline Feature) */}
+        {activeTab === 'notice_drift' && (
+          <section className="flex flex-col gap-6" aria-label="Notice vs Runtime Truth">
+            {/* Header Summary Banner */}
+            <div className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-3">
+                  <span className="w-3.5 h-3.5 rounded-full bg-[#FF5C5C] animate-pulse shrink-0" />
+                  <h2 className="text-[22px] font-bold text-[#FF5C5C] m-0 leading-tight">
+                    {undeclaredCount} of {totalUniqueFields} data fields are collected but not disclosed
+                  </h2>
+                </div>
+                <p className="text-[14px] text-[#8B98A8] m-0">
+                  Notice duties: Act s5, Rule 3 (standalone plain language notice itemising all personal data and specific purposes).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="mono text-[13px] bg-[#0B0F14] border border-[#263140] px-3 py-1.5 rounded-[6px] text-[#8B98A8]">
+                  Public Notice: /notice
+                </span>
+              </div>
+            </div>
+
+            {/* Two-Column Drift Comparison */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: What the privacy notice says we collect */}
+              <div className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between pb-3 border-b border-[#263140]">
+                  <div className="flex flex-col">
+                    <span className="text-[16px] font-semibold text-[#E6EDF3]">
+                      What the privacy notice says we collect
+                    </span>
+                    <span className="text-[13px] text-[#8B98A8]">
+                      Declared personal data fields in /notice
+                    </span>
+                  </div>
+                  <span className="mono text-[12px] bg-[#3DDC97]/15 text-[#3DDC97] border border-[#3DDC97]/30 px-2 py-0.5 rounded-[4px] font-semibold">
+                    {declaredList.length} declared
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-2.5">
+                  {declaredList.map((field, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3.5 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2 h-2 rounded-full bg-[#3DDC97]" />
+                        <span className="mono text-[15px] font-semibold text-[#E6EDF3]">
+                          {field}
+                        </span>
+                      </div>
+                      <span className="text-[12px] text-[#3DDC97] font-medium bg-[#3DDC97]/10 px-2 py-0.5 rounded-[4px]">
+                        Declared in notice
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Column: What the app really handles (observed) */}
+              <div className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex flex-col gap-4">
+                <div className="flex items-center justify-between pb-3 border-b border-[#263140]">
+                  <div className="flex flex-col">
+                    <span className="text-[16px] font-semibold text-[#E6EDF3]">
+                      What the app really handles
+                    </span>
+                    <span className="text-[13px] text-[#8B98A8]">
+                      Observed in database, API responses, and network requests
+                    </span>
+                  </div>
+                  <span className="mono text-[12px] bg-[#19212C] border border-[#263140] text-[#E6EDF3] px-2 py-0.5 rounded-[4px] font-semibold">
+                    {observedList.length} observed
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  {observedList.map((item, idx) => {
+                    const isUndeclared = undeclaredList.includes(item.field)
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`rounded-[8px] p-4 border flex flex-col gap-2.5 transition ${
+                          isUndeclared
+                            ? 'bg-[#FF5C5C]/10 border-[#FF5C5C]/40'
+                            : 'bg-[#19212C] border-[#263140]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full ${
+                                isUndeclared ? 'bg-[#FF5C5C]' : 'bg-[#3DDC97]'
+                              }`}
+                            />
+                            <span
+                              className={`mono text-[16px] font-bold ${
+                                isUndeclared ? 'text-[#FF5C5C]' : 'text-[#E6EDF3]'
+                              }`}
+                            >
+                              {item.field}
+                            </span>
+                          </div>
+
+                          {isUndeclared ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] font-bold bg-[#FF5C5C] text-[#0B0F14] tracking-wide uppercase shadow">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                              </svg>
+                              Not in the notice
+                            </span>
+                          ) : (
+                            <span className="text-[12px] text-[#3DDC97] font-medium bg-[#3DDC97]/15 px-2 py-0.5 rounded-[4px] border border-[#3DDC97]/30">
+                              Declared
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Observed Where Tags */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <span className="text-[12px] text-[#8B98A8] font-sans">
+                            Observed location:
+                          </span>
+                          {(item.where || []).map((loc, wIdx) => {
+                            let tagStyle = 'bg-[#0B0F14] text-[#8B98A8] border-[#263140]'
+                            if (loc.startsWith('db:')) tagStyle = 'bg-[#6FA8DC]/10 text-[#6FA8DC] border-[#6FA8DC]/30'
+                            else if (loc.startsWith('api:')) tagStyle = 'bg-[#3DDC97]/10 text-[#3DDC97] border-[#3DDC97]/30'
+                            else if (loc.startsWith('request:')) tagStyle = 'bg-[#FF9F43]/10 text-[#FF9F43] border-[#FF9F43]/30'
+
+                            return (
+                              <span
+                                key={wIdx}
+                                className={`mono text-[12px] border px-2.5 py-0.5 rounded-[4px] ${tagStyle}`}
+                              >
+                                {loc}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* 6. Tab 3: Data Flow (Phase A9) */}
+        {activeTab === 'data_flow' && (
+          <section className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col gap-6" aria-label="Data Flow Map">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">
+                Cross-Layer Data Flow Architecture
+              </h2>
+              <p className="text-[13px] text-[#8B98A8] m-0">
+                Flow of personal data across Database, Backend API, Frontend, and Third Parties. Red channels indicate undeclared drift.
+              </p>
+            </div>
+
+            {/* Simple SVG Diagram per doc 09 */}
+            <div className="w-full bg-[#0B0F14] border border-[#263140] rounded-[8px] p-6 overflow-x-auto">
+              <svg className="w-full min-w-[700px] h-[220px]" viewBox="0 0 800 200">
+                <defs>
+                  <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#3DDC97" />
+                  </marker>
+                  <marker id="arrow-red" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#FF5C5C" />
+                  </marker>
+                </defs>
+
+                {/* Node 1: Database */}
+                <rect x="20" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
+                <text x="90" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Database</text>
+                <text x="90" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">SQLite / demo.db</text>
+
+                {/* Arrow 1: DB -> API */}
+                <path d="M 160 100 L 250 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
+                <text x="205" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">aadhaar, pan</text>
+
+                {/* Node 2: Backend API */}
+                <rect x="260" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
+                <text x="330" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Backend API</text>
+                <text x="330" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">:8000 / FastAPI</text>
+
+                {/* Arrow 2: API -> Frontend */}
+                <path d="M 400 100 L 490 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
+                <text x="445" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">dob, aadhaar</text>
+
+                {/* Node 3: Frontend */}
+                <rect x="500" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
+                <text x="570" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Frontend</text>
+                <text x="570" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">:5173 / React</text>
+
+                {/* Arrow 3: Frontend -> Third Parties */}
+                <path d="M 640 100 L 710 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
+                <text x="675" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">tracker (V5)</text>
+
+                {/* Node 4: Third Parties */}
+                <rect x="720" y="60" width="70" height="80" rx="8" fill="#121821" stroke="#FF5C5C" strokeWidth="1.5" />
+                <text x="755" y="95" fill="#FF5C5C" fontSize="13" fontWeight="600" textAnchor="middle">3rd Party</text>
+                <text x="755" y="115" fill="#8B98A8" fontSize="10" fontFamily="monospace" textAnchor="middle">Facebook</text>
+              </svg>
+            </div>
+          </section>
+        )}
       </main>
 
-      {/* 5. Footer */}
+      {/* 7. Footer */}
       <footer className="border-t border-[#263140] py-4 px-6 text-center text-[13px] text-[#8B98A8] bg-[#0B0F14]">
         DPDP Lens is a readiness report, not a compliance certificate. Main duties apply from 13 May 2027.
       </footer>
