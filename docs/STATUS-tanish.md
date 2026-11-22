@@ -7,6 +7,8 @@
 - [x] T5 runner and CLI scan (runner.py, `scan` command in __main__.py, test_runner.py). Live scan of :8000 gave 4 findings, score 40.
 - [x] T6 engine API on :8100 (api.py, test_api.py). POST /scan then GET /scan/{id} equals the CLI output. Fix endpoint returns 501 until T10.
 - [x] T7 erasure_scan and contact_scan (scanners/erasure_scan.py, scanners/contact_scan.py, wired into runner.py, test_erasure_scan.py, test_contact_scan.py). Default scan is now 6 findings, score 28.
+- [ ] T8 browser helper and browser_scan (skipped for now, T9 was done first. A5 is pushed, so it can start.)
+- [x] T9 fix sandbox (fixer/sandbox.py, test_sandbox.py: 3 tests pass). `with Sandbox(repo, db) as sb:` copies the app and DB, patch files under `sb.repo`, then `sb.start()` returns the URL. Exiting kills the process group and deletes the temp dir.
 
 ## Notes for later
 - V3 patch snippet is `logger.info("signup email=%s aadhaar=%s", req.email, req.aadhaar)` in app/main.py. V1 snippet is under `# PLANTED V1` in app/main.py.
@@ -23,4 +25,5 @@
 - contact_scan is strict: only dpo, "data protection officer" or grievance within 100 chars of an email or phone counts (a plain "contact us" does not). It reads visible text only (HTML comments, scripts, styles are ignored). It checks /notice and, when running, the frontend at config.FRONTEND_URL (:5173).
 - For Anmol (A5/A6): notice.html shows a visible line "(Notice Drift Note: Notice does not declare Date of Birth, Aadhaar, Parent PAN ...)". T13 reads the notice text for declared fields, so that line would make dob, aadhaar and parent_pan look declared. It should be an HTML comment. Also keep any footer on the frontend free of DPO or grievance wording, or the missing_contact finding disappears.
 - Test fixtures: `target` and `target_db` share one session target (safe because the probe cleans up). Use `fresh_target` for tests that change data.
+- Sandbox for T10: the copy ignores .git, node_modules, .venv, __pycache__, *.db, *.log, so py_compile, patching and pytest of target-app/tests all work on `sb.repo` and `sb.url`. Sandbox only runs `app.main:app` with uvicorn. For V5 (frontend tag) the frontend folder must be copied separately.
 - Demo logins: aarav.sharma@example.test and diya.patel@example.test (StudentPass123!), admin@tutornest.test (AdminPass123!). Read them from config, not hard-coded in scanners.
