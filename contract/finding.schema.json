@@ -1,0 +1,367 @@
+{
+  "$defs": {
+    "Clause": {
+      "properties": {
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "note"
+      ],
+      "title": "Clause",
+      "type": "object"
+    },
+    "Counts": {
+      "properties": {
+        "critical": {
+          "default": 0,
+          "title": "Critical",
+          "type": "integer"
+        },
+        "high": {
+          "default": 0,
+          "title": "High",
+          "type": "integer"
+        },
+        "medium": {
+          "default": 0,
+          "title": "Medium",
+          "type": "integer"
+        },
+        "low": {
+          "default": 0,
+          "title": "Low",
+          "type": "integer"
+        }
+      },
+      "title": "Counts",
+      "type": "object"
+    },
+    "Evidence": {
+      "properties": {
+        "kind": {
+          "enum": [
+            "http",
+            "db",
+            "code",
+            "network",
+            "dom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "masked_sample": {
+          "default": "",
+          "title": "Masked Sample",
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/Location"
+        }
+      },
+      "required": [
+        "kind",
+        "summary"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "layer": {
+          "enum": [
+            "db",
+            "code",
+            "api",
+            "browser",
+            "notice"
+          ],
+          "title": "Layer",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "clauses": {
+          "items": {
+            "$ref": "#/$defs/Clause"
+          },
+          "title": "Clauses",
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/$defs/Evidence"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "verified_fixed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "fix": {
+          "$ref": "#/$defs/Fix"
+        }
+      },
+      "required": [
+        "id",
+        "check",
+        "layer",
+        "severity",
+        "title",
+        "explanation",
+        "clauses",
+        "evidence"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Fix": {
+      "properties": {
+        "available": {
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "diff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Diff"
+        },
+        "verified": {
+          "default": false,
+          "title": "Verified",
+          "type": "boolean"
+        },
+        "rescan_passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rescan Passed"
+        },
+        "tests_passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tests Passed"
+        },
+        "score_before": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score Before"
+        },
+        "score_after": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score After"
+        }
+      },
+      "title": "Fix",
+      "type": "object"
+    },
+    "Location": {
+      "properties": {
+        "file": {
+          "default": "",
+          "title": "File",
+          "type": "string"
+        },
+        "line": {
+          "default": 0,
+          "title": "Line",
+          "type": "integer"
+        },
+        "url": {
+          "default": "",
+          "title": "Url",
+          "type": "string"
+        },
+        "table": {
+          "default": "",
+          "title": "Table",
+          "type": "string"
+        },
+        "column": {
+          "default": "",
+          "title": "Column",
+          "type": "string"
+        }
+      },
+      "title": "Location",
+      "type": "object"
+    },
+    "NoticeDrift": {
+      "properties": {
+        "declared": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared",
+          "type": "array"
+        },
+        "observed": {
+          "items": {
+            "$ref": "#/$defs/ObservedField"
+          },
+          "title": "Observed",
+          "type": "array"
+        },
+        "undeclared": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Undeclared",
+          "type": "array"
+        }
+      },
+      "required": [
+        "declared",
+        "observed",
+        "undeclared"
+      ],
+      "title": "NoticeDrift",
+      "type": "object"
+    },
+    "ObservedField": {
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "where": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Where",
+          "type": "array"
+        }
+      },
+      "required": [
+        "field",
+        "where"
+      ],
+      "title": "ObservedField",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "scan_id": {
+      "title": "Scan Id",
+      "type": "string"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "scanned_at": {
+      "title": "Scanned At",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Score",
+      "type": "integer"
+    },
+    "counts": {
+      "$ref": "#/$defs/Counts"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "notice_drift": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NoticeDrift"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "scan_id",
+    "target",
+    "scanned_at",
+    "score",
+    "counts",
+    "findings"
+  ],
+  "title": "ScanResult",
+  "type": "object"
+}

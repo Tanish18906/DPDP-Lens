@@ -1,0 +1,9 @@
+[project]
+name = "dpdp-lens"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi", "uvicorn[standard]", "httpx", "python-stdnum", "pydantic", "playwright"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

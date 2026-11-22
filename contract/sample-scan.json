@@ -1,0 +1,143 @@
+{
+  "scan_id": "S-001",
+  "target": "http://localhost:8000",
+  "scanned_at": "2026-11-23T08:00:00+05:30",
+  "score": 45,
+  "counts": {"critical": 1, "high": 3, "medium": 1, "low": 0},
+  "findings": [
+    {
+      "id": "F-001",
+      "check": "api_pii_exposure",
+      "layer": "api",
+      "severity": "critical",
+      "title": "Student list is public and leaks Aadhaar and PAN",
+      "explanation": "GET /api/students answers 200 with no login and returns name, phone, dob, aadhaar and parent_pan for every student. Anyone on the network can read all personal data.",
+      "clauses": [
+        {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+        {"ref": "Rule 6(1)(b)", "note": "access control"}
+      ],
+      "evidence": {
+        "kind": "http",
+        "summary": "Unauthenticated GET /api/students returned 200 with 15 records containing aadhaar and parent_pan.",
+        "masked_sample": "{\"name\": \"A*** S***\", \"phone\": \"98XXXXXX10\", \"aadhaar\": \"XXXX XXXX 1234\", \"parent_pan\": \"XXXXX1234X\"}",
+        "location": {"file": "", "line": 0, "url": "http://localhost:8000/api/students", "table": "", "column": ""}
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": "--- a/target-app/backend/main.py\n+++ b/target-app/backend/main.py\n@@ -41,4 +41,4 @@\n-@app.get(\"/api/students\")\n-def list_students():\n+@app.get(\"/api/students\")\n+def list_students(admin=Depends(require_admin)):\n     return db_all_students()\n",
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null
+      }
+    },
+    {
+      "id": "F-002",
+      "check": "log_pii",
+      "layer": "code",
+      "severity": "high",
+      "title": "Signup logs email and Aadhaar in plaintext",
+      "explanation": "The signup handler passes email and aadhaar into logger.info. Anyone with log access can read them, and logs are rarely access controlled.",
+      "clauses": [
+        {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+        {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+      ],
+      "evidence": {
+        "kind": "code",
+        "summary": "logger.info call includes the variables email and aadhaar.",
+        "masked_sample": "logger.info(f\"signup {email} {aadhaar}\")",
+        "location": {"file": "target-app/backend/main.py", "line": 87, "url": "", "table": "", "column": ""}
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": "--- a/target-app/backend/main.py\n+++ b/target-app/backend/main.py\n@@ -87,1 +87,1 @@\n-    logger.info(f\"signup {email} {aadhaar}\")\n+    logger.info(\"signup received\")\n",
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null
+      }
+    },
+    {
+      "id": "F-003",
+      "check": "db_plaintext_pii",
+      "layer": "db",
+      "severity": "high",
+      "title": "Aadhaar stored in a plaintext column",
+      "explanation": "students.aadhaar holds 12-digit numbers that pass the Verhoeff check, stored as plain text. A copy of the database file exposes every number.",
+      "clauses": [
+        {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+        {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+      ],
+      "evidence": {
+        "kind": "db",
+        "summary": "20 of 20 sampled rows in students.aadhaar are valid Aadhaar numbers in plaintext.",
+        "masked_sample": "XXXX XXXX 1234",
+        "location": {"file": "", "line": 0, "url": "", "table": "students", "column": "aadhaar"}
+      },
+      "status": "open",
+      "fix": {"available": false, "diff": null, "verified": false, "rescan_passed": null, "tests_passed": null, "score_before": null, "score_after": null}
+    },
+    {
+      "id": "F-004",
+      "check": "tracker_before_consent",
+      "layer": "browser",
+      "severity": "high",
+      "title": "Facebook pixel loads before any consent click",
+      "explanation": "The signup page requests connect.facebook.net as soon as it opens, with no click from the user. This is a marketing tracker on a page where children may sign up.",
+      "clauses": [
+        {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},
+        {"ref": "Act s9(3)", "note": "no tracking, behavioural monitoring or targeted ads aimed at children"}
+      ],
+      "evidence": {
+        "kind": "network",
+        "summary": "Page load with zero clicks sent a request to connect.facebook.net, classified as Advertising by the Disconnect list.",
+        "masked_sample": "GET https://connect.facebook.net/en_US/fbevents.js",
+        "location": {"file": "", "line": 0, "url": "http://localhost:5173/signup", "table": "", "column": ""}
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": "--- a/target-app/frontend/index.html\n+++ b/target-app/frontend/index.html\n@@ -9,1 +9,0 @@\n-    <script src=\"https://connect.facebook.net/en_US/fbevents.js\"></script>\n",
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null
+      }
+    },
+    {
+      "id": "F-005",
+      "check": "consent_bundled",
+      "layer": "notice",
+      "severity": "medium",
+      "title": "Consent box is pre-ticked and bundled into T&C",
+      "explanation": "The signup consent checkbox is ticked by default and covers the terms and conditions. The notice does not itemise the personal data collected.",
+      "clauses": [
+        {"ref": "Act s5", "note": "notice"},
+        {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},
+        {"ref": "Rule 3", "note": "notice stands alone, plain language, itemises personal data and specific purposes"}
+      ],
+      "evidence": {
+        "kind": "dom",
+        "summary": "input#consent is checked on page load and its label links to the terms and conditions.",
+        "masked_sample": "<input type=\"checkbox\" id=\"consent\" checked>",
+        "location": {"file": "", "line": 0, "url": "http://localhost:5173/signup", "table": "", "column": ""}
+      },
+      "status": "open",
+      "fix": {"available": false, "diff": null, "verified": false, "rescan_passed": null, "tests_passed": null, "score_before": null, "score_after": null}
+    }
+  ],
+  "notice_drift": {
+    "declared": ["name", "email", "phone"],
+    "observed": [
+      {"field": "aadhaar", "where": ["db:students.aadhaar", "api:/api/students", "request:facebook.com"]},
+      {"field": "dob", "where": ["db:students.dob", "api:/api/students"]},
+      {"field": "parent_pan", "where": ["db:students.parent_pan", "api:/api/students"]}
+    ],
+    "undeclared": ["dob", "aadhaar", "parent_pan"]
+  }
+}

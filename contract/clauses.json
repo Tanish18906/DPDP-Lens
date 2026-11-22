@@ -1,0 +1,45 @@
+{
+  "_source": "AGENTS.md section 6, checked against the DPDP Act 2023 and DPDP Rules 2025 text. Use only these refs.",
+  "api_pii_exposure": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"}
+  ],
+  "api_idor": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"}
+  ],
+  "log_pii": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+  ],
+  "db_plaintext_pii": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+  ],
+  "tracker_before_consent": [
+    {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},
+    {"ref": "Act s9(3)", "note": "no tracking, behavioural monitoring or targeted ads aimed at children"}
+  ],
+  "consent_bundled": [
+    {"ref": "Act s5", "note": "notice"},
+    {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},
+    {"ref": "Rule 3", "note": "notice stands alone, plain language, itemises personal data and specific purposes"}
+  ],
+  "erasure_incomplete": [
+    {"ref": "Act s8(7)", "note": "erase when consent is withdrawn or purpose is served"}
+  ],
+  "children_no_parental_consent": [
+    {"ref": "Act s9(1)", "note": "verifiable parental consent for under 18"},
+    {"ref": "Rule 10", "note": "verify the parent is an identifiable adult"}
+  ],
+  "missing_contact": [
+    {"ref": "Act s8(9)", "note": "publish contact of DPO or other person"},
+    {"ref": "Act s8(10)", "note": "grievance mechanism"},
+    {"ref": "Rule 9", "note": "publish business contact"},
+    {"ref": "Rule 14(3)", "note": "publish grievance process, respond within 90 days at most"}
+  ],
+  "notice_drift": [
+    {"ref": "Act s5", "note": "notice"},
+    {"ref": "Rule 3", "note": "notice itemises the personal data and specific purposes"}
+  ]
+}
