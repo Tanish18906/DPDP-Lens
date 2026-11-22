@@ -1,12 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react'
 import sampleScan from './sample-scan.json'
 
+// API & Environment Constants
+const API_BASE = 'http://localhost:8100'
+const USE_MOCK = true
+
 // Severity rank for sorting: critical first
 const SEVERITY_ORDER = {
   critical: 1,
   high: 2,
   medium: 3,
   low: 4
+}
+
+const SEVERITY_WEIGHTS = {
+  critical: 20,
+  high: 10,
+  medium: 5,
+  low: 2
 }
 
 const SEVERITY_STYLES = {
@@ -40,6 +51,14 @@ const SEVERITY_STYLES = {
   }
 }
 
+const FIX_STEPS = [
+  'Copy app to a sandbox',
+  'Apply patch',
+  'Restart patched app',
+  'Re-run the failed check',
+  "Run the app's tests"
+]
+
 function formatLocation(loc) {
   if (!loc) return null
   if (loc.file) return `${loc.file}${loc.line ? `:${loc.line}` : ''}`
@@ -48,9 +67,79 @@ function formatLocation(loc) {
   return null
 }
 
+function DiffViewer({ diffText }) {
+  if (!diffText) return null
+  const lines = diffText.split('\n')
+
+  return (
+    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] overflow-x-auto text-[13px] font-mono p-3.5 leading-relaxed">
+      {lines.map((line, idx) => {
+        let lineStyle = 'text-[#E6EDF3]'
+        let lineBg = 'transparent'
+
+        if (line.startsWith('---') || line.startsWith('+++')) {
+          lineStyle = 'text-[#8B98A8] font-bold'
+        } else if (line.startsWith('@@')) {
+          lineStyle = 'text-[#7AA2F7]'
+          lineBg = 'bg-[#7AA2F7]/10'
+        } else if (line.startsWith('+')) {
+          lineStyle = 'text-[#3DDC97]'
+          lineBg = 'bg-[#3DDC97]/15'
+        } else if (line.startsWith('-')) {
+          lineStyle = 'text-[#FF5C5C]'
+          lineBg = 'bg-[#FF5C5C]/15'
+        }
+
+        return (
+          <div key={idx} className={`px-2 py-0.5 rounded-[2px] ${lineStyle} ${lineBg}`}>
+            {line || ' '}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function StatusBadge({ label, passed }) {
+  const isPassed = passed === true
+  const isFailed = passed === false
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] font-medium border ${
+        isPassed
+          ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/40'
+          : isFailed
+          ? 'bg-[#FF5C5C]/15 text-[#FF5C5C] border-[#FF5C5C]/40'
+          : 'bg-[#19212C] text-[#8B98A8] border-[#263140]'
+      }`}
+    >
+      {isPassed ? (
+        <svg className="w-3.5 h-3.5 text-[#3DDC97]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+        </svg>
+      ) : isFailed ? (
+        <svg className="w-3.5 h-3.5 text-[#FF5C5C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      ) : (
+        <span className="w-2 h-2 rounded-full bg-[#8B98A8]" />
+      )}
+      {label}
+    </span>
+  )
+}
+
 export default function App() {
-  const [scanData] = useState(sampleScan)
+  const [scanData, setScanData] = useState(sampleScan)
   const [activeTab, setActiveTab] = useState('findings')
+  const [activeTooltipClause, setActiveTooltipClause] = useState(null)
+
+  // Fix workflow states
+  const [fixingFindingId, setFixingFindingId] = useState(null)
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1)
+  const [animatedScore, setAnimatedScore] = useState(sampleScan.score ?? 45)
+  const [scoreHistory, setScoreHistory] = useState(null) // { before: 45, after: 65 }
 
   // Sort findings: critical first, then high, medium, low
   const sortedFindings = [...(scanData.findings || [])].sort(
@@ -61,15 +150,12 @@ export default function App() {
     sortedFindings.length > 0 ? sortedFindings[0].id : null
   )
 
-  const [activeTooltipClause, setActiveTooltipClause] = useState(null)
-  const listRef = useRef(null)
-
   const selectedFinding = sortedFindings.find((f) => f.id === selectedFindingId) || sortedFindings[0]
 
   // Keyboard navigation: ArrowUp and ArrowDown navigate the list
   useEffect(() => {
     function handleKeyDown(e) {
-      if (!sortedFindings.length) return
+      if (!sortedFindings.length || fixingFindingId !== null) return
       const currentIndex = sortedFindings.findIndex((f) => f.id === selectedFindingId)
 
       if (e.key === 'ArrowDown') {
@@ -85,9 +171,99 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedFindingId, sortedFindings])
+  }, [selectedFindingId, sortedFindings, fixingFindingId])
 
-  const score = scanData.score ?? 0
+  // Fix and verify handler (Mock mode implementation per A3 spec)
+  const handleFixAndVerify = (finding) => {
+    if (!finding || fixingFindingId !== null) return
+
+    setFixingFindingId(finding.id)
+    setCurrentStepIndex(0)
+
+    // 5-step progress (about 800ms per step)
+    let step = 0
+    const interval = setInterval(() => {
+      step += 1
+      if (step < FIX_STEPS.length) {
+        setCurrentStepIndex(step)
+      } else {
+        clearInterval(interval)
+        finishFix(finding)
+      }
+    }, 850)
+  }
+
+  const finishFix = (finding) => {
+    const scoreBefore = scanData.score ?? 45
+    const weightGain = SEVERITY_WEIGHTS[finding.severity] || 10
+    const scoreAfter = Math.min(100, scoreBefore + weightGain)
+
+    // Animate score from scoreBefore to scoreAfter over 400ms
+    const startScore = scoreBefore
+    const endScore = scoreAfter
+    const duration = 400
+    const startTime = performance.now()
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime
+      const progress = Math.min(1, elapsed / duration)
+      const current = Math.round(startScore + (endScore - startScore) * progress)
+      setAnimatedScore(current)
+
+      if (progress < 1) {
+        requestAnimationFrame(animate)
+      }
+    }
+    requestAnimationFrame(animate)
+
+    // Update scanData state in place
+    setScanData((prev) => {
+      const updatedFindings = prev.findings.map((f) => {
+        if (f.id === finding.id) {
+          return {
+            ...f,
+            status: 'verified_fixed',
+            fix: {
+              ...f.fix,
+              verified: true,
+              rescan_passed: true,
+              tests_passed: true,
+              score_before: scoreBefore,
+              score_after: scoreAfter,
+              is_cached_patch: true
+            }
+          }
+        }
+        return f
+      })
+
+      const updatedCounts = {
+        ...prev.counts,
+        [finding.severity]: Math.max(0, (prev.counts[finding.severity] || 1) - 1)
+      }
+
+      return {
+        ...prev,
+        score: scoreAfter,
+        counts: updatedCounts,
+        findings: updatedFindings
+      }
+    })
+
+    setScoreHistory({ before: scoreBefore, after: scoreAfter })
+    setFixingFindingId(null)
+    setCurrentStepIndex(-1)
+  }
+
+  const handleResetDemo = () => {
+    setScanData(sampleScan)
+    setAnimatedScore(sampleScan.score ?? 45)
+    setScoreHistory(null)
+    setFixingFindingId(null)
+    setCurrentStepIndex(-1)
+  }
+
+  const score = animatedScore
   const scoreColor = score < 50 ? '#FF5C5C' : score < 80 ? '#FF9F43' : '#3DDC97'
 
   return (
@@ -111,6 +287,16 @@ export default function App() {
             <span className="text-[13px] text-[#8B98A8] border border-[#263140] px-3 py-1 rounded-[6px] hidden md:inline">
               Readiness report, not a compliance certificate
             </span>
+            {scoreHistory && (
+              <button
+                type="button"
+                onClick={handleResetDemo}
+                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#8B98A8] hover:text-[#E6EDF3] text-[13px] transition cursor-pointer"
+                title="Reset demo state"
+              >
+                Reset demo
+              </button>
+            )}
             <button
               type="button"
               className="px-3.5 py-1.5 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[14px] font-medium transition cursor-pointer"
@@ -155,7 +341,7 @@ export default function App() {
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-[34px] font-bold tracking-tight" style={{ color: scoreColor }}>
+                <span className="text-[34px] font-bold tracking-tight transition-colors duration-300" style={{ color: scoreColor }}>
                   {score}
                 </span>
               </div>
@@ -166,11 +352,18 @@ export default function App() {
                 Readiness Score
               </div>
               <div className="text-[20px] font-semibold text-[#E6EDF3] mt-0.5">
-                {score < 50 ? 'Needs Attention' : score < 80 ? 'Moderate' : 'Good Posture'}
+                {score < 50 ? 'Needs Attention' : score < 80 ? 'Moderate Posture' : 'Good Posture'}
               </div>
-              <div className="text-[13px] text-[#8B98A8] mt-1">
-                Readiness score. Higher is better.
-              </div>
+              {scoreHistory ? (
+                <div className="text-[13px] text-[#3DDC97] font-medium mt-1 flex items-center gap-1.5">
+                  <span>Score: {scoreHistory.before} → {scoreHistory.after}</span>
+                  <span className="bg-[#3DDC97]/15 px-1.5 py-0.2 rounded text-[11px]">+{scoreHistory.after - scoreHistory.before}</span>
+                </div>
+              ) : (
+                <div className="text-[13px] text-[#8B98A8] mt-1">
+                  Readiness score. Higher is better.
+                </div>
+              )}
             </div>
           </div>
 
@@ -181,7 +374,7 @@ export default function App() {
                 <span className="w-2.5 h-2.5 rounded-full bg-[#FF5C5C]"></span>
                 <span className="text-[12px] font-semibold uppercase text-[#FF5C5C] tracking-wide">Critical</span>
               </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1">
+              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
                 {scanData.counts?.critical ?? 0}
               </span>
             </div>
@@ -191,7 +384,7 @@ export default function App() {
                 <span className="w-2.5 h-2.5 rounded-full bg-[#FF9F43]"></span>
                 <span className="text-[12px] font-semibold uppercase text-[#FF9F43] tracking-wide">High</span>
               </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1">
+              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
                 {scanData.counts?.high ?? 0}
               </span>
             </div>
@@ -201,7 +394,7 @@ export default function App() {
                 <span className="w-2.5 h-2.5 rounded-full bg-[#F5C451]"></span>
                 <span className="text-[12px] font-semibold uppercase text-[#F5C451] tracking-wide">Medium</span>
               </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1">
+              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
                 {scanData.counts?.medium ?? 0}
               </span>
             </div>
@@ -211,7 +404,7 @@ export default function App() {
                 <span className="w-2.5 h-2.5 rounded-full bg-[#6FA8DC]"></span>
                 <span className="text-[12px] font-semibold uppercase text-[#6FA8DC] tracking-wide">Low</span>
               </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1">
+              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
                 {scanData.counts?.low ?? 0}
               </span>
             </div>
@@ -263,7 +456,6 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Column: Findings List (40% width on desktop) */}
             <section
-              ref={listRef}
               className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] overflow-hidden"
               aria-label="Findings list"
             >
@@ -340,7 +532,7 @@ export default function App() {
                         <span
                           className={`text-[11px] font-medium px-2 py-0.5 rounded-[4px] shrink-0 border ${
                             isFixed
-                              ? 'bg-[#3DDC97]/10 text-[#3DDC97] border-[#3DDC97]/30'
+                              ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/40'
                               : 'bg-[#0B0F14] text-[#8B98A8] border-[#263140]'
                           }`}
                         >
@@ -362,7 +554,7 @@ export default function App() {
                 <>
                   {/* 1. Title and Severity Header */}
                   <div className="flex flex-col gap-2.5 pb-4 border-b border-[#263140]">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
                         <span className="mono text-[13px] bg-[#19212C] border border-[#263140] text-[#E6EDF3] px-2.5 py-1 rounded-[5px] font-semibold">
                           {selectedFinding.id}
@@ -372,22 +564,29 @@ export default function App() {
                         </span>
                       </div>
 
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider border ${
-                          (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).border
-                        } ${
-                          (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).bg
-                        } ${
-                          (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).text
-                        }`}
-                      >
+                      <div className="flex items-center gap-2">
+                        {selectedFinding.status === 'verified_fixed' && (
+                          <span className="text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#3DDC97]/15 text-[#3DDC97] border border-[#3DDC97]/40">
+                            Verified Fixed
+                          </span>
+                        )}
                         <span
-                          className={`w-2 h-2 rounded-full ${
-                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).dot
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider border ${
+                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).border
+                          } ${
+                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).bg
+                          } ${
+                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).text
                           }`}
-                        />
-                        {selectedFinding.severity}
-                      </span>
+                        >
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).dot
+                            }`}
+                          />
+                          {selectedFinding.severity}
+                        </span>
+                      </div>
                     </div>
 
                     <h2 className="text-[20px] font-semibold text-[#E6EDF3] leading-snug m-0">
@@ -474,31 +673,108 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 5. Fix Block */}
-                  <div className="pt-2 border-t border-[#263140] flex items-center justify-between">
+                  {/* 5. Fix & Verify Interactive Block (Phase A3) */}
+                  <div className="pt-4 border-t border-[#263140] flex flex-col gap-4">
+                    {/* Stepper active execution state */}
+                    {fixingFindingId === selectedFinding.id && (
+                      <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-4 flex flex-col gap-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[13px] font-semibold text-[#3DDC97] uppercase tracking-wide">
+                            Fix & Verify Sandbox Execution
+                          </span>
+                          <span className="mono text-[12px] text-[#8B98A8]">
+                            Step {currentStepIndex + 1} of {FIX_STEPS.length}
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col gap-2 mt-1">
+                          {FIX_STEPS.map((stepText, sIdx) => {
+                            const isDone = sIdx < currentStepIndex
+                            const isCurrent = sIdx === currentStepIndex
+
+                            return (
+                              <div key={sIdx} className="flex items-center gap-3 text-[14px]">
+                                {isDone ? (
+                                  <svg className="w-4 h-4 text-[#3DDC97] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : isCurrent ? (
+                                  <span className="w-4 h-4 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin shrink-0" />
+                                ) : (
+                                  <span className="w-4 h-4 rounded-full border border-[#263140] bg-[#19212C] shrink-0" />
+                                )}
+                                <span className={isDone ? 'text-[#3DDC97]' : isCurrent ? 'text-[#E6EDF3] font-medium' : 'text-[#8B98A8]'}>
+                                  {stepText}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fixed Result State */}
                     {selectedFinding.status === 'verified_fixed' ? (
-                      <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3.5 py-2 rounded-[6px] border border-[#3DDC97]/30">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                        </svg>
-                        <span>Verified. Re-scan passed and the app's tests still pass.</span>
+                      <div className="flex flex-col gap-4">
+                        {/* Three Badges + Cached Mode Indicator */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#19212C] border border-[#263140] rounded-[8px] p-3.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge label="Re-scan passed" passed={selectedFinding.fix?.rescan_passed} />
+                            <StatusBadge label="Tests passed" passed={selectedFinding.fix?.tests_passed} />
+                            <StatusBadge label="Verified" passed={selectedFinding.fix?.verified} />
+                          </div>
+
+                          {selectedFinding.fix?.is_cached_patch && (
+                            <span className="text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
+                              Cached golden patch mode
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Verified Banner */}
+                        <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3.5 py-2.5 rounded-[6px] border border-[#3DDC97]/30">
+                          <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span>Verified. Re-scan passed and the app's tests still pass.</span>
+                        </div>
+
+                        {/* Unified Diff View */}
+                        {selectedFinding.fix?.diff && (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
+                              Deterministic Patch Unified Diff
+                            </span>
+                            <DiffViewer diffText={selectedFinding.fix.diff} />
+                          </div>
+                        )}
                       </div>
                     ) : selectedFinding.fix?.available ? (
                       <div className="flex items-center justify-between w-full">
-                        <span className="text-[13px] text-[#8B98A8]">
-                          Automated deterministic patch template ready
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-[14px] text-[#E6EDF3] font-medium">
+                            Automated verified fix available
+                          </span>
+                          <span className="text-[13px] text-[#8B98A8]">
+                            Deterministic patch template ready to test in sandbox
+                          </span>
+                        </div>
                         <button
                           type="button"
-                          className="px-4 py-2 rounded-[6px] bg-[#3DDC97] hover:bg-[#32c283] text-[#0B0F14] font-semibold text-[14px] transition cursor-pointer shadow"
+                          disabled={fixingFindingId !== null}
+                          onClick={() => handleFixAndVerify(selectedFinding)}
+                          className="px-5 py-2.5 rounded-[6px] bg-[#3DDC97] hover:bg-[#32c283] disabled:opacity-50 text-[#0B0F14] font-semibold text-[15px] transition cursor-pointer shadow flex items-center gap-2"
                         >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
                           Fix and verify
                         </button>
                       </div>
                     ) : (
-                      <span className="text-[13px] text-[#8B98A8] italic">
+                      <div className="text-[13px] text-[#8B98A8] italic bg-[#0B0F14] p-3 rounded-[6px] border border-[#263140]">
                         Manual architectural remediation required (no automated patch template available).
-                      </span>
+                      </div>
                     )}
                   </div>
                 </>
