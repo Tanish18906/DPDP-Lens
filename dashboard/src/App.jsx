@@ -208,6 +208,93 @@ function StatusBadge({ label, passed }) {
   )
 }
 
+// Data Flow map. Fields are grouped by where-prefix of notice_drift.observed:
+// db -> DB to API arrow, api -> API to Frontend arrow, request -> Frontend to Third parties arrow.
+const FLOW_BOXES = [
+  { label: 'Database', sub: 'SQLite / demo.db' },
+  { label: 'Backend API', sub: ':8000 / FastAPI' },
+  { label: 'Frontend', sub: ':5173 / React' },
+  { label: 'Third parties', sub: '' },
+]
+const FLOW_HOPS = ['db', 'api', 'request']
+const BOX_W = 130
+const BOX_GAP = 100
+
+function flowFromDrift(drift) {
+  const fields = { db: [], api: [], request: [] }
+  const hosts = new Set()
+  for (const o of drift.observed || []) {
+    const prefixes = new Set((o.where || []).map((w) => w.split(':')[0]))
+    for (const p of FLOW_HOPS) if (prefixes.has(p)) fields[p].push(o.field)
+    for (const w of o.where || []) if (w.startsWith('request:')) hosts.add(w.slice('request:'.length))
+  }
+  return { fields, hosts: [...hosts] }
+}
+
+function FlowMap({ drift }) {
+  const undeclared = new Set(drift.undeclared || [])
+  const { fields, hosts } = flowFromDrift(drift)
+  const noRequests = fields.request.length === 0
+  const boxX = (i) => 10 + i * (BOX_W + BOX_GAP)
+  const hopColor = (list) =>
+    list.length === 0 ? '#8B98A8' : list.some((f) => undeclared.has(f)) ? '#FF5C5C' : '#3DDC97'
+  const summary = FLOW_HOPS.map(
+    (h, i) => `${FLOW_BOXES[i].label} to ${FLOW_BOXES[i + 1].label}: ${fields[h].join(', ') || 'none observed'}`,
+  ).join('. ')
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="w-full bg-[#0B0F14] border border-[#263140] rounded-[8px] p-6 overflow-x-auto">
+        <svg className="w-full min-w-[760px] h-[260px]" viewBox="0 0 860 260" role="img" aria-label={summary}>
+          <defs>
+            {[['green', '#3DDC97'], ['red', '#FF5C5C'], ['grey', '#8B98A8']].map(([n, c]) => (
+              <marker key={n} id={`flow-arrow-${n}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                <path d="M 0 0 L 8 4 L 0 8 z" fill={c} />
+              </marker>
+            ))}
+          </defs>
+
+          {FLOW_BOXES.map((b, i) => {
+            const thirdParty = i === 3
+            const stroke = thirdParty ? hopColor(fields.request) : '#263140'
+            return (
+              <g key={b.label}>
+                <rect x={boxX(i)} y="100" width={BOX_W} height="80" rx="8" fill="#121821" stroke={stroke} strokeWidth="1.5" />
+                <text x={boxX(i) + BOX_W / 2} y="135" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">{b.label}</text>
+                {(thirdParty ? hosts.slice(0, 2) : [b.sub]).map((t, k) => (
+                  <text key={t || k} x={boxX(i) + BOX_W / 2} y={155 + k * 14} fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">{t}</text>
+                ))}
+              </g>
+            )
+          })}
+
+          {FLOW_HOPS.map((h, i) => {
+            const list = fields[h]
+            const color = hopColor(list)
+            const name = color === '#FF5C5C' ? 'red' : color === '#3DDC97' ? 'green' : 'grey'
+            const x1 = boxX(i) + BOX_W
+            const x2 = boxX(i + 1)
+            return (
+              <g key={h}>
+                <path d={`M ${x1} 140 L ${x2 - 2} 140`} stroke={color} strokeWidth="2" strokeDasharray={list.length ? undefined : '4 4'} markerEnd={`url(#flow-arrow-${name})`} />
+                {list.map((f, k) => (
+                  <text key={f} x={(x1 + x2) / 2} y={128 - k * 14} fill={undeclared.has(f) ? '#FF5C5C' : '#3DDC97'} fontSize="11" fontFamily="monospace" textAnchor="middle">
+                    {undeclared.has(f) ? `! ${f}` : f}
+                  </text>
+                ))}
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+      <p className="text-[12px] text-[#8B98A8] m-0">
+        <span className="text-[#FF5C5C]">Red, marked !</span> = field not in the notice. <span className="text-[#3DDC97]">Green</span> = declared. Grey dashed = none observed.
+        {noRequests && ' No third-party request was observed as a drift field. Trackers are reported as findings (see tracker_before_consent).'}
+      </p>
+    </div>
+  )
+}
+
 export default function App() {
   const [scanData, setScanData] = useState(EMPTY_SCAN)
   const [activeTab, setActiveTab] = useState('findings')
@@ -1297,43 +1384,7 @@ export default function App() {
               </p>
             </div>
 
-            <div className="w-full bg-[#0B0F14] border border-[#263140] rounded-[8px] p-6 overflow-x-auto">
-              <svg className="w-full min-w-[700px] h-[220px]" viewBox="0 0 800 200">
-                <defs>
-                  <marker id="arrow-green" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#3DDC97" />
-                  </marker>
-                  <marker id="arrow-red" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-                    <path d="M 0 0 L 8 4 L 0 8 z" fill="#FF5C5C" />
-                  </marker>
-                </defs>
-
-                <rect x="20" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
-                <text x="90" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Database</text>
-                <text x="90" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">SQLite / demo.db</text>
-
-                <path d="M 160 100 L 250 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
-                <text x="205" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">aadhaar, pan</text>
-
-                <rect x="260" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
-                <text x="330" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Backend API</text>
-                <text x="330" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">:8000 / FastAPI</text>
-
-                <path d="M 400 100 L 490 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
-                <text x="445" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">dob, aadhaar</text>
-
-                <rect x="500" y="60" width="140" height="80" rx="8" fill="#121821" stroke="#263140" strokeWidth="1.5" />
-                <text x="570" y="95" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">Frontend</text>
-                <text x="570" y="115" fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">:5173 / React</text>
-
-                <path d="M 640 100 L 710 100" stroke="#FF5C5C" strokeWidth="2" markerEnd="url(#arrow-red)" />
-                <text x="675" y="90" fill="#FF5C5C" fontSize="11" fontFamily="monospace" textAnchor="middle">tracker (V5)</text>
-
-                <rect x="720" y="60" width="70" height="80" rx="8" fill="#121821" stroke="#FF5C5C" strokeWidth="1.5" />
-                <text x="755" y="95" fill="#FF5C5C" fontSize="13" fontWeight="600" textAnchor="middle">3rd Party</text>
-                <text x="755" y="115" fill="#8B98A8" fontSize="10" fontFamily="monospace" textAnchor="middle">Facebook</text>
-              </svg>
-            </div>
+            <FlowMap drift={scanData.notice_drift} />
           </section>
         )}
       </main>

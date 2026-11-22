@@ -53,5 +53,7 @@ echo
 echo "Demo ready. Open the dashboard: http://localhost:5174"
 echo "Target signup page: http://localhost:5173   Engine API: http://localhost:8100/health"
 echo "Ctrl-C to stop."
-wait -n
-echo "A server exited. Check the logs in $LOGS."
+while [ -n "$(jobs -rp)" ]; do
+  wait -n
+  echo "A server exited. The others keep running. Logs: $LOGS"
+done
