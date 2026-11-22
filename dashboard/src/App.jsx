@@ -1131,7 +1131,21 @@ export default function App() {
         )}
 
         {/* 6. Tab 3: Data Flow */}
-        {activeTab === 'data_flow' && (
+        {activeTab === 'data_flow' && !scanData.notice_drift && (
+          <section
+            className="bg-[#121821] border border-[#263140] rounded-[10px] p-8 text-center flex flex-col gap-2"
+            aria-label="Data Flow Map"
+          >
+            <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">No data flow yet</h2>
+            <p className="text-[14px] text-[#8B98A8] m-0">
+              {hasScan
+                ? 'The engine returned no data flow information for this scan.'
+                : 'Run a scan to see how personal data moves between the database, API, frontend and third parties.'}
+            </p>
+          </section>
+        )}
+
+        {activeTab === 'data_flow' && scanData.notice_drift && (
           <section className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col gap-6" aria-label="Data Flow Map">
             <div className="flex flex-col gap-1">
               <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">
