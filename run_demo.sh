@@ -26,7 +26,8 @@ cleanup() {
   for pid in "${PIDS[@]}"; do kill -- "-$pid" 2>/dev/null; done
   wait 2>/dev/null
 }
-trap cleanup INT TERM EXIT
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM  # stop, then leave (otherwise the wait loop below would carry on)
 
 start() { # name port dir command...
   local name=$1 port=$2 dir=$3; shift 3
