@@ -93,4 +93,4 @@ def scan(target_url: str, db_path: str, transport=None) -> list[Finding]:
             summary=f"After DELETE of a synthetic user, its data is still in: {', '.join(tables)}",
             masked_sample=f"email={mask_email(email)}",  # same every run, so scans stay deterministic
             location=Location(table=", ".join(tables))),
-        fix=Fix(available=False))]
+        fix=Fix(available=True))]

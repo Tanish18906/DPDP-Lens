@@ -139,4 +139,4 @@ def _consent_finding(frontend_url: str, boxes: list[dict]) -> list[Finding]:
         clauses=[],
         evidence=Evidence(kind="dom", summary=f"The consent checkbox {' and '.join(problems)}",
                           masked_sample=box["label"], location=Location(url=frontend_url)),
-        fix=Fix(available=False))]
+        fix=Fix(available=True))]

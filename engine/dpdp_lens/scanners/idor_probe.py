@@ -50,5 +50,5 @@ def scan(target_url: str, users: dict | None = None, transport=None) -> list[Fin
                     summary=f"user {a['id']} read the record of user {b['id']} via GET {path}",
                     masked_sample="; ".join(f"{k}={v}" for k, v in fields.items()),
                     location=Location(url=f"{target_url.rstrip('/')}{path}")),
-                fix=Fix(available=False)))
+                fix=Fix(available=True)))
     return findings

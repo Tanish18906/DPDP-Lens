@@ -1,0 +1,10 @@
+{
+  "golden_id": "V6",
+  "check": "consent_bundled",
+  "source": "live",
+  "saved_at": "2026-11-22T21:40:58+00:00",
+  "diff": "--- a/frontend/src/App.jsx\n+++ b/frontend/src/App.jsx\n@@ -14,7 +14,7 @@\n   })\n \n   // PLANTED V6: Pre-ticked bundled consent box\n-  const [agreed, setAgreed] = useState(true)\n+  const [agreed, setAgreed] = useState(false)\n   const [status, setStatus] = useState(null)\n   const [loading, setLoading] = useState(false)\n \n@@ -211,7 +211,7 @@\n                   checked={agreed}\n                   onChange={(e) => setAgreed(e.target.checked)}\n                 />\n-                <span>I agree to the Terms and to marketing messages</span>\n+                <span>I agree to the Terms</span>\n               </label>\n               <div className=\"notice-subtext\">\n                 By registering, you acknowledge our{' '}\n",
+  "verified": true,
+  "rescan_passed": true,
+  "tests_passed": true
+}

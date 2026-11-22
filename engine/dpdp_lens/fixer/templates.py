@@ -79,7 +79,52 @@ V5 = Template(
                   }}
 ''')))
 
-TEMPLATES = {t.check: t for t in (V1, V3, V5)}
+# Same rule as the delete route: the owner or an admin.
+V2 = Template(
+    check="api_idor", golden_id="V2", scanner="idor_probe",
+    edits=(("backend", "app/main.py", '''def get_student(student_id: int, user=Depends(get_current_user)):
+    student = db.get_student(student_id)
+''', '''def get_student(student_id: int, user=Depends(get_current_user)):
+    if user["role"] != "admin" and user["id"] != student_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot read other student")
+    student = db.get_student(student_id)
+'''),))
+
+# Partial on purpose: a parent PAN in the right format is only a stand-in for verifying an identifiable adult (Rule 10).
+V8 = Template(
+    check="children_no_parental_consent", golden_id="V8", scanner="children_scan",
+    edits=(("backend", "app/main.py", "import os\nimport logging\n", "import os\nimport re\nimport logging\n"),
+           ("backend", "app/main.py", '''    # PLANTED V8  (no parental consent check)
+    # The application accepts minor signup without verifying identifiable parental consent
+''', '''    # PLANTED V8 (fixed: under 18 needs a parent PAN. Format check only, the parent is not verified, see Rule 10)
+    if req.age < 18 and not (req.parent_pan and re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", req.parent_pan)):
+        raise HTTPException(status_code=422, detail="Under 18: a valid parent PAN is required")
+''')))
+
+# Hard delete: the row is removed and nothing is copied to students_backup.
+V7 = Template(
+    check="erasure_incomplete", golden_id="V7", scanner="erasure_scan",
+    edits=(("backend", "app/db.py", "    # PLANTED V7\n", "    # PLANTED V7 (fixed: the row is deleted, nothing is copied to students_backup)\n"),
+           ("backend", "app/db.py", '''    row_dict = dict(row)
+    cursor.execute("""
+        INSERT INTO students_backup (name, email, phone, dob, age, aadhaar, parent_pan, password_hash, role, is_deleted, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    """, (
+        row_dict["name"], row_dict["email"], row_dict["phone"], row_dict["dob"],
+        row_dict["age"], row_dict["aadhaar"], row_dict["parent_pan"],
+        row_dict["password_hash"], row_dict["role"], row_dict["created_at"]
+    ))
+    cursor.execute("UPDATE students SET is_deleted=1 WHERE id=?", (student_id,))
+''', '''    cursor.execute("DELETE FROM students WHERE id=?", (student_id,))
+''')))
+
+# Fixes the box only (unticked, terms only). The notice still does not list every field, so notice_drift stays open.
+V6 = Template(
+    check="consent_bundled", golden_id="V6", scanner="browser_scan",
+    edits=(("frontend", "src/App.jsx", "const [agreed, setAgreed] = useState(true)", "const [agreed, setAgreed] = useState(false)"),
+           ("frontend", "src/App.jsx", "<span>I agree to the Terms and to marketing messages</span>", "<span>I agree to the Terms</span>")))
+
+TEMPLATES = {t.check: t for t in (V1, V2, V3, V5, V6, V7, V8)}
 
 
 def apply_template(template: Template, roots) -> list[Change]:

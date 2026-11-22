@@ -30,4 +30,4 @@ def scan(target_url: str, db_path: str, transport=None) -> list[Finding]:
             summary=f"POST /api/signup with age 14 and no parent data returned {r.status_code}",
             masked_sample=f"email={mask_email(email)}",  # same every run, so scans stay deterministic
             location=Location(url=f"{target_url.rstrip('/')}/api/signup")),
-        fix=Fix(available=False))]
+        fix=Fix(available=True))]

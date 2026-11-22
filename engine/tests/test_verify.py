@@ -113,7 +113,7 @@ def test_missing_snippet_is_an_error_and_cleans_up(tmp_path):
 
 
 def test_unknown_check_has_no_template(tmp_path, fresh_db):
-    other = V1_FINDING.model_copy(update={"check": "api_idor"})
+    other = V1_FINDING.model_copy(update={"check": "db_plaintext_pii"})
     with pytest.raises(PatchError, match="no fix template"):
         verify_fix(other, BACKEND, fresh_db)
 
@@ -169,3 +169,36 @@ def test_frontend_patch_without_node_modules_raises_a_setup_error(tmp_path, fres
     shutil.copytree(FRONTEND, bare, ignore=shutil.ignore_patterns("node_modules", "dist"))
     with pytest.raises(RuntimeError, match="npm install"):
         verify_fix(V5_FINDING, BACKEND, fresh_db, frontend_dir=bare, golden_dir=tmp_path / "golden")
+
+
+# --- V2, V7, V8: backend-only fixes, V6: frontend fix
+def finding_for(check, layer, kind):
+    return Finding(id="F-001", check=check, layer=layer, severity="high", title="t", explanation="e", clauses=[],
+                   evidence=Evidence(kind=kind, summary="s", location=Location(url="http://localhost:8000")))
+
+
+@pytest.mark.parametrize("check,gid,layer,kind", [
+    ("api_idor", "V2", "api", "http"),
+    ("erasure_incomplete", "V7", "db", "db"),
+    ("children_no_parental_consent", "V8", "api", "http")])
+def test_backend_fix_is_verified_and_leaves_nothing_behind(tmp_path, fresh_db, check, gid, layer, kind):
+    golden, tree_before, dirs_before, procs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs(), uvicorn_count()
+    result = verify_fix(finding_for(check, layer, kind), BACKEND, fresh_db, golden_dir=golden)
+    fix = result.fix
+    assert fix.verified and fix.rescan_passed and fix.tests_passed and fix.diff
+    assert check not in [f.check for f in result.rescan.findings]
+    assert len(result.rescan.findings) >= 5  # the other findings are still there, only this one went
+    assert load_golden(gid, golden)["verified"] is True
+    assert tree_hash(TARGET_APP) == tree_before and temp_dirs() == dirs_before and uvicorn_count() == procs_before
+
+
+@needs_node
+def test_v6_fix_is_verified_on_a_patched_copy_of_the_frontend(tmp_path, fresh_db):
+    golden, tree_before, dirs_before, procs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs(), node_procs()
+    result = verify_fix(finding_for("consent_bundled", "browser", "dom"), BACKEND, fresh_db, golden_dir=golden)
+    fix, checks = result.fix, [f.check for f in result.rescan.findings]
+    assert fix.verified and fix.rescan_passed and fix.tests_passed
+    assert "consent_bundled" not in checks and "tracker_before_consent" in checks  # browser scan really ran, tracker not fixed here
+    assert "+  const [agreed, setAgreed] = useState(false)" in fix.diff and "+                <span>I agree to the Terms</span>" in fix.diff
+    assert load_golden("V6", golden)["verified"] is True
+    assert tree_hash(TARGET_APP) == tree_before and temp_dirs() == dirs_before and node_procs() == procs_before

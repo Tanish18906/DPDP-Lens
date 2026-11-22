@@ -15,7 +15,7 @@ The main DPDP duties apply from **13 May 2027**. Under the Act's Schedule, faili
 - **Notice vs Runtime Truth.** Compares the personal data fields the public notice lists against the fields found in the DB and in unauthenticated API responses. Fields collected but not declared are flagged.
 - **HTML report.** `GET /report/{scan_id}` gives a self-contained, printable report.
 
-Fixes exist for three findings: `api_pii_exposure` (V1), `log_pii` (V3) and `tracker_before_consent` (V5). Each has a cached golden result for offline demos. The dashboard labels it clearly as "Cached golden patch mode" when it is used.
+Verified fixes exist for seven of the ten checks (everything except plaintext columns and the notice items). Each has a cached golden result for offline demos. Two fixes are partial and say so: the under-18 fix (V8) only requires a well-formed parent PAN, it does not verify the parent (Rule 10), and the consent fix (V6) unticks the box and drops the marketing wording, while the notice still does not list every field, so `notice_drift` stays open. On the demo app, fixing all seven moves the score from 0 to 83. The dashboard labels it clearly as "Cached golden patch mode" when it is used.
 
 ## Architecture
 
@@ -58,14 +58,14 @@ Severity and clauses come from `contract/clauses.json` (checked against the Act 
 
 | Check id | Layer | Severity | Clauses | What it detects | Verified fix |
 |----------|-------|----------|---------|-----------------|--------------|
-| `api_pii_exposure` | api | critical | Act s8(5), Rule 6(1)(b) | Unauthenticated GET returns PII fields | yes |
-| `api_idor` | api | critical | Act s8(5), Rule 6(1)(b) | One logged-in user reads another's record | no |
-| `log_pii` | code | high | Act s8(5), Rule 6(1)(a) | Log call includes a PII variable | yes |
+| `api_pii_exposure` | api | critical | Act s8(5), Rule 6(1)(b) | Unauthenticated GET returns PII fields | yes (V1) |
+| `api_idor` | api | critical | Act s8(5), Rule 6(1)(b) | One logged-in user reads another's record | yes (V2) |
+| `log_pii` | code | high | Act s8(5), Rule 6(1)(a) | Log call includes a PII variable | yes (V3) |
 | `db_plaintext_pii` | db | high | Act s8(5), Rule 6(1)(a) | Aadhaar or PAN stored in plaintext columns | no |
-| `tracker_before_consent` | browser | high | Act s6(1), s9(3) | Third-party tracker request before any consent click | yes |
-| `consent_bundled` | browser | medium | Act s5, s6(1), Rule 3 | Pre-ticked or bundled consent, notice does not itemise data | no |
-| `erasure_incomplete` | db | high | Act s8(7) | PII remains after a delete | no |
-| `children_no_parental_consent` | api | high | Act s9(1), Rule 10 | Signup of a 14 year old accepted with no parental consent step | no |
+| `tracker_before_consent` | browser | high | Act s6(1), s9(3) | Third-party tracker request before any consent click | yes (V5) |
+| `consent_bundled` | browser | medium | Act s5, s6(1), Rule 3 | Pre-ticked or bundled consent box | yes (V6, partial) |
+| `erasure_incomplete` | db | high | Act s8(7) | PII remains after a delete | yes (V7) |
+| `children_no_parental_consent` | api | high | Act s9(1), Rule 10 | Signup of a 14 year old accepted with no parental consent step | yes (V8, partial) |
 | `missing_contact` | notice | low | Act s8(9), s8(10), Rule 9, Rule 14(3) | No DPO or grievance contact | no |
 | `notice_drift` | notice | medium | Act s5, Rule 3 | Collected fields not declared in the notice | no |
 

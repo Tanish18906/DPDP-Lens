@@ -23,12 +23,12 @@ This replaces the numbers in the script in docs/11. Everything below was run end
 | 1:50 | Click **Data Flow** (optional, 5 seconds) | "Red arrows are the undeclared fields moving from the database through the API." |
 | 1:55 | | "Readiness report, not a certificate. Thank you." |
 
-If there is time, or a judge asks: fix "Personal data written to logs" (score 18 to 28) and "Tracking script loads before any consent" (28 to 38). Both are live and verified, about 3 seconds each.
+If there is time, or a judge asks: fix the next ones live, about 3 seconds each. In click order after V1 (0 to 18): V2 IDOR 38, V3 logs 48, V5 tracker 58, V6 consent 63, V7 erasure 73, V8 minors 83. The Findings tab then shows 3 left open (plaintext columns, notice drift, missing contact).
 
 ## Facts to say correctly
 - The tracker is shown as its own finding ("Tracking script loads before any consent"), not as a field in the Notice vs Runtime tab. Do not say the drift tab shows the tracker. In live mode the Data Flow arrow to third parties is grey on purpose.
 - The sample data mode has its own numbers (score 45, a `facebook.com` request in the drift tab) and is labelled "Sample Data Mode". Do not mix them up with live numbers.
-- 3 findings have a verified fix (V1, V3, V5). The others show "No automated fix yet". Say so if asked.
+- 7 findings have a verified fix (V1, V2, V3, V5, V6, V7, V8). Plaintext columns (V4), the notice drift and the missing contact show "No automated fix yet". Fixing all seven moves the score 0 to 83. Two fixes are partial: V8 only requires a well-formed parent PAN (the parent is not verified), V6 fixes the box but not the notice.
 - Under-18 signup without parental consent (V8) is detected (high, Act s9(1), Rule 10) but has no verified fix yet.
 
 ## Fallbacks (all tested)

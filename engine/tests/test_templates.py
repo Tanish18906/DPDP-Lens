@@ -3,7 +3,7 @@ import shutil
 import pytest
 
 from conftest import BACKEND, FRONTEND
-from dpdp_lens.fixer.templates import TEMPLATES, V1, V3, V5, PatchError, apply_template
+from dpdp_lens.fixer.templates import TEMPLATES, V1, V2, V3, V5, V6, V7, V8, PatchError, apply_template
 
 needs_frontend = pytest.mark.skipif(not FRONTEND.is_dir(), reason="no target-app/frontend")
 
@@ -107,3 +107,53 @@ def test_template_registry():
     assert TEMPLATES["log_pii"] is V3 and V3.golden_id == "V3" and V3.scanner == "log_scan"
     assert TEMPLATES["tracker_before_consent"] is V5 and V5.scanner == "browser_scan"
     assert V5.needs_frontend and not V1.needs_frontend and not V3.needs_frontend
+
+
+def test_v2_template_adds_the_owner_or_admin_check_before_the_lookup(tmp_path):
+    repo = copy_backend(tmp_path)
+    (change,) = apply_template(V2, repo)
+    body = change.patched.split("def get_student(student_id: int, user=Depends(get_current_user)):")[1].split("@app.")[0]
+    assert body.index('user["id"] != student_id') < body.index("db.get_student(student_id)") and "HTTP_403_FORBIDDEN" in body
+
+
+def test_v8_template_requires_a_parent_pan_under_18(tmp_path):
+    repo = copy_backend(tmp_path)
+    (change,) = apply_template(V8, repo)
+    assert change.patched.startswith("import os\nimport re\n") and "if req.age < 18 and not (req.parent_pan and re.fullmatch(" in change.patched
+    assert "no parental consent check" not in change.patched and "status_code=422" in change.patched
+
+
+def test_v7_template_hard_deletes_and_stops_copying_to_the_backup_table(tmp_path):
+    repo = copy_backend(tmp_path)
+    (change,) = apply_template(V7, repo)
+    assert change.label == "app/db.py" and "INSERT INTO students_backup" not in change.patched
+    assert 'DELETE FROM students WHERE id=?' in change.patched and "SET is_deleted=1" not in change.patched
+    assert "PLANTED V7 (fixed" in change.patched
+
+
+@needs_frontend
+def test_v6_template_unticks_the_box_and_drops_marketing(tmp_path):
+    fe = copy_frontend(tmp_path)
+    (change,) = apply_template(V6, {"backend": None, "frontend": fe})
+    assert change.label == "frontend/src/App.jsx"
+    assert "useState(false)" in change.patched and "<span>I agree to the Terms</span>" in change.patched
+    assert "marketing messages" not in change.patched
+
+
+@pytest.mark.parametrize("template", [V2, V7, V8])
+def test_new_backend_templates_write_nothing_if_a_snippet_is_missing(tmp_path, template):
+    repo = copy_backend(tmp_path)
+    for _, file, old, _ in template.edits[-1:]:
+        path = repo / file
+        path.write_text(path.read_text().replace(old, "# changed\n"))
+    before = {f: (repo / f).read_text() for f in ("app/main.py", "app/db.py")}
+    with pytest.raises(PatchError, match="found 0"):
+        apply_template(template, repo)
+    assert {f: (repo / f).read_text() for f in before} == before
+
+
+def test_registry_has_all_seven_fixes():
+    assert set(TEMPLATES) == {"api_pii_exposure", "api_idor", "log_pii", "tracker_before_consent", "consent_bundled",
+                              "erasure_incomplete", "children_no_parental_consent"}
+    assert (V2.scanner, V6.scanner, V7.scanner, V8.scanner) == ("idor_probe", "browser_scan", "erasure_scan", "children_scan")
+    assert V6.needs_frontend and not (V2.needs_frontend or V7.needs_frontend or V8.needs_frontend)
