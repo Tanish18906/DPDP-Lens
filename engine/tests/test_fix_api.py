@@ -134,3 +134,16 @@ def test_fix_end_to_end_through_the_api(target, target_db, tmp_path):
     assert (body["score_before"], body["score_after"]) == (28, 48) == (body["finding"]["fix"]["score_before"], body["finding"]["fix"]["score_after"])
     assert c.get("/scan/S-001").json()["score"] == 48
     assert (tmp_path / "golden" / "V1.json").exists()
+
+
+def test_two_fixes_on_one_scan_score_cumulatively(target, target_db, tmp_path):
+    c = TestClient(create_app(repo_root="/", golden_dir=tmp_path / "golden"))
+    c.post("/scan", json={"target_url": target, "repo_path": str(BACKEND), "db_path": str(target_db)})
+    ids = {f["check"]: f["id"] for f in c.get("/scan/S-001").json()["findings"]}
+    first, second = fix(c, ids["api_pii_exposure"]).json(), fix(c, ids["log_pii"]).json()
+    assert (first["score_before"], first["score_after"]) == (28, 48)
+    assert (second["score_before"], second["score_after"]) == (48, 58)
+    assert second["finding"]["fix"]["verified"] and second["finding"]["fix"]["score_after"] == 58  # not the V3-only re-scan (38)
+    stored = c.get("/scan/S-001").json()
+    assert stored["score"] == 58 and stored["counts"] == {"critical": 1, "high": 2, "medium": 0, "low": 1}
+    assert {(tmp_path / "golden" / n).exists() for n in ("V1.json", "V3.json")} == {True}

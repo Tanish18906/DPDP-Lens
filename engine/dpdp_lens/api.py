@@ -147,7 +147,9 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
                     fix, used = _golden_fix(golden, scan.score), "cached_golden"
 
             status = "verified_fixed" if fix.verified else "open"
-            if fix.score_after is None:  # cached replay: score the actual scan, not the saved run
+            if fix.verified or fix.score_after is None:
+                # Score the stored scan (open findings only). Each fix is verified on its own copy of the original app,
+                # so a re-scan alone would not include fixes verified earlier. A cached replay has no score of its own.
                 fix = fix.model_copy(update={"score_after": compute_score(
                     [f.model_copy(update={"status": status}) if f.id == finding_id else f for f in scan.findings])})
             fixed = finding.model_copy(update={"status": status, "fix": fix})
