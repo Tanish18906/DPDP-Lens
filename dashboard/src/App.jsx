@@ -66,6 +66,54 @@ const SCAN_STEPS = [
   'Computing Notice vs Runtime data drift'
 ]
 
+const SEVERITIES = ['critical', 'high', 'medium', 'low']
+
+// What the page shows before any scan. Never sample data.
+const EMPTY_SCAN = { target: '', scanned_at: null, score: null, counts: null, findings: [], notice_drift: null }
+
+// Paths are relative to the repo root: the engine resolves them and rejects anything outside it.
+const SCAN_REQUEST = {
+  target_url: 'http://localhost:8000',
+  repo_path: 'target-app/backend',
+  db_path: 'target-app/backend/demo.db'
+}
+
+async function engineError(res) {
+  let body = null
+  try {
+    body = await res.json()
+  } catch {
+    /* not JSON */
+  }
+  if (body?.detail) return new Error(`${body.error ? `${body.error}: ` : ''}${body.detail}`)
+  return new Error(`Engine returned HTTP ${res.status}`)
+}
+
+// Start a scan on the engine and wait for it. Throws an Error with the engine's own text on any failure.
+async function runEngineScan() {
+  let start
+  try {
+    start = await fetch(`${API_BASE}/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(SCAN_REQUEST)
+    })
+  } catch {
+    throw new Error(`Could not reach the engine at ${API_BASE}`)
+  }
+  if (!start.ok) throw await engineError(start)
+  const { scan_id } = await start.json()
+
+  for (let attempt = 0; attempt < 25; attempt++) {
+    await new Promise((r) => setTimeout(r, 600))
+    const res = await fetch(`${API_BASE}/scan/${scan_id}`)
+    if (!res.ok) throw await engineError(res)
+    const result = await res.json()
+    if (result.status !== 'running') return result
+  }
+  throw new Error('The scan did not finish within 15 seconds')
+}
+
 function formatLocation(loc) {
   if (!loc) return null
   if (loc.file) return `${loc.file}${loc.line ? `:${loc.line}` : ''}`
@@ -138,20 +186,21 @@ function StatusBadge({ label, passed }) {
 }
 
 export default function App() {
-  const [scanData, setScanData] = useState(sampleScan)
+  const [scanData, setScanData] = useState(EMPTY_SCAN)
   const [activeTab, setActiveTab] = useState('findings')
   const [activeTooltipClause, setActiveTooltipClause] = useState(null)
 
   // Real Engine & Mock Mode States
-  const [useMock, setUseMock] = useState(true)
+  const [sampleMode, setSampleMode] = useState(false) // only a click on "Use sample data" turns this on
   const [engineConnected, setEngineConnected] = useState(null) // null = checking, true, false
+  const [scanError, setScanError] = useState(null)
   const [isScanning, setIsScanning] = useState(false)
   const [scanStepIndex, setScanStepIndex] = useState(0)
 
   // Fix workflow states
   const [fixingFindingId, setFixingFindingId] = useState(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(-1)
-  const [animatedScore, setAnimatedScore] = useState(sampleScan.score ?? 45)
+  const [animatedScore, setAnimatedScore] = useState(null)
   const [scoreHistory, setScoreHistory] = useState(null)
 
   // Check Engine health on mount
@@ -162,16 +211,9 @@ export default function App() {
   async function checkEngineHealth() {
     try {
       const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1200) })
-      if (res.ok) {
-        setEngineConnected(true)
-        setUseMock(false)
-      } else {
-        setEngineConnected(false)
-        setUseMock(true)
-      }
+      setEngineConnected(res.ok)
     } catch {
       setEngineConnected(false)
-      setUseMock(true)
     }
   }
 
@@ -183,6 +225,8 @@ export default function App() {
   const [selectedFindingId, setSelectedFindingId] = useState(
     sortedFindings.length > 0 ? sortedFindings[0].id : null
   )
+
+  const hasScan = Boolean(scanData.scan_id)
 
   const selectedFinding = sortedFindings.find((f) => f.id === selectedFindingId) || sortedFindings[0]
 
@@ -207,82 +251,49 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedFindingId, sortedFindings, fixingFindingId, isScanning])
 
-  // Run Scan Handler (Supports both Real Engine API and Mock mode)
+  const handleUseSample = () => {
+    setSampleMode(true)
+    setScanError(null)
+    setScanData(sampleScan)
+    setAnimatedScore(sampleScan.score)
+    setScoreHistory(null)
+    setSelectedFindingId(sampleScan.findings[0]?.id ?? null)
+  }
+
+  // Run scan: real engine by default. Any error is shown in a red banner, never replaced by sample data.
   const handleRunScan = async () => {
     setIsScanning(true)
     setScanStepIndex(0)
+    setScanError(null)
 
     const stepInterval = setInterval(() => {
       setScanStepIndex((prev) => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev))
     }, 600)
 
     try {
-      if (!useMock && engineConnected) {
-        // Real Engine API call: POST /scan
-        const scanReq = await fetch(`${API_BASE}/scan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            target_url: 'http://localhost:8000',
-            repo_path: 'target-app/backend',
-            db_path: 'target-app/backend/demo.db'
-          })
-        })
-
-        if (!scanReq.ok) {
-          throw new Error('Failed to initiate engine scan')
-        }
-
-        const { scan_id } = await scanReq.json()
-
-        // Poll GET /scan/{id}
-        let completedScan = null
-        for (let attempt = 0; attempt < 25; attempt++) {
-          await new Promise((r) => setTimeout(r, 600))
-          const checkRes = await fetch(`${API_BASE}/scan/${scan_id}`)
-          if (checkRes.ok) {
-            const result = await checkRes.json()
-            if (result.status !== 'running') {
-              completedScan = result
-              break
-            }
-          }
-        }
-
-        if (completedScan) {
-          clearInterval(stepInterval)
-          setScanData(completedScan)
-          setAnimatedScore(completedScan.score ?? 40)
-          if (completedScan.findings?.length > 0) {
-            setSelectedFindingId(completedScan.findings[0].id)
-          }
-          setIsScanning(false)
-          setActiveTab('findings')
-          return
-        }
+      if (sampleMode) {
+        await new Promise((r) => setTimeout(r, 1800))
+        handleUseSample()
+      } else {
+        const result = await runEngineScan()
+        setEngineConnected(true)
+        setScanData(result)
+        setAnimatedScore(result.score)
+        setScoreHistory(null)
+        setSelectedFindingId(result.findings?.[0]?.id ?? null)
       }
-
-      // Mock mode fallback or simulated re-scan
-      await new Promise((r) => setTimeout(r, 1800))
-      clearInterval(stepInterval)
-      setScanData(sampleScan)
-      setAnimatedScore(sampleScan.score ?? 45)
-      setScoreHistory(null)
-      setIsScanning(false)
       setActiveTab('findings')
-    } catch {
+    } catch (e) {
+      setScanError(e.message)
+    } finally {
       clearInterval(stepInterval)
-      // Fallback gracefully to sample scan
-      setScanData(sampleScan)
-      setAnimatedScore(sampleScan.score ?? 45)
-      setUseMock(true)
       setIsScanning(false)
     }
   }
 
   // Fix and verify handler
   const handleFixAndVerify = (finding) => {
-    if (!finding || fixingFindingId !== null) return
+    if (!finding || fixingFindingId !== null || !sampleMode) return
 
     setFixingFindingId(finding.id)
     setCurrentStepIndex(0)
@@ -300,7 +311,7 @@ export default function App() {
   }
 
   const finishFix = (finding) => {
-    const scoreBefore = scanData.score ?? 45
+    const scoreBefore = scanData.score
     const weightGain = SEVERITY_WEIGHTS[finding.severity] || 10
     const scoreAfter = Math.min(100, scoreBefore + weightGain)
 
@@ -361,7 +372,7 @@ export default function App() {
 
   const handleResetDemo = () => {
     setScanData(sampleScan)
-    setAnimatedScore(sampleScan.score ?? 45)
+    setAnimatedScore(sampleScan.score)
     setScoreHistory(null)
     setFixingFindingId(null)
     setCurrentStepIndex(-1)
@@ -372,7 +383,7 @@ export default function App() {
   }
 
   const score = animatedScore
-  const scoreColor = score < 50 ? '#FF5C5C' : score < 80 ? '#FF9F43' : '#3DDC97'
+  const scoreColor = score === null ? '#8B98A8' : score < 50 ? '#FF5C5C' : score < 80 ? '#FF9F43' : '#3DDC97'
 
   // Notice drift computed properties
   const drift = scanData.notice_drift || { declared: [], observed: [], undeclared: [] }
@@ -388,33 +399,45 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0B0F14] text-[#E6EDF3] flex flex-col font-sans">
       {/* 1. Sticky Top Bar */}
-      <header className="sticky top-0 z-50 bg-[#121821] border-b border-[#263140] px-6 py-3.5 print:hidden">
-        <div className="max-w-[1280px] mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-[24px] font-semibold tracking-tight text-[#E6EDF3] m-0">
-              DPDP Lens
-            </h1>
-            <span className="mono text-[14px] bg-[#19212C] border border-[#263140] px-2.5 py-1 rounded-[6px] text-[#8B98A8]">
-              target: {scanData.target}
+      <header className="sticky top-0 z-50 bg-[#121821] border-b border-[#263140] px-6 py-2 print:hidden">
+        <div className="max-w-[1280px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-[18px] font-semibold tracking-tight text-[#E6EDF3] m-0">DPDP Lens</h1>
+            <span className="mono text-[12px] bg-[#19212C] border border-[#263140] px-2 py-0.5 rounded-[6px] text-[#8B98A8]">
+              target: {scanData.target || 'no scan yet'}
             </span>
-            <span className="text-[13px] text-[#8B98A8] hidden sm:inline">
-              scanned: {new Date(scanData.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </span>
-            {/* Live Engine connection pill */}
+            {hasScan && (
+              <span className="text-[12px] text-[#8B98A8] hidden sm:inline">
+                scanned: {new Date(scanData.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {/* Mode pill: sample data only after a click on "Use sample data" */}
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                engineConnected
+                sampleMode || engineConnected === false
+                  ? 'bg-[#FF9F43]/15 text-[#FF9F43] border-[#FF9F43]/30'
+                  : engineConnected
                   ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/30'
-                  : 'bg-[#FF9F43]/15 text-[#FF9F43] border-[#FF9F43]/30'
+                  : 'bg-[#19212C] text-[#8B98A8] border-[#263140]'
               }`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${engineConnected ? 'bg-[#3DDC97]' : 'bg-[#FF9F43]'}`} />
-              {engineConnected ? 'Live Engine (:8100)' : 'Sample Data Mode'}
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  sampleMode || engineConnected === false ? 'bg-[#FF9F43]' : engineConnected ? 'bg-[#3DDC97]' : 'bg-[#8B98A8]'
+                }`}
+              />
+              {sampleMode
+                ? 'Sample Data Mode'
+                : engineConnected
+                ? 'Live Engine (:8100)'
+                : engineConnected === false
+                ? 'Engine offline'
+                : 'Checking engine...'}
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-[13px] text-[#8B98A8] border border-[#263140] px-3 py-1 rounded-[6px] hidden lg:inline">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[#8B98A8] border border-[#263140] px-2.5 py-0.5 rounded-[6px] hidden lg:inline">
               Readiness report, not a compliance certificate
             </span>
             {scoreHistory && (
@@ -431,15 +454,15 @@ export default function App() {
               type="button"
               disabled={isScanning}
               onClick={handleRunScan}
-              className="px-3.5 py-1.5 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[14px] font-medium transition cursor-pointer flex items-center gap-2"
+              className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] font-medium transition cursor-pointer flex items-center gap-2"
             >
-              {isScanning && <span className="w-3.5 h-3.5 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin" />}
+              {isScanning && <span className="w-3 h-3 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin" />}
               {isScanning ? 'Scanning...' : 'Run scan'}
             </button>
             <button
               type="button"
               onClick={handleExportReport}
-              className="px-3.5 py-1.5 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[14px] font-medium transition cursor-pointer"
+              className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] font-medium transition cursor-pointer"
             >
               Export report
             </button>
@@ -447,13 +470,23 @@ export default function App() {
         </div>
       </header>
 
-      {/* Banner if Engine is unreachable and user is in real mode */}
-      {!engineConnected && !useMock && (
-        <div className="bg-[#FF9F43]/15 border-b border-[#FF9F43]/30 px-6 py-2.5 text-center text-[14px] text-[#FF9F43] flex items-center justify-center gap-3 print:hidden">
-          <span>Engine not reachable on port 8100. Running in fallback mode.</span>
+      {/* Red banner: the engine's own error text. Never replaced by sample data. */}
+      {scanError && (
+        <div
+          role="alert"
+          className="bg-[#FF5C5C]/15 border-b border-[#FF5C5C]/40 px-6 py-2 text-center text-[14px] text-[#FF5C5C] print:hidden"
+        >
+          <strong>Scan failed:</strong> {scanError}
+        </div>
+      )}
+
+      {/* Amber banner: engine unreachable. Sample data only on a click. */}
+      {engineConnected === false && !sampleMode && (
+        <div className="bg-[#FF9F43]/15 border-b border-[#FF9F43]/30 px-6 py-2 text-center text-[14px] text-[#FF9F43] flex items-center justify-center gap-3 print:hidden">
+          <span>Engine not reachable at {API_BASE}.</span>
           <button
             type="button"
-            onClick={() => setUseMock(true)}
+            onClick={handleUseSample}
             className="underline font-semibold cursor-pointer text-[#E6EDF3] hover:text-white"
           >
             Use sample data
@@ -485,101 +518,61 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="max-w-[1280px] w-full mx-auto px-6 py-6 flex-1 flex flex-col gap-6">
-        {/* 2. Summary Row */}
-        <section className="grid grid-cols-1 md:grid-cols-12 gap-4">
-          {/* Score Gauge Card */}
-          <div className="md:col-span-4 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex items-center gap-6">
-            <div className="relative w-24 h-24 flex items-center justify-center shrink-0">
+      <main className="max-w-[1280px] w-full mx-auto px-6 py-3 flex-1 flex flex-col gap-3">
+        {/* 2. Summary Row: score and the four counts in one slim row */}
+        <section
+          className="bg-[#121821] border border-[#263140] rounded-[10px] px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-2"
+          aria-label="Summary"
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative w-12 h-12 shrink-0">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="14"
-                  fill="none"
-                  stroke="#19212C"
-                  strokeWidth="3.5"
-                />
+                <circle cx="18" cy="18" r="14" fill="none" stroke="#19212C" strokeWidth="4" />
                 <circle
                   cx="18"
                   cy="18"
                   r="14"
                   fill="none"
                   stroke={scoreColor}
-                  strokeWidth="3.5"
-                  strokeDasharray={`${(score / 100) * 88} 88`}
+                  strokeWidth="4"
+                  strokeDasharray={`${((score ?? 0) / 100) * 88} 88`}
                   strokeLinecap="round"
                 />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-[34px] font-bold tracking-tight transition-colors duration-300" style={{ color: scoreColor }}>
-                  {score}
-                </span>
-              </div>
+              <span
+                className="absolute inset-0 flex items-center justify-center text-[18px] font-bold transition-colors duration-300"
+                style={{ color: scoreColor }}
+              >
+                {score ?? '-'}
+              </span>
             </div>
-
-            <div className="flex flex-col">
-              <div className="text-[13px] uppercase tracking-wider text-[#8B98A8] font-semibold">
-                Readiness Score
-              </div>
-              <div className="text-[20px] font-semibold text-[#E6EDF3] mt-0.5">
-                {score < 50 ? 'Needs Attention' : score < 80 ? 'Moderate Posture' : 'Good Posture'}
-              </div>
-              {scoreHistory ? (
-                <div className="text-[13px] text-[#3DDC97] font-medium mt-1 flex items-center gap-1.5">
-                  <span>Score: {scoreHistory.before} → {scoreHistory.after}</span>
-                  <span className="bg-[#3DDC97]/15 px-1.5 py-0.2 rounded text-[11px]">+{scoreHistory.after - scoreHistory.before}</span>
-                </div>
-              ) : (
-                <div className="text-[13px] text-[#8B98A8] mt-1">
-                  Readiness score. Higher is better.
-                </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-[11px] uppercase tracking-wider text-[#8B98A8] font-semibold">Readiness score</span>
+              <span className="text-[15px] font-semibold text-[#E6EDF3]">
+                {score === null ? 'No scan yet' : score < 50 ? 'Needs Attention' : score < 80 ? 'Moderate Posture' : 'Good Posture'}
+              </span>
+              {scoreHistory && (
+                <span className="text-[12px] text-[#3DDC97] font-medium">
+                  Score: {scoreHistory.before} → {scoreHistory.after} (+{scoreHistory.after - scoreHistory.before})
+                </span>
               )}
             </div>
           </div>
 
-          {/* Severity Counts Cards */}
-          <div className="md:col-span-8 bg-[#121821] border border-[#263140] rounded-[10px] p-5 grid grid-cols-2 sm:grid-cols-4 gap-3 items-center">
-            <div className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3 flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#FF5C5C]"></span>
-                <span className="text-[12px] font-semibold uppercase text-[#FF5C5C] tracking-wide">Critical</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {SEVERITIES.map((sev) => (
+              <div
+                key={sev}
+                className="bg-[#19212C] border border-[#263140] rounded-[6px] px-2.5 py-1 flex items-center gap-2"
+              >
+                <span className={`w-2 h-2 rounded-full ${SEVERITY_STYLES[sev].dot}`} />
+                <span className={`text-[12px] font-semibold uppercase tracking-wide ${SEVERITY_STYLES[sev].text}`}>{sev}</span>
+                <span className="text-[18px] font-bold text-[#E6EDF3]">{scanData.counts?.[sev] ?? '-'}</span>
               </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
-                {scanData.counts?.critical ?? 0}
-              </span>
-            </div>
-
-            <div className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3 flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#FF9F43]"></span>
-                <span className="text-[12px] font-semibold uppercase text-[#FF9F43] tracking-wide">High</span>
-              </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
-                {scanData.counts?.high ?? 0}
-              </span>
-            </div>
-
-            <div className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3 flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#F5C451]"></span>
-                <span className="text-[12px] font-semibold uppercase text-[#F5C451] tracking-wide">Medium</span>
-              </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
-                {scanData.counts?.medium ?? 0}
-              </span>
-            </div>
-
-            <div className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3 flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#6FA8DC]"></span>
-                <span className="text-[12px] font-semibold uppercase text-[#6FA8DC] tracking-wide">Low</span>
-              </div>
-              <span className="text-[28px] font-bold text-[#E6EDF3] mt-1 transition-all">
-                {scanData.counts?.low ?? 0}
-              </span>
-            </div>
+            ))}
           </div>
+
+          <span className="text-[12px] text-[#8B98A8] ml-auto hidden md:inline">Readiness score. Higher is better.</span>
         </section>
 
         {/* 3. Navigation Tabs */}
@@ -587,7 +580,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('findings')}
-            className={`pb-3 text-[16px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
+            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
               activeTab === 'findings'
                 ? 'border-[#3DDC97] text-[#3DDC97]'
                 : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
@@ -601,7 +594,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('notice_drift')}
-            className={`pb-3 text-[16px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
+            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
               activeTab === 'notice_drift'
                 ? 'border-[#3DDC97] text-[#3DDC97]'
                 : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
@@ -617,7 +610,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('data_flow')}
-            className={`pb-3 text-[16px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
+            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
               activeTab === 'data_flow'
                 ? 'border-[#3DDC97] text-[#3DDC97]'
                 : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
@@ -629,13 +622,13 @@ export default function App() {
 
         {/* 4. Tab 1: Findings Split View */}
         {activeTab === 'findings' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* Left Column: Findings List (40% width on desktop) */}
             <section
               className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] overflow-hidden"
               aria-label="Findings list"
             >
-              <div className="px-4 py-3 border-b border-[#263140] flex items-center justify-between">
+              <div className="px-4 py-2 border-b border-[#263140] flex items-center justify-between">
                 <span className="text-[14px] font-semibold text-[#E6EDF3]">
                   Findings ({sortedFindings.length})
                 </span>
@@ -645,6 +638,13 @@ export default function App() {
               </div>
 
               <div className="divide-y divide-[#263140]">
+                {sortedFindings.length === 0 && (
+                  <div className="p-6 text-[14px] text-[#8B98A8]">
+                    {hasScan
+                      ? 'No findings from the checks we ran. The checks are limited, so this is not a compliance result.'
+                      : 'No scan yet. Click Run scan.'}
+                  </div>
+                )}
                 {sortedFindings.map((finding) => {
                   const isSelected = selectedFinding?.id === finding.id
                   const severity = finding.severity || 'low'
@@ -665,7 +665,7 @@ export default function App() {
                           setSelectedFindingId(finding.id)
                         }
                       }}
-                      className={`p-3.5 transition cursor-pointer flex flex-col gap-2 border-l-4 ${
+                      className={`px-3 py-2 transition cursor-pointer flex flex-col gap-1 border-l-4 ${
                         isSelected
                           ? 'bg-[#19212C] border-l-[#3DDC97]'
                           : 'border-l-transparent hover:bg-[#19212C]/60'
@@ -684,11 +684,11 @@ export default function App() {
                         </span>
                       </div>
 
-                      <div className="text-[15px] font-medium text-[#E6EDF3] line-clamp-2 leading-snug">
+                      <div className="text-[14px] font-medium text-[#E6EDF3] line-clamp-2 leading-snug">
                         {finding.title}
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 overflow-hidden">
                           {(finding.clauses || []).slice(0, 2).map((clause, idx) => (
                             <span
@@ -723,13 +723,13 @@ export default function App() {
 
             {/* Right Column: Finding Detail Panel */}
             <section
-              className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col gap-5 sticky top-20 shadow-lg"
+              className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-4 flex flex-col gap-3 sticky top-14 shadow-lg"
               aria-label="Finding detail"
             >
               {selectedFinding ? (
                 <>
                   {/* 1. Title and Severity Header */}
-                  <div className="flex flex-col gap-2.5 pb-4 border-b border-[#263140]">
+                  <div className="flex flex-col gap-2 pb-2.5 border-b border-[#263140]">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div className="flex items-center gap-2">
                         <span className="mono text-[13px] bg-[#19212C] border border-[#263140] text-[#E6EDF3] px-2.5 py-1 rounded-[5px] font-semibold">
@@ -765,7 +765,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <h2 className="text-[20px] font-semibold text-[#E6EDF3] leading-snug m-0">
+                    <h2 className="text-[18px] font-semibold text-[#E6EDF3] leading-snug m-0">
                       {selectedFinding.title}
                     </h2>
                   </div>
@@ -775,7 +775,7 @@ export default function App() {
                     <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
                       Explanation
                     </span>
-                    <p className="text-[16px] leading-relaxed text-[#E6EDF3] m-0">
+                    <p className="text-[15px] leading-snug text-[#E6EDF3] m-0">
                       {selectedFinding.explanation}
                     </p>
                   </div>
@@ -797,11 +797,11 @@ export default function App() {
                               }
                               onMouseEnter={() => setActiveTooltipClause(`${selectedFinding.id}-${idx}`)}
                               onMouseLeave={() => setActiveTooltipClause(null)}
-                              className="mono text-[13px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] hover:border-[#8B98A8] text-[#E6EDF3] px-3 py-1.5 rounded-[6px] transition cursor-pointer flex items-center gap-2"
+                              className="mono text-[13px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] hover:border-[#8B98A8] text-[#E6EDF3] px-3 py-1 rounded-[6px] transition cursor-pointer flex flex-col items-start gap-0.5 text-left max-w-full"
                             >
                               <span>{clause.ref}</span>
-                              <span className="text-[#8B98A8] text-[11px] font-sans">
-                                ({clause.note})
+                              <span className="text-[#8B98A8] text-[11px] font-sans leading-tight whitespace-normal">
+                                {clause.note}
                               </span>
                             </button>
 
@@ -830,7 +830,7 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-4 flex flex-col gap-3 font-mono text-[14px]">
+                    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-3 flex flex-col gap-2 font-mono text-[14px]">
                       <div className="text-[#8B98A8] text-[13px] font-sans">
                         {selectedFinding.evidence?.summary}
                       </div>
@@ -849,7 +849,7 @@ export default function App() {
                   </div>
 
                   {/* 5. Fix & Verify Interactive Block */}
-                  <div className="pt-4 border-t border-[#263140] flex flex-col gap-4">
+                  <div className="pt-3 border-t border-[#263140] flex flex-col gap-3">
                     {fixingFindingId === selectedFinding.id && (
                       <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-4 flex flex-col gap-2.5">
                         <div className="flex items-center justify-between">
@@ -920,26 +920,39 @@ export default function App() {
                         )}
                       </div>
                     ) : selectedFinding.fix?.available ? (
-                      <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center justify-between w-full gap-4">
                         <div className="flex flex-col">
                           <span className="text-[14px] text-[#E6EDF3] font-medium">
-                            Automated verified fix available
+                            {sampleMode ? 'Automated verified fix available' : 'Fix and verify is not available yet'}
                           </span>
                           <span className="text-[13px] text-[#8B98A8]">
-                            Deterministic patch template ready to test in sandbox
+                            {sampleMode
+                              ? 'Deterministic patch template ready to test in sandbox'
+                              : 'The engine has not built this step yet, so no fix can be verified.'}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          disabled={fixingFindingId !== null}
-                          onClick={() => handleFixAndVerify(selectedFinding)}
-                          className="px-5 py-2.5 rounded-[6px] bg-[#3DDC97] hover:bg-[#32c283] disabled:opacity-50 text-[#0B0F14] font-semibold text-[15px] transition cursor-pointer shadow flex items-center gap-2"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                          Fix and verify
-                        </button>
+                        {sampleMode ? (
+                          <button
+                            type="button"
+                            disabled={fixingFindingId !== null}
+                            onClick={() => handleFixAndVerify(selectedFinding)}
+                            className="px-5 py-2 rounded-[6px] bg-[#3DDC97] hover:bg-[#32c283] disabled:opacity-50 text-[#0B0F14] font-semibold text-[15px] transition cursor-pointer shadow flex items-center gap-2 shrink-0"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            Fix and verify
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            title="Not available yet"
+                            className="px-5 py-2 rounded-[6px] bg-[#19212C] border border-[#263140] text-[#8B98A8] font-semibold text-[15px] cursor-not-allowed shrink-0"
+                          >
+                            Not available yet
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="text-[13px] text-[#8B98A8] italic bg-[#0B0F14] p-3 rounded-[6px] border border-[#263140]">
@@ -958,7 +971,21 @@ export default function App() {
         )}
 
         {/* 5. Tab 2: Notice vs Runtime */}
-        {activeTab === 'notice_drift' && (
+        {activeTab === 'notice_drift' && !scanData.notice_drift && (
+          <section
+            className="bg-[#121821] border border-[#263140] rounded-[10px] p-8 text-center flex flex-col gap-2"
+            aria-label="Notice vs Runtime Truth"
+          >
+            <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">No drift data yet</h2>
+            <p className="text-[14px] text-[#8B98A8] m-0">
+              {hasScan
+                ? 'The engine returned no Notice vs Runtime data for this scan.'
+                : 'Run a scan to compare the privacy notice with what the app handles.'}
+            </p>
+          </section>
+        )}
+
+        {activeTab === 'notice_drift' && scanData.notice_drift && (
           <section className="flex flex-col gap-6" aria-label="Notice vs Runtime Truth">
             <div className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex flex-col gap-1.5">
@@ -980,7 +1007,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
               <div className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex flex-col gap-4">
                 <div className="flex items-center justify-between pb-3 border-b border-[#263140]">
                   <div className="flex flex-col">
