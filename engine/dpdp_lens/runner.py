@@ -31,7 +31,8 @@ def _run(fn, args, timeout):
         pool.shutdown(wait=False)
 
 
-def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeout: float = SCANNER_TIMEOUT) -> ScanResult:
+def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeout: float = SCANNER_TIMEOUT,
+             scan_id: str = "S-001") -> ScanResult:
     clauses = json.loads(CLAUSES.read_text())
     findings = []
     for name, fn in SCANNERS if scanners is None else scanners:
@@ -45,5 +46,5 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
         f.model_copy(update={"id": f"F-{i:03d}", "clauses": [Clause(**c) for c in clauses.get(f.check, [])]})
         for i, f in enumerate(findings, 1)]
     return ScanResult(
-        scan_id="S-001", target=target_url, scanned_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        scan_id=scan_id, target=target_url, scanned_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         score=compute_score(findings), counts=compute_counts(findings), findings=findings)
