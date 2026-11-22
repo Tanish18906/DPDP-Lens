@@ -80,6 +80,16 @@ with sync_playwright() as p:
     c.shot(page, "fix-unverified")
 
     page, errs = session(b)
+    c.row(page, "Public API endpoint").click()
+    page.get_by_role("button", name="Replay saved result").click()
+    page.get_by_text("Cached golden patch mode").wait_for(timeout=10000)
+    page.wait_for_timeout(700)
+    t = c.body(page)
+    g.check("replay button: labelled cached, says it is a replay", "Replayed from a saved verified run, not run just now." in t and c.FIXED not in t)
+    g.check("replay button: finding fixed, score 0 to 18", "Verified fixed" in c.row(page, "Public API endpoint").inner_text() and " 18 " in f" {c.summary(page)} ")
+    c.shot(page, "fix-replay-button")
+
+    page, errs = session(b)
     c.row(page, "Aadhaar or PAN stored in plaintext").click()
     btn = page.get_by_role("button", name="No automated fix yet")
     g.check("plaintext columns (V4): disabled 'No automated fix yet'", btn.is_visible() and btn.is_disabled())

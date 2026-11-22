@@ -34,23 +34,23 @@ If there is time, or a judge asks: fix the next ones live, about 3 seconds each.
 ## Fallbacks (all tested)
 | Problem | What you see | Do |
 |---------|--------------|----|
-| Live fix cannot finish (sandbox error, timeout of 60 s) | Amber "Cached golden patch mode" label with the reason, the diff and badges from a saved verified run | Keep going and say: "This is the saved result of a run that was verified earlier. It is labelled." Never present it as live |
+| Live fix cannot finish (sandbox error, timeout of 60 s) | Amber "Cached golden patch mode" label with the reason, the diff and badges from a saved verified run | Keep going and say: "This is the saved result of a run that was verified earlier. It is labelled." Never present it as live. You can also choose it on purpose: the **Replay saved result** button sits next to Fix and verify (live mode only) |
 | Engine dies | Header pill "Engine offline", amber banner "Engine not reachable at http://localhost:8100" with **Use sample data** | Either restart the engine (below) and reload the page, or click Use sample data. Sample mode is labelled and its fix says "Simulated (sample data)". The other servers keep running |
 | Frontend :5173 is down | A scan has 8 findings and score 13 (no browser findings, so no tracker finding to fix) | Restart it: `cd target-app/frontend && npm run dev` |
 | Patch does not apply | Red "Fix failed" banner with the engine's text, finding stays open | Say so honestly, move on to another finding |
 | Everything is broken | Sample mode, or the screenshots in `docs/fallback-shots/` and the video | Say it is a recording |
 
-Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100`. The dashboard reconnects after a page reload, no other restart needed. Scans and fix results are in engine memory only, so run Run scan again after a restart.
+Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100`. The dashboard reconnects after a page reload, no other restart needed. Finished scans are saved on disk, so after the reload the dashboard still needs a new Run scan to show findings, but the old scan ids and fixes are intact on the engine.
 
 ## Gotchas
 - Do not click Run scan again after a fix. Fixes go to a sandbox copy and the original app is never patched, so a new scan reads 0 again. Say "the patch is a download you apply yourself" if asked.
 - A live scan writes to `demo.db` (the erasure check signs up and deletes a synthetic user). Re-seed with `cd target-app/backend && ../../.venv/bin/python seed.py`, or just restart `./run_demo.sh`.
-- Restarting the engine loses the stored scans. Scan again before fixing.
+- Finished scans survive an engine restart (saved in `.dpdp-state/`, git-ignored). A scan that was still running is lost. `rm -rf .dpdp-state` clears them before a fresh demo.
 - The Export report button opens the engine's HTML report in a new tab (about 4 printed pages). In cached mode the report carries the same "Cached golden patch mode" label.
 - Chrome or Chromium must be installed for the browser findings. Not tested without it; expect the browser findings to be missing, like with the frontend down.
 
 ## How to run the gates
-`scripts/run_gates.sh` runs six Playwright gates (74 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
+`scripts/run_gates.sh` runs six Playwright gates (77 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
 
     scripts/run_gates.sh
 
@@ -58,7 +58,7 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - All 4 already up: it reuses them. A mix of up and down ports: it stops and says so.
 - It re-seeds `demo.db` at the end. A single gate can be run alone, for example `.venv/bin/python scripts/gates/gate_rehearsal.py` (stack must be up).
 - Settings: `DASH_URL` (default http://localhost:5174), `ENGINE_URL` (default http://localhost:8100), `SHOT_DIR` (default `docs/fallback-shots`).
-- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 0 to 83), `children`, `data_flow`, `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified).
+- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 0 to 83), `children`, `data_flow`, `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified, the Replay saved result button).
 - The `offline` and `fix_states` gates block or rewrite requests in the browser. They never stop a server.
 - The numbers in `scripts/gates/common.py` are the demo facts (10 findings, score 0, the fix order). If the checks or scores change, update them there.
 - A run rewrites the screenshots in `docs/fallback-shots/`. `fix-cached-label`, `fix-error-banner` and `fix-unverified` show simulated states (the engine's answer is rewritten in the browser), not a real failure.

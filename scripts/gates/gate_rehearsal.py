@@ -22,7 +22,13 @@ with sync_playwright() as p:
     b, errs = c.launch(p), []
     page = c.new_page(b, errs)
     c.open_live(page); lap("open dashboard")
-    c.run_scan(page); lap("run scan")
+    page.get_by_role("button", name="Run scan").click()
+    page.get_by_text(re.compile(r"Step \d+ of 9")).wait_for(timeout=4000)  # real steps from the engine, not timer text
+    step_text = page.locator("body").inner_text()
+    g.check("scan overlay shows a real engine step", any(label in step_text for label in (
+        "Testing the API", "Testing API access", "Inspecting the database", "Scanning source code", "Checking that deletion",
+        "Testing signup", "Looking for a DPO", "Auditing the signup page", "Comparing the privacy notice")))
+    page.get_by_text(f"Findings ({c.START_FINDINGS})").wait_for(timeout=30000); lap("run scan")
     g.check(f"scan: score {c.START_SCORE}, {c.START_FINDINGS} findings", f" {c.START_SCORE} " in f" {c.summary(page)} ", c.summary(page)[:100])
     c.shot(page, "rehearsal-1-scan")
     c.row(page, "Public API endpoint").click()

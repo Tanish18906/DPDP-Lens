@@ -8,3 +8,4 @@ dist/
 scan.json
 tutornest.log
 target-app/backend/demo.db
+.dpdp-state/

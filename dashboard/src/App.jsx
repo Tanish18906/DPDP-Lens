@@ -58,13 +58,18 @@ const FIX_STEPS = [
   "Run the app's tests"
 ]
 
-const SCAN_STEPS = [
-  'Inspecting SQLite database schema and tables',
-  'Testing API authentication and IDOR boundaries',
-  'Scanning backend source code for plaintext logging',
-  'Auditing browser third-party trackers & pixels',
-  'Computing Notice vs Runtime data drift'
-]
+// What the engine is doing, by scanner name. The engine reports { step, done, total } while a scan runs.
+const SCAN_STEP_LABELS = {
+  api_scan: 'Testing the API for exposed personal data',
+  idor_probe: 'Testing API access control (IDOR)',
+  db_scan: 'Inspecting the database for plaintext personal data',
+  log_scan: 'Scanning source code for personal data in logs',
+  erasure_scan: 'Checking that deletion really erases data',
+  children_scan: 'Testing signup for under-18 users',
+  contact_scan: 'Looking for a DPO or grievance contact',
+  browser_scan: 'Auditing the signup page in a browser',
+  notice_drift: 'Comparing the privacy notice with what runs'
+}
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low']
 
@@ -90,7 +95,7 @@ async function engineError(res) {
 }
 
 // Start a scan on the engine and wait for it. Throws an Error with the engine's own text on any failure.
-async function runEngineScan() {
+async function runEngineScan(onProgress) {
   let start
   try {
     start = await fetch(`${API_BASE}/scan`, {
@@ -104,12 +109,13 @@ async function runEngineScan() {
   if (!start.ok) throw await engineError(start)
   const { scan_id } = await start.json()
 
-  for (let attempt = 0; attempt < 25; attempt++) {
-    await new Promise((r) => setTimeout(r, 600))
+  for (let attempt = 0; attempt < 50; attempt++) {
+    await new Promise((r) => setTimeout(r, 300))
     const res = await fetch(`${API_BASE}/scan/${scan_id}`)
     if (!res.ok) throw await engineError(res)
     const result = await res.json()
     if (result.status !== 'running') return result
+    onProgress(result)
   }
   throw new Error('The scan did not finish within 15 seconds')
 }
@@ -123,11 +129,11 @@ function countOpen(findings) {
 }
 
 // Ask the engine to fix and verify one finding. Throws an Error with the engine's own text on failure.
-async function requestFix(scanId, findingId) {
+async function requestFix(scanId, findingId, mode = 'live') {
   let res
   try {
     res = await fetch(
-      `${API_BASE}/findings/${encodeURIComponent(findingId)}/fix?scan_id=${encodeURIComponent(scanId)}&mode=live`,
+      `${API_BASE}/findings/${encodeURIComponent(findingId)}/fix?scan_id=${encodeURIComponent(scanId)}&mode=${mode}`,
       { method: 'POST' }
     )
   } catch {
@@ -305,7 +311,7 @@ export default function App() {
   const [engineConnected, setEngineConnected] = useState(null) // null = checking, true, false
   const [scanError, setScanError] = useState(null)
   const [isScanning, setIsScanning] = useState(false)
-  const [scanStepIndex, setScanStepIndex] = useState(0)
+  const [scanProgress, setScanProgress] = useState(null) // { step, done, total } from the engine, null before the first answer
 
   // Fix workflow states
   const [fixingFindingId, setFixingFindingId] = useState(null)
@@ -378,21 +384,17 @@ export default function App() {
   // Run scan: real engine by default. Any error is shown in a red banner, never replaced by sample data.
   const handleRunScan = async () => {
     setIsScanning(true)
-    setScanStepIndex(0)
+    setScanProgress(null)
     setScanError(null)
     setFixError(null)
     setFixMeta({})
-
-    const stepInterval = setInterval(() => {
-      setScanStepIndex((prev) => (prev < SCAN_STEPS.length - 1 ? prev + 1 : prev))
-    }, 600)
 
     try {
       if (sampleMode) {
         await new Promise((r) => setTimeout(r, 1800))
         handleUseSample()
       } else {
-        const result = await runEngineScan()
+        const result = await runEngineScan(setScanProgress)
         setEngineConnected(true)
         setScanData(result)
         setAnimatedScore(result.score)
@@ -403,7 +405,6 @@ export default function App() {
     } catch (e) {
       setScanError(e.message)
     } finally {
-      clearInterval(stepInterval)
       setIsScanning(false)
     }
   }
@@ -419,11 +420,12 @@ export default function App() {
   }
 
   // Fix and verify: sample mode simulates it, live mode asks the engine.
-  const handleFixAndVerify = (finding) => {
+  // mode 'cached' replays the saved verified result on purpose (labelled), 'live' runs the real sandbox.
+  const handleFixAndVerify = (finding, mode = 'live') => {
     if (!finding || fixingFindingId !== null) return
     setFixError(null)
     if (sampleMode) runSimulatedFix(finding)
-    else runEngineFix(finding)
+    else runEngineFix(finding, mode)
   }
 
   const runSimulatedFix = (finding) => {
@@ -443,20 +445,21 @@ export default function App() {
   }
 
   // The 5 steps are only a loading display. They wait on the last step until the engine answers.
-  const runEngineFix = async (finding) => {
+  const runEngineFix = async (finding, mode) => {
     setFixingFindingId(finding.id)
     setCurrentStepIndex(0)
     const ticker = setInterval(() => setCurrentStepIndex((i) => Math.min(i + 1, FIX_STEPS.length - 1)), 850)
     try {
-      const { finding: updated, score_before, score_after, mode, fallback_reason } = await requestFix(
+      const { finding: updated, score_before, score_after, mode: usedMode, fallback_reason } = await requestFix(
         scanData.scan_id,
-        finding.id
+        finding.id,
+        mode
       )
       setScanData((prev) => {
         const findings = prev.findings.map((f) => (f.id === updated.id ? updated : f))
         return { ...prev, findings, score: score_after, counts: countOpen(findings) }
       })
-      setFixMeta((prev) => ({ ...prev, [updated.id]: { mode, fallbackReason: fallback_reason } }))
+      setFixMeta((prev) => ({ ...prev, [updated.id]: { mode: usedMode, fallbackReason: fallback_reason } }))
       if (updated.status === 'verified_fixed') {
         animateScore(score_before, score_after)
         setScoreHistory((prev) => ({ before: prev?.before ?? score_before, after: score_after }))
@@ -681,12 +684,16 @@ export default function App() {
                 </span>
               </div>
               <span className="mono text-[12px] text-[#8B98A8]">
-                Step {scanStepIndex + 1} of {SCAN_STEPS.length}
+                {scanProgress ? `Step ${scanProgress.done + 1} of ${scanProgress.total}` : ''}
               </span>
             </div>
 
             <div className="text-[14px] text-[#3DDC97]">
-              {SCAN_STEPS[scanStepIndex]}
+              {scanProgress
+                ? SCAN_STEP_LABELS[scanProgress.step] || scanProgress.step
+                : sampleMode
+                ? 'Loading the sample scan'
+                : 'Starting the scan'}
             </div>
           </div>
         </div>
@@ -1165,6 +1172,7 @@ export default function App() {
                           </span>
                         </div>
                         {fix.available ? (
+                          <div className="flex items-center gap-2 shrink-0">
                           <button
                             type="button"
                             disabled={fixingFindingId !== null}
@@ -1176,6 +1184,18 @@ export default function App() {
                             </svg>
                             Fix and verify
                           </button>
+                          {!sampleMode && (
+                            <button
+                              type="button"
+                              disabled={fixingFindingId !== null}
+                              onClick={() => handleFixAndVerify(selectedFinding, 'cached')}
+                              title="Show the saved result of an earlier verified run. Labelled as cached."
+                              className="px-3 py-2 rounded-[6px] bg-[#19212C] border border-[#263140] hover:border-[#FF9F43]/60 disabled:opacity-50 text-[#E6EDF3] text-[13px] transition cursor-pointer"
+                            >
+                              Replay saved result
+                            </button>
+                          )}
+                          </div>
                         ) : (
                           <button
                             type="button"

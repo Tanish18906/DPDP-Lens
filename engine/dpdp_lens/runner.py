@@ -40,12 +40,16 @@ _CONFIG = object()  # frontend_url default: use config.FRONTEND_URL
 
 
 def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeout: float = SCANNER_TIMEOUT,
-             scan_id: str = "S-001", frontend_url=_CONFIG, errors: list | None = None) -> ScanResult:
-    """errors, if given, collects "scanner: message" for every scanner that failed or timed out."""
+             scan_id: str = "S-001", frontend_url=_CONFIG, errors: list | None = None, progress=None) -> ScanResult:
+    """errors, if given, collects "scanner: message" for every scanner that failed or timed out.
+    progress, if given, is called as progress(step_name, steps_done, steps_total) before each step."""
     frontend = config.FRONTEND_URL if frontend_url is _CONFIG else frontend_url
     clauses = json.loads(CLAUSES.read_text())
     findings = []
-    for name, fn in SCANNERS if scanners is None else scanners:
+    todo = SCANNERS if scanners is None else scanners
+    total = len(todo) + (scanners is None)  # the full scan has one more step: notice_drift
+    for i, (name, fn) in enumerate(todo):
+        progress and progress(name, i, total)
         try:
             findings += _run(fn, (target_url, str(repo_path), str(db_path), frontend), timeout)
         except ScannerTimeout:
@@ -56,6 +60,7 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
             errors is None or errors.append(f"{name}: {type(e).__name__}: {e}")
     drift = None
     if scanners is None:  # the full scan also compares the privacy notice with what the app handles
+        progress and progress("notice_drift", len(todo), total)
         try:
             drift = _run(notice_drift.build, (target_url, str(db_path)), timeout)
             if drift.undeclared:

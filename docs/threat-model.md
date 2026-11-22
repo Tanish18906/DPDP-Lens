@@ -41,7 +41,7 @@ Dashboard (browser, :5174) to Engine API (127.0.0.1:8100) to Target app (:8000, 
 
 ## 5. Out of scope and known limits
 - No authentication on the engine API in this version.
-- Scans and fix results are kept in memory only and lost on restart.
+- Finished scans and fix results are saved as JSON on disk (`.dpdp-state/`, masked evidence only, no raw PII) so an engine restart keeps them. The folder is not encrypted, so treat it as sensitive. A scan still running at restart is lost.
 - Only a FastAPI + SQLite target is tested.
 - Checks are a subset of DPDP duties. A clean scan does not mean compliance.
 - No protection against a hostile target app beyond running on localhost.

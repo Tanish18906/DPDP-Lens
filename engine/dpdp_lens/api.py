@@ -1,4 +1,7 @@
 """Engine API on :8100. Start: uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100 (docs/03)."""
+import inspect
+import json
+import logging
 import os
 import threading
 from http import HTTPStatus
@@ -19,6 +22,7 @@ from .report import render_report
 from .sarif import to_sarif
 from .runner import run_scan
 
+log = logging.getLogger("dpdp_lens")
 LOCAL_ORIGIN = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
 
@@ -33,7 +37,13 @@ class ScanRequest(BaseModel):
     db_path: str
 
 
-def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR) -> FastAPI:
+def default_state_dir() -> Path:
+    """Finished scans are saved here so an engine restart keeps them. DPDP_STATE_DIR overrides it."""
+    return Path(os.environ.get("DPDP_STATE_DIR") or default_repo_root() / ".dpdp-state")
+
+
+def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR, state_dir=None) -> FastAPI:
+    """state_dir=None keeps everything in memory only (the tests). The real app below passes default_state_dir()."""
     root = Path(repo_root).resolve() if repo_root else default_repo_root()
     app = FastAPI(title="DPDP Lens engine")
     app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN, allow_methods=["*"], allow_headers=["*"])
@@ -43,6 +53,30 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
     lock = threading.Lock()
     fix_lock = threading.Lock()
     fix_modes: dict = {}  # scan_id -> {finding_id: {mode, fallback_reason}}, so the report never shows a cached fix as live
+    state = Path(state_dir) if state_dir else None
+    next_n = [1]
+    takes_progress = "progress" in inspect.signature(scan_fn).parameters
+
+    def save(scan_id: str):
+        """Write a finished scan, its inputs and its fix modes to disk. A disk problem must never break a scan."""
+        if state is None or not isinstance(scans.get(scan_id), ScanResult):
+            return
+        try:
+            state.mkdir(parents=True, exist_ok=True)
+            tmp = state / f"{scan_id}.json.tmp"
+            tmp.write_text(json.dumps({"scan": scans[scan_id].model_dump(mode="json"), "inputs": list(inputs[scan_id]),
+                                       "fix_modes": fix_modes.get(scan_id, {})}))
+            tmp.replace(state / f"{scan_id}.json")  # atomic, no half-written file
+        except OSError as e:
+            log.warning("could not save %s: %s", scan_id, e)
+
+    for f in sorted(state.glob("S-*.json")) if state and state.is_dir() else []:
+        try:
+            d = json.loads(f.read_text())
+            scans[f.stem], inputs[f.stem], fix_modes[f.stem] = ScanResult.model_validate(d["scan"]), tuple(d["inputs"]), d["fix_modes"]
+            next_n[0] = max(next_n[0], int(f.stem[2:]) + 1)
+        except (OSError, ValueError, KeyError) as e:
+            log.warning("skipped unreadable state file %s: %s", f.name, e)
 
     def error(status: int, detail: str) -> JSONResponse:
         return JSONResponse(status_code=status, content={"error": HTTPStatus(status).phrase, "detail": detail})
@@ -63,8 +97,10 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         return path
 
     def _run(scan_id: str, target_url: str, repo_path: str, db_path: str):
+        kw = {"progress": lambda step, done, total: scans.update({scan_id: {"status": "running", "step": step, "done": done, "total": total}})} if takes_progress else {}
         try:
-            scans[scan_id] = scan_fn(target_url, repo_path, db_path, scan_id=scan_id)
+            scans[scan_id] = scan_fn(target_url, repo_path, db_path, scan_id=scan_id, **kw)
+            save(scan_id)
         except Exception as e:
             scans[scan_id] = {"status": "error", "detail": f"{type(e).__name__}: {e}"}
 
@@ -83,7 +119,8 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         if not db_path.is_file():
             raise HTTPException(400, f"db_path is not a file: {req.db_path}")
         with lock:
-            scan_id = f"S-{len(scans) + 1:03d}"
+            scan_id = f"S-{next_n[0]:03d}"
+            next_n[0] += 1
             scans[scan_id] = {"status": "running"}
             inputs[scan_id] = (str(repo_path), str(db_path))
         background.add_task(_run, scan_id, req.target_url, str(repo_path), str(db_path))
@@ -165,6 +202,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
                 "findings": findings, "score": compute_score(findings), "counts": compute_counts(findings)})
             scans[scan_id] = updated
             fix_modes.setdefault(scan_id, {})[finding_id] = {"mode": used, "fallback_reason": reason}
+            save(scan_id)
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
                 "mode": used, "fallback_reason": reason}
 
@@ -177,4 +215,4 @@ def _golden_fix(golden: dict, score_before: int) -> Fix:
                tests_passed=golden["tests_passed"], score_before=score_before)
 
 
-app = create_app()
+app = create_app(state_dir=default_state_dir())

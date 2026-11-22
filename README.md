@@ -83,7 +83,7 @@ Score = 100 minus weights (critical 20, high 10, medium 5, low 2), floor 0, open
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
 - Localhost and private-IP targets only. Scan only apps you own.
 - A small subset of DPDP duties is checked. Not detected yet: the `age` field in notice drift.
-- Only a FastAPI + SQLite target is tested. Scans and fix results live in memory and are lost when the engine restarts.
+- Only a FastAPI + SQLite target is tested. Finished scans and fix results are saved as JSON in `.dpdp-state/` (git-ignored, `DPDP_STATE_DIR` overrides) and reloaded when the engine restarts. A scan that is still running when the engine stops is lost.
 - No authentication on the engine API. See [docs/threat-model.md](docs/threat-model.md).
 
 ## Safe use
