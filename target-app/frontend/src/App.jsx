@@ -1,122 +1,241 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import React, { useState } from 'react'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    dob: '',
+    age: '',
+    aadhaar: '',
+    parent_pan: '',
+    password: ''
+  })
+
+  // PLANTED V6: Pre-ticked bundled consent box
+  const [agreed, setAgreed] = useState(true)
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleChange = (e) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({
+      ...prev,
+      [name]: name === 'age' ? (value ? parseInt(value, 10) : '') : value
+    }))
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setStatus(null)
+
+    try {
+      const res = await fetch('http://localhost:8000/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        setStatus({
+          type: 'success',
+          message: `Account created for ${data.name}! Student ID: ${data.id}`
+        })
+      } else {
+        setStatus({
+          type: 'error',
+          message: data.detail || 'Signup failed'
+        })
+      }
+    } catch (err) {
+      setStatus({
+        type: 'error',
+        message: 'Could not connect to TutorNest API at http://localhost:8000'
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="tutornest-page">
+      <header className="tutornest-header">
+        <div className="brand">
+          <span className="brand-logo">📚</span>
+          <h2>TutorNest</h2>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        <nav>
+          <a href="http://localhost:8000/notice" target="_blank" rel="noreferrer">
+            Privacy Notice
+          </a>
+        </nav>
+      </header>
 
-      <div className="ticks"></div>
+      <main className="tutornest-main">
+        <div className="signup-card">
+          <div className="card-header">
+            <h3>Student Registration</h3>
+            <p>Connect with expert tutors for academic excellence</p>
+          </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+          {status && (
+            <div className={`status-banner ${status.type}`}>
+              {status.message}
+            </div>
+          )}
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+          <form onSubmit={handleSubmit} className="signup-form">
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="name">Full Name</label>
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  required
+                  placeholder="e.g. Aarav Sharma"
+                  value={formData.name}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="email">Email Address</label>
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  required
+                  placeholder="student@example.test"
+                  value={formData.email}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="phone">Phone Number</label>
+                <input
+                  type="tel"
+                  id="phone"
+                  name="phone"
+                  required
+                  placeholder="98XXXXXXXX"
+                  value={formData.phone}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="dob">Date of Birth</label>
+                <input
+                  type="date"
+                  id="dob"
+                  name="dob"
+                  required
+                  value={formData.dob}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="age">Age</label>
+                <input
+                  type="number"
+                  id="age"
+                  name="age"
+                  required
+                  min="5"
+                  max="100"
+                  placeholder="e.g. 16"
+                  value={formData.age}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="aadhaar">Aadhaar Number (12 digits)</label>
+                <input
+                  type="text"
+                  id="aadhaar"
+                  name="aadhaar"
+                  required
+                  maxLength={12}
+                  placeholder="12 digit Aadhaar"
+                  value={formData.aadhaar}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="parent_pan">Parent PAN (for minors under 18)</label>
+                <input
+                  type="text"
+                  id="parent_pan"
+                  name="parent_pan"
+                  maxLength={10}
+                  placeholder="ABCDE1234F"
+                  value={formData.parent_pan}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password">Account Password</label>
+                <input
+                  type="password"
+                  id="password"
+                  name="password"
+                  required
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            {/* PLANTED V6 */}
+            <div className="consent-row">
+              <label htmlFor="consent" className="consent-checkbox-label">
+                <input
+                  type="checkbox"
+                  id="consent"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                />
+                <span>I agree to the Terms and to marketing messages</span>
+              </label>
+              <div className="notice-subtext">
+                By registering, you acknowledge our{' '}
+                <a href="http://localhost:8000/notice" target="_blank" rel="noreferrer">
+                  Privacy Notice
+                </a>
+                .
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !agreed}
+              className="submit-btn"
+            >
+              {loading ? 'Creating Account...' : 'Complete Registration'}
+            </button>
+          </form>
+        </div>
+      </main>
+
+      <footer className="tutornest-footer">
+        <p>© 2026 TutorNest Learning Technologies Pvt. Ltd. All rights reserved.</p>
+      </footer>
+    </div>
   )
 }
-
-export default App
