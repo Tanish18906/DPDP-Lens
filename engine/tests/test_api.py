@@ -70,9 +70,9 @@ def test_is_local():
     assert not any(_is_local(u) for u in ("http://example.com", "http://8.8.8.8", "file:///etc/passwd", "localhost"))
 
 
-def test_fix_not_implemented_yet():
+def test_fix_unknown_scan_is_404_json():
     r = TestClient(create_app()).post("/findings/F-001/fix?scan_id=S-001")
-    assert r.status_code == 501 and set(r.json()) == {"error", "detail"}
+    assert r.status_code == 404 and set(r.json()) == {"error", "detail"}
 
 
 def test_cors_allows_localhost_only():

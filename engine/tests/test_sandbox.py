@@ -13,7 +13,8 @@ def tree_hash(root):
     """Hash of source files only (no caches, logs or DBs)."""
     h = hashlib.sha256()
     for p in sorted(root.rglob("*")):
-        if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".log", ".db"):
+        if p.is_file() and not {"__pycache__", "node_modules", ".pytest_cache"} & set(p.parts) \
+                and p.suffix not in (".log", ".db"):
             h.update(str(p.relative_to(root)).encode() + p.read_bytes())
     return h.hexdigest()
 
