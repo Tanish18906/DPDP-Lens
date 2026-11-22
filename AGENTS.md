@@ -1,5 +1,7 @@
 # AGENTS.md  (read this first, every session)
 
+**GIT: read docs/14-git-rules.md (once the first question below is answered). It overrides everything else on git.**
+
 ## 0. FIRST ACTION. DO THIS BEFORE ANYTHING ELSE.
 
 Do not read other files, write files, install anything, download anything or run any command yet.
@@ -57,7 +59,7 @@ Public GitHub repo: dpdp-lens. One repo, separate folders so we never edit the s
     contract/        finding.schema.json, sample-scan.json, clauses.json      OWNER: Tanish
     engine/          Python package dpdp_lens, tests/, pyproject.toml         OWNER: Tanish
     target-app/
-      backend/       FastAPI + SQLite demo app "TutorNest"                    OWNER: Anmol
+      backend/       FastAPI + SQLite demo app "TutorNest"                    OWNER: Tanish for V1 to V4 (phase T1), Anmol edits only V7 and V8 (phase A6)
       frontend/      Vite React signup page                                    OWNER: Anmol
       tests/         pytest tests for the target app                           OWNER: Anmol
     dashboard/       Vite React + Tailwind dashboard                           OWNER: Anmol
@@ -168,49 +170,13 @@ Engine = Python 3.12 package dpdp_lens + FastAPI wrapper + CLI. Machine is Ubunt
 
 Pre-download everything now. Wi-Fi at the venue is shared and slow. Keep a phone hotspot ready for any LLM API calls.
 
-### 8b. Steps (do them in order, STOP after each one and wait)
+### 8b. Steps
 
-1. (First 30 minutes) Contract and skeleton:
-   - create the folders from section 3
-   - contract/finding.schema.json, contract/clauses.json (from section 6), contract/sample-scan.json with 5 realistic findings from section 7 including one notice_drift block
-   - Pydantic models for Finding and ScanResult, the scoring function, and a CLI that prints the sample scan
-   - README.md skeleton: one paragraph pitch (section 1), "AI tools used: Claude Code, Antigravity", credits section
-   - copy this file: cp AGENTS.md CLAUDE.md && cp AGENTS.md GEMINI.md
-   - commit and push to main. STOP. Tell Anmol the contract is pushed.
-2. Recognizers (engine/dpdp_lens/recognizers.py) plus tests:
-   - Aadhaar: regex [2-9]\d{3}[ -]?\d{4}[ -]?\d{4} plus Verhoeff check via stdnum.in_.aadhaar, and ALWAYS require a column name or nearby word such as aadhaar or uid (about 10 percent of random 12 digit numbers pass Verhoeff)
-   - PAN: \b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b
-   - Indian mobile: (?<!\d)(?:\+91[\s-]?|0)?[6-9]\d{9}\b, needs phone or mobile context
-   - email, date of birth
-   - column name context first, value check second
-   - masking helpers for evidence
-3. Scanners, in this order, one commit each, each with a pytest against the target app:
-   a. api_scan: read /openapi.json, unauthenticated GET on every route, look for PII in 200 responses
-   b. idor_probe: log in as two seeded users, user A requests user B's record
-   c. db_scan: read only sqlite3, sample 20 rows per column, report PII in plaintext columns
-   d. log_scan: semgrep rule or Python ast, find logger or print calls that include a PII variable
-   e. erasure_scan: create a synthetic user, call DELETE, query all tables, flag PII left outside log tables (do NOT flag logs retained up to one year, that is Rule 8(3))
-   f. contact_scan: check pages for DPO or grievance contact
-   g. browser_scan: Playwright loads the signup page with no clicks, collect third party requests, classify with services.json, also detect a pre ticked consent checkbox
-   h. notice_drift: extract itemised fields from the notice page, compare with fields seen in DB columns, API responses and third party requests
-4. Fix and verify for V1, V3, V5 ONLY (deterministic patch templates, an LLM may explain, never required):
-   - shutil.copytree to a temp dir ignoring .git, node_modules, .venv, __pycache__
-   - copy the DB, apply the patch, py_compile
-   - start the patched backend on a free port with its own DB path
-   - re-run the failed check, run target-app/tests with pytest, build a difflib unified diff
-   - kill the whole process group in a finally block
-   - set status verified_fixed only if the re-scan passes AND tests pass
-   - keep a clearly labelled "cached golden patch" mode for the live demo in case Wi-Fi or an LLM fails
-5. Engine API (section 5) and the HTML report.
-6. Stretch only if everything above works: SARIF output, children signup check, gitleaks, 72 hour breach report generator.
+Follow the phases in docs/13-work-split.md. That file is the single source of truth for steps.
 
-### 8c. Milestones (IST)
-- Mon 23 Nov 08:00: one command scans the running target and writes valid JSON with at least 4 findings.
-- Mon 23 Nov 10:00: MID EVALUATION. Show target app, a scan, and the dashboard. Fix 1 verified if possible.
-- Mon 23 Nov 22:00 (cut line): anything not working gets cut.
-- Tue 24 Nov 02:00: feature freeze. Only bug fixes and polish after this.
-- Tue 24 Nov 06:30: submit (public repo, README, PDF deck, 2 to 3 minute demo video, threat model).
-- Hacking ends about Tue 24 Nov 08:40. Confirm exact times with the organisers.
+### 8c. Milestones
+
+See docs/10-implementation-plan.md. Freeze Tue 00:30, submit target 04:00, hard limit 06:30.
 
 ### 8d. Cut order if behind
 SARIF, then children signup check, then drift detector, then browser scan. Never cut the fix and verify loop.
@@ -233,20 +199,9 @@ First ask which OS Anmol is on and adapt (Windows users: use PowerShell equivale
 
 Pre-download everything now. Venue Wi-Fi is shared and slow.
 
-### 9b. Steps (in order, STOP after each one and wait)
+### 9b. Steps
 
-1. TutorNest backend first, do NOT wait for the engine contract. Folder target-app/backend. FastAPI + SQLite (use the stdlib sqlite3). Features that really work:
-   - POST /api/signup (name, email, phone, dob, age, aadhaar, parent_pan optional), POST /api/login (JWT), GET /api/me, GET /api/admin/students (needs admin JWT), DELETE /api/students/{id}
-   - seed 15 SYNTHETIC students including 4 under 18. Generate fake Aadhaar numbers that pass Verhoeff using python-stdnum. Fake names, fake PAN, fake phones starting 6 to 9. Seed two normal users with known passwords plus one admin for the engine to log in with.
-   - a script target-app/backend/seed.py that creates demo.db
-   - plant V1, V2, V3, V4 now (see section 7). Keep each one in a small obvious place.
-   - STOP. Show the human it runs on port 8000. Commit and push to main.
-2. target-app/tests (pytest): signup works, login works, own profile works, admin list works with auth, delete works. These MUST still pass after the three fixes the engine applies later. Commit and push.
-3. Remaining violations: V5 (frontend signup page with a Facebook pixel script loading before consent), V6 (pre ticked consent box bundled into T&C, notice page that lists only name, email, phone), V7 (soft delete plus students_backup table), V8 (signup accepts age 14 with no parent check), missing DPO and grievance contact. Frontend on port 5173. Done by about Mon 04:00 IST.
-4. Dashboard (folder dashboard, React + Vite + Tailwind). Load contract/sample-scan.json once Tanish pushes it. Build:
-   - score gauge, severity counts, findings table, finding detail panel (explanation, masked evidence, clause chips, diff view, "Fix and verify" button), before and after score, "Export report" link
-   - one base URL constant for the engine API (port 8100) with a mock mode that reads sample-scan.json, so switching is a one line change
-5. After that, in this order: notice drift panel (declared vs observed, undeclared fields highlighted), data flow map (DB to API to frontend to third parties), clean report page. No animations until the drift panel works.
+Follow the phases in docs/13-work-split.md. That file is the single source of truth for steps.
 
 ### 9c. Rules for Anmol
 - Do not edit engine/ or contract/. If you need a schema change, tell Tanish and wait.
