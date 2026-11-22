@@ -136,7 +136,7 @@ def test_report_after_a_live_fix_shows_verified_fixed(target, target_db, tmp_pat
     assert c.post(f"/findings/{v1['id']}/fix", params={"scan_id": "S-001"}).status_code == 200
     html = c.get("/report/S-001").text
     assert "Status: Verified fixed" in html and "Verified on a sandbox copy. Re-scan passed" in html and "Cached golden" not in html
-    assert "Score 23 to 43" in html and "get_admin_user" in html and "3 of 6 data fields are collected" in html
+    assert "Score 13 to 33" in html and "get_admin_user" in html and "3 of 6 data fields are collected" in html
     assert "<script" not in html
 
 

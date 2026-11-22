@@ -30,7 +30,7 @@ def test_scan_then_get_matches_run_scan(target, target_db):
     for d in (got, expected):
         d.pop("scanned_at")
     assert got == expected
-    assert len(got["findings"]) == 7 and got["score"] == 23
+    assert len(got["findings"]) == 8 and got["score"] == 13
     assert c.post("/scan", json=body(target, target_db)).json() == {"scan_id": "S-002"}
 
 

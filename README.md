@@ -41,7 +41,7 @@ Then start everything:
 
 It re-seeds the synthetic `demo.db`, starts the target backend (:8000), the target frontend (:5173), the engine API (:8100) and the dashboard (:5174), and stops them all on Ctrl-C. Open http://localhost:5174 and click scan. It refuses to start if one of those ports is busy.
 
-The erasure check signs up and deletes a synthetic user, so a live scan writes to `demo.db`. `run_demo.sh` re-seeds it on every start.
+The erasure and children checks sign up synthetic users and remove their own rows, so a live scan still writes to `demo.db` briefly. `run_demo.sh` re-seeds it on every start.
 
 CLI scan (backend must be running):
 
@@ -65,6 +65,7 @@ Severity and clauses come from `contract/clauses.json` (checked against the Act 
 | `tracker_before_consent` | browser | high | Act s6(1), s9(3) | Third-party tracker request before any consent click | yes |
 | `consent_bundled` | browser | medium | Act s5, s6(1), Rule 3 | Pre-ticked or bundled consent, notice does not itemise data | no |
 | `erasure_incomplete` | db | high | Act s8(7) | PII remains after a delete | no |
+| `children_no_parental_consent` | api | high | Act s9(1), Rule 10 | Signup of a 14 year old accepted with no parental consent step | no |
 | `missing_contact` | notice | low | Act s8(9), s8(10), Rule 9, Rule 14(3) | No DPO or grievance contact | no |
 | `notice_drift` | notice | medium | Act s5, Rule 3 | Collected fields not declared in the notice | no |
 
@@ -74,7 +75,7 @@ Score = 100 minus weights (critical 20, high 10, medium 5, low 2), floor 0, open
 
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
 - Localhost and private-IP targets only. Scan only apps you own.
-- A small subset of DPDP duties is checked. Not detected yet: signup of under-18 users without parental consent (planted in the demo app as V8), and the `age` field in notice drift.
+- A small subset of DPDP duties is checked. Not detected yet: the `age` field in notice drift.
 - Only a FastAPI + SQLite target is tested. Scans and fix results live in memory and are lost when the engine restarts.
 - No authentication on the engine API. See [docs/threat-model.md](docs/threat-model.md).
 

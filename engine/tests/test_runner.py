@@ -18,11 +18,12 @@ def scan(target, db, **kw):
 def test_scan_finds_all_current_violations_with_ids_clauses_and_score(target, target_db):
     r = scan(target, target_db)
     assert [f.check for f in r.findings] == [
-        "api_pii_exposure", "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "missing_contact", "notice_drift"]
-    assert [f.id for f in r.findings] == [f"F-00{i}" for i in range(1, 8)]
+        "api_pii_exposure", "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "children_no_parental_consent",
+        "missing_contact", "notice_drift"]
+    assert [f.id for f in r.findings] == [f"F-00{i}" for i in range(1, 9)]
     assert all(f.clauses for f in r.findings)
     assert r.findings[0].clauses[0].ref == "Act s8(5)"
-    assert (r.score, r.counts.critical, r.counts.high, r.counts.medium, r.counts.low) == (23, 2, 3, 1, 1)  # 100 - 2*20 - 3*10 - 5 - 2
+    assert (r.score, r.counts.critical, r.counts.high, r.counts.medium, r.counts.low) == (13, 2, 4, 1, 1)  # 100 - 2*20 - 4*10 - 5 - 2
     assert r.notice_drift.undeclared == ["dob", "aadhaar", "parent_pan"]
 
 
@@ -51,11 +52,11 @@ def test_failing_or_hanging_scanner_does_not_kill_the_scan(target, fresh_db):
 
 def test_default_scanner_order():
     assert [n for n, _ in SCANNERS] == [
-        "api_scan", "idor_probe", "db_scan", "log_scan", "erasure_scan", "contact_scan", "browser_scan"]
+        "api_scan", "idor_probe", "db_scan", "log_scan", "erasure_scan", "children_scan", "contact_scan", "browser_scan"]
 
 
 def test_cli_scan_writes_valid_json(target, target_db, tmp_path, capsys):
     out = tmp_path / "scan.json"
     assert main(["scan", "--target", target, "--repo", str(BACKEND), "--db", str(target_db), "--out", str(out)]) == 0
     jsonschema.validate(json.loads(out.read_text()), SCHEMA)
-    assert "score 23, 7 findings" in capsys.readouterr().out
+    assert "score 13, 8 findings" in capsys.readouterr().out

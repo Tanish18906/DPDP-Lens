@@ -30,7 +30,7 @@ Dashboard (browser, :5174) to Engine API (127.0.0.1:8100) to Target app (:8000, 
 | T4 | A patch breaks the app or damages data | Tampering | Patches go to a temp copy with a copied DB, never the original folder. Each fix is verified alone on a copy of the original app |
 | T5 | Sandbox process left running or port conflict | Denial of service | Free port per run, process-group kill and temp-dir delete on exit, 30 s scanner timeout and 60 s fix limit |
 | T6 | Target code is executed by the fix loop (the sandbox runs the target's backend and `vite build`) | Elevation of privilege | Only the demo target is meant to run. Documented limit: run the auditor only on code you trust, ideally in a container |
-| T7 | Destructive probes | Tampering | Scans are GET only, except the controlled `erasure_scan`. It signs up one synthetic user, deletes it and removes its own marker rows. This WRITES to the target DB, so a live scan changes `demo.db` and `run_demo.sh` re-seeds it. No payload fuzzing |
+| T7 | Destructive probes | Tampering | Scans are GET only, except the controlled `erasure_scan`. It signs up one synthetic user, deletes it and removes its own marker rows. This WRITES to the target DB, so a live scan changes `demo.db` and `run_demo.sh` re-seeds it. The `children_scan` probe signs up one synthetic minor and removes its own rows the same way. No payload fuzzing |
 | T8 | A false "verified" status | Repudiation, integrity | `verified` is computed: the finding must be gone in the re-scan AND the app tests must pass. If the template's scanner failed in the re-scan, `verify_fix` raises instead of reading it as "gone". A patch that does not apply is a 422 with no fallback. A completed but unverified run is shown as unverified |
 | T9 | Cached golden result shown as a live result | Repudiation | Cached results fall back only on infrastructure failure or the time limit, are written only from a verified live run, and the dashboard and report show "Cached golden patch mode" with the reason. Sample mode fixes are labelled "Simulated (sample data)" |
 | T10 | Supply chain: malicious dependency or data file | Tampering | Small dependency set, licences credited in README, `services.json` committed with its source noted, no install scripts run at demo time |
@@ -44,7 +44,6 @@ Dashboard (browser, :5174) to Engine API (127.0.0.1:8100) to Target app (:8000, 
 - Scans and fix results are kept in memory only and lost on restart.
 - Only a FastAPI + SQLite target is tested.
 - Checks are a subset of DPDP duties. A clean scan does not mean compliance.
-- Under-18 signup without parental consent (V8) is planted in the demo app but not detected yet.
 - No protection against a hostile target app beyond running on localhost.
 
 ## 6. What we would do next

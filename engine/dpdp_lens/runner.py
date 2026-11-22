@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import config
 from .models import Clause, ScanResult, compute_counts, compute_score
-from .scanners import api_scan, browser_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
+from .scanners import api_scan, browser_scan, children_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
 log = logging.getLogger("dpdp_lens")
 CLAUSES = Path(__file__).resolve().parents[2] / "contract" / "clauses.json"
@@ -21,6 +21,7 @@ SCANNERS = [
     ("db_scan", lambda target, repo, db, frontend: db_scan.scan(db)),
     ("log_scan", lambda target, repo, db, frontend: log_scan.scan(repo)),
     ("erasure_scan", lambda target, repo, db, frontend: erasure_scan.scan(target, db)),  # writes a synthetic user, then removes it
+    ("children_scan", lambda target, repo, db, frontend: children_scan.scan(target, db)),  # signs up a synthetic minor, then removes it
     ("contact_scan", lambda target, repo, db, frontend: contact_scan.scan(target, frontend)),
     ("browser_scan", lambda target, repo, db, frontend: browser_scan.scan(frontend)),  # opens the frontend in a headless browser
 ]

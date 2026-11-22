@@ -74,7 +74,7 @@ def test_unreachable_notice_raises(tmp_path):
 # --- in the runner
 def test_runner_fills_the_block_and_appends_the_finding_last(target, target_db):
     r = runner.run_scan(target, str(BACKEND), str(target_db))
-    assert r.findings[-1].check == "notice_drift" and r.findings[-1].id == "F-007"
+    assert r.findings[-1].check == "notice_drift" and r.findings[-1].id == "F-008"
     assert r.notice_drift.undeclared == ["dob", "aadhaar", "parent_pan"]
     assert [c.ref for c in r.findings[-1].clauses] == ["Act s5", "Rule 3"]
 
@@ -92,4 +92,4 @@ def test_unreadable_notice_leaves_the_block_null_and_the_scan_alive(monkeypatch,
 
     monkeypatch.setattr(notice_drift, "build", broken)
     r = runner.run_scan(target, str(BACKEND), str(target_db))
-    assert r.notice_drift is None and len(r.findings) == 6 and r.score == 28
+    assert r.notice_drift is None and len(r.findings) == 7 and r.score == 18
