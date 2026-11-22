@@ -16,6 +16,7 @@ from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
 from .netutil import is_local as _is_local
 from .models import Fix, ScanResult, compute_counts, compute_score
 from .report import render_report
+from .sarif import to_sarif
 from .runner import run_scan
 
 LOCAL_ORIGIN = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
@@ -96,6 +97,13 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         if isinstance(scan, ScanResult) or scan["status"] == "running":
             return scan
         raise HTTPException(500, scan["detail"])
+
+    @app.get("/scan/{scan_id}/sarif")
+    def get_sarif(scan_id: str):
+        scan = scans.get(scan_id)
+        if not isinstance(scan, ScanResult):
+            raise HTTPException(404 if scan is None else 409, f"No finished scan {scan_id}")
+        return to_sarif(scan)
 
     @app.get("/report/{scan_id}")
     def get_report(scan_id: str):

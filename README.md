@@ -71,6 +71,13 @@ Severity and clauses come from `contract/clauses.json` (checked against the Act 
 
 Score = 100 minus weights (critical 20, high 10, medium 5, low 2), floor 0, open findings only.
 
+## CI use (SARIF)
+
+    cd engine && ../.venv/bin/python -m dpdp_lens scan --target http://localhost:8000 \
+      --repo ../target-app/backend --db ../target-app/backend/demo.db --out scan.json --sarif scan.sarif
+
+`scan.sarif` is SARIF 2.1.0: one rule per check, one result per open finding, severity mapped to error (critical, high), warning (medium) and note (low), clauses in the rule help text. The engine also serves it at `GET /scan/{scan_id}/sarif`. Only masked text is included. Not tested: validation against the official SARIF JSON schema and an upload to GitHub code scanning, because we worked offline.
+
 ## What it does NOT do
 
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
