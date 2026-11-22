@@ -23,6 +23,9 @@ Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Pr
     # 3. Engine API for the dashboard (port 8100)
     cd engine && python -m uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100
 
+    # 4. Dashboard (port 5174, needs Node 20 or newer)
+    cd dashboard && npm install && npm run dev
+
 The erasure check signs up and deletes a synthetic user, so a live scan writes to `demo.db`. Run `python seed.py` again to reset it.
 
 ## AI tools used
