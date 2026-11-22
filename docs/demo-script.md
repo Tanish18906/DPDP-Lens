@@ -38,7 +38,7 @@ If there is time, or a judge asks: fix the next ones live, about 3 seconds each.
 | Engine dies | Header pill "Engine offline", amber banner "Engine not reachable at http://localhost:8100" with **Use sample data** | Either restart the engine (below) and reload the page, or click Use sample data. Sample mode is labelled and its fix says "Simulated (sample data)". The other servers keep running |
 | Frontend :5173 is down | A scan has 8 findings and score 13 (no browser findings, so no tracker finding to fix) | Restart it: `cd target-app/frontend && npm run dev` |
 | Patch does not apply | Red "Fix failed" banner with the engine's text, finding stays open | Say so honestly, move on to another finding |
-| Everything is broken | Sample mode, or the screenshots in `/tmp/claude-1000/a7-shots/` (40 to 45) and the video | Say it is a recording |
+| Everything is broken | Sample mode, or the screenshots in `docs/fallback-shots/` and the video | Say it is a recording |
 
 Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens.api:app --host 127.0.0.1 --port 8100`. The dashboard reconnects after a page reload, no other restart needed. Scans and fix results are in engine memory only, so run Run scan again after a restart.
 
@@ -48,6 +48,20 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - Restarting the engine loses the stored scans. Scan again before fixing.
 - The Export report button opens the engine's HTML report in a new tab (about 4 printed pages). In cached mode the report carries the same "Cached golden patch mode" label.
 - Chrome or Chromium must be installed for the browser findings. Not tested without it; expect the browser findings to be missing, like with the frontend down.
+
+## How to run the gates
+`scripts/run_gates.sh` runs six Playwright gates (74 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
+
+    scripts/run_gates.sh
+
+- All 4 ports (8000, 5173, 8100, 5174) free: it starts `./run_demo.sh` itself and stops it at the end.
+- All 4 already up: it reuses them. A mix of up and down ports: it stops and says so.
+- It re-seeds `demo.db` at the end. A single gate can be run alone, for example `.venv/bin/python scripts/gates/gate_rehearsal.py` (stack must be up).
+- Settings: `DASH_URL` (default http://localhost:5174), `ENGINE_URL` (default http://localhost:8100), `SHOT_DIR` (default `docs/fallback-shots`).
+- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 0 to 83), `children`, `data_flow`, `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified).
+- The `offline` and `fix_states` gates block or rewrite requests in the browser. They never stop a server.
+- The numbers in `scripts/gates/common.py` are the demo facts (10 findings, score 0, the fix order). If the checks or scores change, update them there.
+- A run rewrites the screenshots in `docs/fallback-shots/`. `fix-cached-label`, `fix-error-banner` and `fix-unverified` show simulated states (the engine's answer is rewritten in the browser), not a real failure.
 
 ## Not rehearsed yet
 Timing with a human speaking and clicking (do 3 timed runs), the video recording, the deck.
