@@ -126,21 +126,27 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
     new_checks = [c for c in rescan_checks if c in static_checks and c not in initial_checks and c != finding.check] if initial_checks else []
     no_new = len(new_checks) == 0
 
-    diff = "".join(line for c in changes for line in difflib.unified_diff(
+    diff_body = "".join(line for c in changes for line in difflib.unified_diff(
         c.original.splitlines(True), c.patched.splitlines(True), f"a/{c.label}", f"b/{c.label}"))
+    v_msg = template.verified_msg or "re-scan clean, no new findings, backend tests pass"
+    nv_msg = template.not_verified_msg or "verify manual configuration and environment settings"
+    verified_line = f"Verified: {v_msg}"
+    not_verified_line = f"Not verified / you still must: {nv_msg}"
+    diff = f"{diff_body.rstrip()}\n\n{verified_line}\n{not_verified_line}\n"
     verified = bool(gone and no_new and tests_ok and idempotent)
     fix = Fix(available=True, diff=diff, verified=verified, rescan_passed=gone, tests_passed=tests_ok,
               score_before=score_before, score_after=rescan.score)
     if fix.verified:
         save_golden(template, fix, golden_dir)
     out = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    is_config = template.scanner in ("config_scan", "frontend_scan", "consent_scan")
-    statement = "re-scan clean, tests pass, config-only change (not booted)" if is_config else "re-scan clean, tests pass, verified"
     log = {"steps": steps, "total_ms": round((time.monotonic() - started) * 1000),
            "sandbox": sandbox_root, "port": urlparse(url).port,  # the sandbox folder is deleted when the run ends
            "rescan_check": template.scanner, "rescan_findings": len(rescan.findings), "rescan_result": "gone" if gone else "still found",
            "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}",
-           "statement": statement, "idempotent": idempotent, "no_new_findings": no_new}
+           "statement": f"{verified_line}\n{not_verified_line}",
+           "verified": v_msg,
+           "not_verified": nv_msg,
+           "idempotent": idempotent, "no_new_findings": no_new}
     return Verification(fix=fix, rescan=rescan, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
 
 
@@ -184,8 +190,13 @@ def verify_notice_align(finding: Finding, repo_path, db_path, *, drift: NoticeDr
 
     gone = not after.undeclared
     tests_ok = proc.returncode == 0
-    diff = "".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
+    diff_body = "".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
                                         "a/static/notice.html", "b/static/notice.html"))
+    v_msg = "re-scan clean, undeclared personal data fields added to notice, backend tests pass"
+    nv_msg = "purposes for collected personal data fields must still be provided by the data owner"
+    verified_line = f"Verified: {v_msg}"
+    not_verified_line = f"Not verified / you still must: {nv_msg}"
+    diff = f"{diff_body.rstrip()}\n\n{verified_line}\n{not_verified_line}\n"
     fix = Fix(available=True, diff=diff, verified=gone and tests_ok, rescan_passed=gone, tests_passed=tests_ok,
               score_before=score_before, kind="notice_align", pending_inputs=pending_inputs(drift))
     if fix.verified:
@@ -195,7 +206,10 @@ def verify_notice_align(finding: Finding, repo_path, db_path, *, drift: NoticeDr
            "sandbox": sandbox_root, "port": urlparse(url).port,
            "rescan_check": "notice_drift", "rescan_findings": len(after.undeclared),
            "rescan_result": "gone" if gone else "still found",
-           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}"}
+           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}",
+           "statement": f"{verified_line}\n{not_verified_line}",
+           "verified": v_msg,
+           "not_verified": nv_msg}
     return Verification(fix=fix, rescan=None, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
 
 

@@ -18,6 +18,8 @@ class Template:
     edits: tuple[tuple[str, str, str, str], ...]    # (root, file, old, new). root is "backend", "frontend", or "app_root".
     description: str = ""                           # plain description of the fix
     file_pattern: str = ""                          # optional file pattern to match finding location
+    verified_msg: str = ""                          # what exactly ran
+    not_verified_msg: str = ""                      # what the human must still do
 
     @property
     def needs_frontend(self) -> bool:
@@ -32,6 +34,8 @@ class Change(NamedTuple):
 
 V1 = Template(
     check="api_pii_exposure", golden_id="V1", scanner="api_scan",
+    verified_msg="live sandbox re-scan clean, endpoint requires authentication, no new findings, backend tests pass",
+    not_verified_msg="frontend not tested with auth; verify your frontend client passes the authorization bearer token",
     edits=(("backend", "app/main.py", '''# PLANTED V1
 @app.get("/api/students")
 def list_students_public():
@@ -47,6 +51,8 @@ def list_students_public(admin_user: dict = Depends(get_admin_user)):
 # The user id only exists after the insert, so the log call moves there.
 V3 = Template(
     check="log_pii", golden_id="V3", scanner="log_scan",
+    verified_msg="static re-scan clean, no personal data in sandbox server log, no new findings, backend tests pass",
+    not_verified_msg="external log shippers and historical log archives not inspected; verify log aggregation pipelines",
     edits=(("backend", "app/main.py", '''    # PLANTED V3
     logger.info("signup email=%s aadhaar=%s", req.email, req.aadhaar)
 
@@ -71,6 +77,8 @@ function loadTrackingPixel() {
 
 V5 = Template(
     check="tracker_before_consent", golden_id="V5", scanner="browser_scan",
+    verified_msg="headless browser re-scan clean, no third-party network requests before consent, backend tests pass",
+    not_verified_msg="server-side tracking, proxy-based analytics, and third-party script CDN integrity are not tested",
     edits=(("frontend", "index.html", '''    <!-- PLANTED V5 -->
     <script async src="https://connect.facebook.net/en_US/fbevents.js"></script>
 ''', '''    <!-- PLANTED V5 (fixed: the tracker loads only after the consent box is ticked, see src/App.jsx) -->
@@ -85,6 +93,8 @@ V5 = Template(
 # Same rule as the delete route: the owner or an admin.
 V2 = Template(
     check="api_idor", golden_id="V2", scanner="idor_probe",
+    verified_msg="live sandbox probe clean, cross-tenant access returns 403, no new findings, backend tests pass",
+    not_verified_msg="RBAC and multi-role access policies beyond owner check are not configured",
     edits=(("backend", "app/main.py", '''def get_student(student_id: int, user=Depends(get_current_user)):
     student = db.get_student(student_id)
 ''', '''def get_student(student_id: int, user=Depends(get_current_user)):
@@ -96,6 +106,8 @@ V2 = Template(
 # Partial on purpose: a parent PAN in the right format is only a stand-in for verifying an identifiable adult (Rule 10).
 V8 = Template(
     check="children_no_parental_consent", golden_id="V8", scanner="children_scan",
+    verified_msg="live sandbox probe clean, under-18 signup rejected without parental verification, backend tests pass",
+    not_verified_msg="integration with third-party adult identity verification or DigiLocker APIs is not implemented",
     edits=(("backend", "app/main.py", "import os\nimport logging\n", "import os\nimport re\nimport logging\n"),
            ("backend", "app/main.py", '''    # PLANTED V8  (no parental consent check)
     # The application accepts minor signup without verifying identifiable parental consent
@@ -107,6 +119,8 @@ V8 = Template(
 # Hard delete: the row is removed and nothing is copied to students_backup.
 V7 = Template(
     check="erasure_incomplete", golden_id="V7", scanner="erasure_scan",
+    verified_msg="live sandbox probe clean, synthetic student data purged from primary and backup tables, backend tests pass",
+    not_verified_msg="offline database backups, disaster-recovery snapshots, and third-party processor erasures are not tested",
     edits=(("backend", "app/db.py", "    # PLANTED V7\n", "    # PLANTED V7 (fixed: the row is deleted, nothing is copied to students_backup)\n"),
            ("backend", "app/db.py", '''    row_dict = dict(row)
     cursor.execute("""
@@ -124,6 +138,8 @@ V7 = Template(
 # Fixes the box only (unticked, terms only). The notice still does not list every field, so notice_drift stays open.
 V6 = Template(
     check="consent_bundled", golden_id="V6", scanner="browser_scan",
+    verified_msg="headless browser re-scan clean, checkboxes unticked by default, separate consent inputs, backend tests pass",
+    not_verified_msg="legal compliance of privacy notice text and purpose itemization is not verified",
     edits=(("frontend", "src/App.jsx", "const [agreed, setAgreed] = useState(true)", "const [agreed, setAgreed] = useState(false)"),
            ("frontend", "src/App.jsx", "<span>I agree to the Terms and to marketing messages</span>", "<span>I agree to the Terms</span>")))
 
@@ -132,6 +148,8 @@ V6 = Template(
 CONFIG_CONTAINER_ROOT = Template(
     check="config_container_root", golden_id="V10_ROOT", scanner="config_scan",
     description="Add non-root user in Dockerfile and switch to it with USER instruction",
+    verified_msg="re-scan clean, non-root user appuser configured, no new findings, backend tests pass",
+    not_verified_msg="container not built; host docker daemon capabilities and seccomp profiles not verified",
     edits=(("backend", "Dockerfile",
            '''RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pyjwt python-stdnum
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -145,6 +163,8 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 CONFIG_ENV_IN_IMAGE = Template(
     check="config_env_in_image", golden_id="V10_ENV", scanner="config_scan",
     description="Remove COPY .env instruction from Dockerfile to prevent baking secrets into container images",
+    verified_msg="re-scan clean, COPY .env removed from Dockerfile, no new findings, backend tests pass",
+    not_verified_msg="container not built; runtime container secrets mounting (Kubernetes Secrets / Docker Secrets) must be configured in your deployment",
     edits=(("backend", "Dockerfile",
            '''COPY .env /app/.env
 ''',
@@ -154,6 +174,8 @@ CONFIG_ENV_IN_IMAGE = Template(
 CONFIG_DB_EXPOSED = Template(
     check="config_db_exposed", golden_id="V12_DB_PORT", scanner="config_scan",
     description="Remove published host port mapping for database service in docker-compose.yml",
+    verified_msg="re-scan clean, database port unmapped from host, no new findings, backend tests pass",
+    not_verified_msg="container not built; compose stack not booted; host firewall and VPC network isolation not verified",
     edits=(("app_root", "docker-compose.yml",
            '''    ports:
       - "5432:5432"
@@ -164,6 +186,8 @@ CONFIG_DB_EXPOSED = Template(
 CONFIG_DEBUG_ENABLED = Template(
     check="config_debug_enabled", golden_id="V9_DEBUG", scanner="config_scan",
     description="Disable debug mode in environment configuration (DEBUG=false)",
+    verified_msg="re-scan clean, DEBUG set to false, no new findings, backend tests pass",
+    not_verified_msg="container not built; application reload flag in production process manager must be verified manually",
     edits=(("backend", ".env",
            '''DEBUG=true
 ''',
@@ -173,6 +197,8 @@ CONFIG_DEBUG_ENABLED = Template(
 CONFIG_CORS_WILDCARD = Template(
     check="config_cors_wildcard", golden_id="V11_CORS", scanner="config_scan",
     description="Replace wildcard CORS origins with explicit localhost origins",
+    verified_msg="re-scan clean, explicit localhost origin whitelist configured, no new findings, backend tests pass",
+    not_verified_msg="set your real production frontend origin; reverse-proxy and CDN CORS headers not tested; container not built",
     edits=(("backend", "app/main.py",
            '''app.add_middleware(  # PLANTED V11: synthetic, planted for the scanner demo (wildcard origin with credentials)
     CORSMiddleware,
@@ -194,6 +220,8 @@ CONFIG_CORS_WILDCARD = Template(
 FE_PII_IN_STORAGE = Template(
     check="fe_pii_in_storage", golden_id="V13_STORAGE", scanner="frontend_scan",
     description="Stop storing personal data in browser localStorage (planted demo app)",
+    verified_msg="re-scan clean, localStorage PII writes removed, no new findings, backend tests pass",
+    not_verified_msg="frontend not built or tested in browser; client-side state caching must be verified in browser",
     edits=(("frontend", "src/App.jsx",
            '''        // PLANTED V13: synthetic, planted for the scanner demo. Personal data kept in browser storage.
         try {
@@ -206,22 +234,12 @@ FE_PII_IN_STORAGE = Template(
            '''        // PLANTED V13: fixed (do not store personal data in browser storage)
 '''),))
 
-CONSENT_NOT_RECORDED = Template(
-    check="consent_not_recorded", golden_id="V14_CONSENT", scanner="consent_scan",
-    description="Add consent record flag to SignupRequest model in backend/app/main.py (planted demo app)",
-    edits=(("backend", "app/main.py",
-           '''    parent_pan: Optional[str] = None
-    password: str
-''',
-           '''    parent_pan: Optional[str] = None
-    consent_record: bool = True  # recorded consent
-    password: str
-'''),))
-
 CONFIG_SECRET_ENV = Template(
     check="config_secret_committed", golden_id="V9_SECRET", scanner="config_scan",
     file_pattern=".env",
     description="Replace committed secret values in .env with placeholders",
+    verified_msg="re-scan clean, committed secret replaced with placeholder and .env.example updated, no new findings, backend tests pass",
+    not_verified_msg="the secret was committed and must be treated as leaked: rotate it, even after the patch; set real values in your environment; container not built",
     edits=(("backend", ".env",
            '''# PLANTED V9: synthetic, planted for the scanner demo. These values are fake. This file is committed on purpose.
 JWT_SECRET=tutornest-demo-secret-123
@@ -238,6 +256,8 @@ CONFIG_SECRET_COMPOSE = Template(
     check="config_secret_committed", golden_id="V12_SECRET", scanner="config_scan",
     file_pattern="docker-compose.yml",
     description="Replace hardcoded password in docker-compose.yml with environment variable interpolation",
+    verified_msg="re-scan clean, plaintext password replaced with environment variable reference, no new findings, backend tests pass",
+    not_verified_msg="the secret was committed and must be treated as leaked: rotate it, even after the patch; set real values in your environment; container not built",
     edits=(("app_root", "docker-compose.yml",
            '''    environment:
       POSTGRES_PASSWORD: admin
@@ -253,7 +273,6 @@ STATIC_TEMPLATES = (
     CONFIG_DEBUG_ENABLED,
     CONFIG_CORS_WILDCARD,
     FE_PII_IN_STORAGE,
-    CONSENT_NOT_RECORDED,
 )
 
 ALL_STATIC_TEMPLATES = STATIC_TEMPLATES + (CONFIG_SECRET_ENV, CONFIG_SECRET_COMPOSE)

@@ -13,7 +13,6 @@ from dpdp_lens.fixer.templates import (
     CONFIG_ENV_IN_IMAGE,
     CONFIG_SECRET_COMPOSE,
     CONFIG_SECRET_ENV,
-    CONSENT_NOT_RECORDED,
     FE_PII_IN_STORAGE,
     STATIC_TEMPLATES,
     TEMPLATES,
@@ -34,7 +33,6 @@ NEW_TEMPLATES = (
     CONFIG_DEBUG_ENABLED,
     CONFIG_CORS_WILDCARD,
     FE_PII_IN_STORAGE,
-    CONSENT_NOT_RECORDED,
     CONFIG_SECRET_ENV,
     CONFIG_SECRET_COMPOSE,
 )
@@ -113,7 +111,6 @@ def test_template_raises_patch_error_when_pattern_is_missing(tmp_path, template)
     ("config_debug_enabled", ".env"),
     ("config_cors_wildcard", "main.py"),
     ("fe_pii_in_storage", "App.jsx"),
-    ("consent_not_recorded", "main.py"),
     ("config_secret_committed", ".env"),
     ("config_secret_committed", "docker-compose.yml"),
 ])
@@ -132,16 +129,21 @@ def test_end_to_end_static_fix_verification(tmp_path, check_id, file_hint):
     assert res.fix.rescan_passed is True
     assert res.fix.tests_passed is True
     assert len(res.fix.diff) > 0
+    assert "Verified: " in res.fix.diff
+    assert "Not verified / you still must: " in res.fix.diff
+    if check_id == "config_secret_committed":
+        assert "the secret was committed and must be treated as leaked: rotate it" in res.fix.diff
     assert res.log.get("idempotent") is True
     assert res.log.get("no_new_findings") is True
     assert "statement" in res.log
+    assert "verified" in res.log and "not_verified" in res.log
 
 
 # ---- Inventory and Gate Tests ----
 
 
 def test_static_scan_inventory_and_fix_availability():
-    """Static scan produces exactly 11 findings, score 60; 10 have verified fixes, 1 has explicit reason."""
+    """Static scan produces exactly 11 findings, score 60; 9 have verified fixes, 2 have explicit reasons."""
     scan = run_scan("", str(BACKEND), "", mode="static")
     assert len(scan.findings) == 11
     assert scan.score == 60
@@ -149,14 +151,33 @@ def test_static_scan_inventory_and_fix_availability():
     with_fix = [f for f in scan.findings if f.fix.available]
     without_fix = [f for f in scan.findings if not f.fix.available]
 
-    assert len(with_fix) == 10
-    assert len(without_fix) == 1
+    assert len(with_fix) == 9
+    assert len(without_fix) == 2
 
-    # Verify the one finding without automated fix has explicit documented reason
-    auth_secret = without_fix[0]
+    # Verify both findings without automated fixes have explicit documented reasons
+    auth_secret = next(f for f in without_fix if "auth.py" in f.evidence.location.file)
     assert auth_secret.check == "config_secret_committed"
-    assert "auth.py" in auth_secret.evidence.location.file
-    # Documented reason: hardcoded application secret key in source code requires secret rotation and runtime environment provisioning
+    # Reason: hardcoded application secret key in source code requires secret rotation and runtime environment provisioning
+
+    consent_finding = next(f for f in without_fix if f.check == "consent_not_recorded")
+    assert consent_finding.check == "consent_not_recorded"
+    # Reason: signup form must send an explicit consent value with no default; making it required breaks existing tests/clients
+
+
+def test_every_fix_result_contains_verified_and_not_verified_lines(tmp_path):
+    """Every fix result carries both 'Verified: ' and 'Not verified / you still must: ' lines."""
+    db_path = seed_copy(tmp_path)[1]
+    scan = run_scan("", str(BACKEND), "", mode="static")
+    for f in scan.findings:
+        if not f.fix.available:
+            continue
+        res = verify_fix(f, BACKEND, db_path, golden_dir=tmp_path / "golden")
+        assert "Verified: " in res.fix.diff
+        assert "Not verified / you still must: " in res.fix.diff
+        assert res.log.get("verified")
+        assert res.log.get("not_verified")
+        if f.check == "config_secret_committed":
+            assert "the secret was committed and must be treated as leaked: rotate it" in res.fix.diff
 
 
 def test_full_scan_regression_without_frontend(target, target_db):
