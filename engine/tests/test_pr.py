@@ -242,3 +242,16 @@ def test_migration_from_version_3_adds_the_pr_column(tmp_path):
     s.close()
     new = Store(tmp_path / "v3.db")
     assert new.one("PRAGMA user_version")[0] == 4 and new.one("SELECT COUNT(*) FROM pragma_table_info('findings') WHERE name='pr_url'")[0] == 1
+
+
+# ---- preflight
+
+def test_preflight_pull_request_switch(gh):
+    from test_github_app import app_env, pf
+    assert pf.check_pr_switch({}).status == "SKIP" and pf.check_pr_switch({"DPDP_ALLOW_PR": "0"}).status == "SKIP"  # off by default: the old setup passes
+    env = app_env(gh, DPDP_ALLOW_PR="1", DPDP_FIX_REPOS="acme/tutornest")
+    r = pf.check_pr_switch(env)
+    assert r.status == "PASS" and "not checked here" in r.detail
+    assert pf.check_pr_switch({**env, "DPDP_FIX_REPOS": ""}).status == "FAIL"
+    no_app = {k: v for k, v in env.items() if not k.startswith("GITHUB_APP_")}
+    assert pf.check_pr_switch(no_app).status == "FAIL" and "GitHub App" in pf.check_pr_switch(no_app).detail
