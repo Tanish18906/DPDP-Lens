@@ -36,8 +36,10 @@ Never store or return a raw value anywhere (JSON, logs, report).
 
 ## Engine API (FastAPI, port 8100, CORS open for localhost)
 - POST /scan body {target_url, repo_path, db_path} returns {scan_id}
-- GET /scan/{scan_id} returns the full scan JSON. While running it returns {status:"running"}.
-- POST /findings/{finding_id}/fix?scan_id=... runs the fix loop and returns {finding, score_before, score_after, mode} where mode is "live" or "cached_golden"
+- GET /scan/{scan_id} returns the full scan JSON. While running it returns {status:"running", step, done, total, steps_ms} (additive, U3): `step` is the scanner now running, `done` the number finished, `steps_ms` the finished steps as [{step, ms}] with measured milliseconds.
+- GET /scan/{scan_id}/timings returns {steps: [{step, ms}]} for every step of that scan, measured by the engine (additive, U3). Kept in memory only, so it is empty after an engine restart.
+- POST /findings/{finding_id}/fix?scan_id=...&mode=live|cached runs the fix loop and returns {finding, score_before, score_after, mode, fallback_reason, verification} where mode is "live" or "cached_golden". `verification` (additive, U3) is null for a cached result. For a live run it is {steps: [{step, ms}] for copy, patch, start, rescan, tests in that order, total_ms, sandbox (temp folder, deleted after the run), port (of the patched app), rescan_check (scanner of the finding), rescan_findings, rescan_result ("gone" or "still found"), pytest_summary (the last line pytest printed)}. All values are measured or copied from the run, never set by hand.
+- The scan JSON contract (contract/finding.schema.json) is unchanged by U3: the new fields live on the running status, the timings route and the fix response, not in ScanResult.
 - GET /report/{scan_id} returns an HTML report
 - GET /health returns {ok:true}
 

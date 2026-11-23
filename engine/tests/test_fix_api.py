@@ -70,6 +70,14 @@ def test_live_fix_updates_the_stored_scan(tmp_path, golden):
     assert fix(c).status_code == 409  # already fixed
 
 
+def test_live_fix_returns_its_verification_log_and_a_cached_one_does_not(tmp_path, golden):
+    log = {"steps": [{"step": "copy", "ms": 12}], "total_ms": 12, "pytest_summary": "3 passed in 0.10s"}
+    c = client(tmp_path, lambda f, r, d, **kw: Verification(fix=GOOD, rescan=None, tests_output="", log=log), golden)
+    assert fix(c).json()["verification"] == log
+    c = client(tmp_path, live_ok, golden)
+    assert fix(c, mode="cached").json()["verification"] is None
+
+
 @pytest.mark.parametrize("exc,expected", [(RuntimeError("boom"), "RuntimeError: boom"), (FixTimeout("too slow"), "FixTimeout: too slow")])
 def test_live_failure_falls_back_to_golden_and_says_so(tmp_path, golden, exc, expected):
     c = client(tmp_path, raises(exc), golden)

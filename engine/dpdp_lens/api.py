@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import threading
+import time
 from http import HTTPStatus
 from pathlib import Path
 from typing import Literal
@@ -53,6 +54,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
     lock = threading.Lock()
     fix_lock = threading.Lock()
     fix_modes: dict = {}  # scan_id -> {finding_id: {mode, fallback_reason}}, so the report never shows a cached fix as live
+    timings: dict = {}  # scan_id -> [{step, ms}], measured while the scan runs (memory only)
     state = Path(state_dir) if state_dir else None
     next_n = [1]
     takes_progress = "progress" in inspect.signature(scan_fn).parameters
@@ -97,9 +99,22 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         return path
 
     def _run(scan_id: str, target_url: str, repo_path: str, db_path: str):
-        kw = {"progress": lambda step, done, total: scans.update({scan_id: {"status": "running", "step": step, "done": done, "total": total}})} if takes_progress else {}
+        steps = timings.setdefault(scan_id, [])  # finished steps with their measured ms
+        current = {"step": None, "at": time.monotonic()}
+
+        def finish_step():
+            if current["step"]:
+                steps.append({"step": current["step"], "ms": round((time.monotonic() - current["at"]) * 1000)})
+
+        def progress(step, done, total):
+            finish_step()
+            current.update(step=step, at=time.monotonic())
+            scans.update({scan_id: {"status": "running", "step": step, "done": done, "total": total, "steps_ms": list(steps)}})
+
+        kw = {"progress": progress} if takes_progress else {}
         try:
             scans[scan_id] = scan_fn(target_url, repo_path, db_path, scan_id=scan_id, **kw)
+            finish_step()
             save(scan_id)
         except Exception as e:
             scans[scan_id] = {"status": "error", "detail": f"{type(e).__name__}: {e}"}
@@ -142,6 +157,13 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(404 if scan is None else 409, f"No finished scan {scan_id}")
         return to_sarif(scan)
 
+    @app.get("/scan/{scan_id}/timings")
+    def get_timings(scan_id: str):
+        """Measured duration of each scan step (kept in memory only, so empty after an engine restart)."""
+        if scan_id not in scans:
+            raise HTTPException(404, f"Unknown scan {scan_id}")
+        return {"steps": timings.get(scan_id, [])}
+
     @app.get("/report/{scan_id}")
     def get_report(scan_id: str):
         scan = scans.get(scan_id)
@@ -172,7 +194,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(409, f"{finding_id} is already fixed")
 
         with fix_lock:
-            reason = None
+            reason, vlog = None, None  # vlog: the live run's verification log, never set for a cached result
             if mode == "cached":
                 golden = load_golden(template.golden_id, golden_dir)
                 if golden is None:
@@ -180,7 +202,8 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
                 fix, used = _golden_fix(golden, scan.score), "cached_golden"
             else:
                 try:
-                    fix, used = fix_fn(finding, *inputs[scan_id], score_before=scan.score, golden_dir=golden_dir).fix, "live"
+                    run = fix_fn(finding, *inputs[scan_id], score_before=scan.score, golden_dir=golden_dir)
+                    fix, used, vlog = run.fix, "live", run.log or None
                 except PatchError as e:
                     raise HTTPException(422, f"The patch does not apply: {e}")
                 except Exception as e:  # sandbox, timeout or other trouble: the live run could not finish
@@ -204,7 +227,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             fix_modes.setdefault(scan_id, {})[finding_id] = {"mode": used, "fallback_reason": reason}
             save(scan_id)
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
-                "mode": used, "fallback_reason": reason}
+                "mode": used, "fallback_reason": reason, "verification": vlog}
 
     return app
 

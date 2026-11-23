@@ -16,7 +16,7 @@ This replaces the numbers in the script in docs/11. Everything below was run end
 | 0:10 | Click **Run scan** (takes about 2 seconds) | "We scan the database, the code, the running API and the browser." |
 | 0:25 | Findings appear | "Score 0 out of 100. 10 findings: 2 critical, 5 high, 2 medium, 1 low." |
 | 0:35 | Click the first critical finding, "Public API endpoint" | "A public endpoint returns Aadhaar and PAN with no login. Act section 8(5), Rule 6(1)(b). This is the evidence, masked." |
-| 0:55 | Click **Fix and verify** (the 5 step list runs, about 3 seconds) | "We patch a copy, restart it, re-run the check and run the app's own tests." |
+| 0:55 | Click **Fix and verify** (a real elapsed clock while the engine works, about 2 seconds, then its 5 measured steps appear, 0.6 seconds each) | "We patch a copy, restart it, re-run the check and run the app's own tests." |
 | 1:15 | Diff and three ticks appear (Re-scan passed, Tests passed, Verified) | "Re-scan passed, tests passed, verified. The original code is untouched." |
 | 1:30 | Point at the score: the big number counts up to 18, next to it "Score change 0 to 18" | "18 points, proven, not claimed. The score is floored at 0, so the real swing is 20." |
 | 1:35 | Click **Notice vs Runtime** | "The notice lists name, email and phone. The app also handles date of birth, Aadhaar and parent PAN. 3 of 6 fields the app handles are not in its privacy notice. That gap is what a regulator cares about." |
@@ -49,7 +49,7 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - Chrome or Chromium must be installed for the browser findings. Not tested without it; expect the browser findings to be missing, like with the frontend down.
 
 ## How to run the gates
-`scripts/run_gates.sh` runs six Playwright gates (81 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
+`scripts/run_gates.sh` runs six Playwright gates (83 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
 
     scripts/run_gates.sh
 

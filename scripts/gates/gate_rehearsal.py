@@ -27,6 +27,8 @@ with sync_playwright() as p:
     c.shot(page, "first-run")
     page.get_by_role("button", name="Run scan").click()
     page.get_by_text(re.compile(r"Step \d+ of 9")).wait_for(timeout=4000)  # real steps from the engine, not timer text
+    page.locator('section[aria-label="Scan progress"]').get_by_text(re.compile(r"^\d+(\.\d\d s| ms)$")).first.wait_for(timeout=15000)
+    g.check("scan: a finished layer shows its measured duration", True)
     page.screenshot(path=str(c.SHOT_DIR / "scanning.png"))  # no count-up wait: the scan is still running
     step_text = page.locator("body").inner_text()
     g.check("scan overlay shows a real engine step", any(label in step_text for label in (
@@ -44,8 +46,15 @@ with sync_playwright() as p:
     g.check("V1 live, verified, score 0 to 18", v1["mode"] == "live" and f["verified"] and (v1["score_before"], v1["score_after"]) == (0, 18),
             f'{v1["mode"]} {v1["score_before"]}->{v1["score_after"]}')
     g.check("V1 badges green", c.badges_green(page))
+    d = c.detail(page).inner_text()
+    g.check("V1 verification log from the live run: 5 timed steps, port, pytest passed",
+            "verification log" in d.lower() and "127.0.0.1:" in d and len(re.findall(r"\d+(?:\.\d\d s| ms)", d)) >= 6
+            and re.search(r"\d+ passed", d) is not None and "finding gone" in d, d[d.lower().find("verification log"):].replace("\n", " | "))
     g.check("V1 VERIFIED mark with score 0 to 18", "VERIFIED" in c.detail(page).inner_text() and "0 to 18" in c.detail(page).inner_text())
     c.shot(page, "rehearsal-2-v1-fixed")
+    c.detail(page).evaluate("e => e.scrollTop = e.scrollHeight")
+    c.shot(page, "fix-verification-log")
+    c.detail(page).evaluate("e => e.scrollTop = 0")
     page.get_by_role("button", name="Notice vs Runtime").click()
     page.get_by_text("are not in its privacy notice").wait_for(timeout=3000); lap("notice vs runtime tab")
     t = c.body(page)

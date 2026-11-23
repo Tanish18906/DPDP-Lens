@@ -54,7 +54,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(900)
     t = c.body(page)
     g.check("cached: amber label with the fallback reason", "Live run could not finish: RuntimeError: boom" in t)
-    g.check("cached: not presented as live", "Verified in a saved run. It was not run just now." in t and c.FIXED not in t)
+    g.check("cached: not presented as live", "Verified in a saved run. It was not run just now." in t and c.FIXED not in t and "verification log" not in t.lower())
     c.detail(page).evaluate("e => e.scrollTop = e.scrollHeight")
     c.shot(page, "fix-cached-label")
 

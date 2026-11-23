@@ -42,6 +42,16 @@ function LogoMark({ className }) {
   )
 }
 
+// Real time since `since` (a performance.now() value), redrawn every 100 ms.
+function Elapsed({ since }) {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(performance.now()), 100)
+    return () => clearInterval(id)
+  }, [])
+  return <span className="tabular">{secs(Math.max(0, now - since))}</span>
+}
+
 // Done, current or pending marker for the fix steps and the scan layers.
 function StepMarker({ state }) {
   if (state === 'done')
@@ -71,13 +81,19 @@ function Label({ children }) {
   return <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted m-0">{children}</h3>
 }
 
+// Fix phases in the order the engine measures them (verification.steps in the fix response).
 const FIX_STEPS = [
-  'Copy app to a sandbox',
-  'Apply patch',
-  'Restart patched app',
-  'Re-run the failed check',
-  "Run the app's tests"
+  ['copy', 'Copy app to a sandbox'],
+  ['patch', 'Apply patch'],
+  ['start', 'Start the patched app'],
+  ['rescan', 'Re-scan the patched app'],
+  ['tests', "Run the app's tests"]
 ]
+
+// Visual pacing only: a step stays on screen at least this long so a person can read it. Durations shown are the engine's.
+const MIN_STEP_MS = 600
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const secs = (ms) => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`)
 
 // What the engine is doing, by scanner name. The engine reports { step, done, total } while a scan runs.
 const SCAN_STEP_LABELS = {
@@ -103,6 +119,12 @@ const SCAN_LAYERS = [
   ['Browser', ['browser_scan']],
   ['Notice', ['contact_scan', 'notice_drift']]
 ]
+
+// Measured time of a layer: the sum of its finished steps (progress.steps_ms from the engine).
+function layerMs(steps, progress) {
+  const done = (progress?.steps_ms || []).filter((x) => steps.includes(x.step))
+  return done.length ? done.reduce((n, x) => n + x.ms, 0) : null
+}
 
 function layerState(steps, progress) {
   const done = progress?.done ?? 0
@@ -156,8 +178,17 @@ async function runEngineScan(onProgress) {
     const res = await fetch(`${API_BASE}/scan/${scan_id}`)
     if (!res.ok) throw await engineError(res)
     const result = await res.json()
-    if (result.status !== 'running') return result
-    onProgress(result)
+    if (result.status !== 'running') {
+      let steps = null
+      try {
+        const t = await fetch(`${API_BASE}/scan/${scan_id}/timings`)
+        if (t.ok) steps = (await t.json()).steps
+      } catch {
+        /* timings are optional: the result stands without them */
+      }
+      return { result, steps }
+    }
+    await onProgress(result)
   }
   throw new Error('The scan did not finish within 15 seconds')
 }
@@ -263,7 +294,10 @@ export default function App() {
 
   // Fix workflow states
   const [fixingFindingId, setFixingFindingId] = useState(null)
-  const [currentStepIndex, setCurrentStepIndex] = useState(-1)
+  const [currentStepIndex, setCurrentStepIndex] = useState(-1) // -1 while waiting for the engine, then the replayed step
+  const [fixStartedAt, setFixStartedAt] = useState(null)
+  const [fixLog, setFixLog] = useState(null) // verification log of the run being shown
+  const [scanStartedAt, setScanStartedAt] = useState(null)
   const [animatedScore, setAnimatedScore] = useState(null)
   const [scoreHistory, setScoreHistory] = useState(null)
   const [fixError, setFixError] = useState(null)
@@ -351,12 +385,26 @@ export default function App() {
     setFixError(null)
     setFixMeta({})
 
+    setScanStartedAt(performance.now())
+
+    // Each new step stays visible for MIN_STEP_MS; a newer snapshot of the same step shows at once.
+    let shownAt = 0
+    let shownStep = null
+    const show = async (p) => {
+      const wait = shownAt + MIN_STEP_MS - performance.now()
+      if (p.step !== shownStep && wait > 0) await sleep(wait)
+      if (p.step !== shownStep) shownAt = performance.now()
+      shownStep = p.step
+      setScanProgress(p)
+    }
+
     try {
       if (sampleMode) {
-        await new Promise((r) => setTimeout(r, 1800))
         handleUseSample()
       } else {
-        const result = await runEngineScan(setScanProgress)
+        const { result, steps } = await runEngineScan(show)
+        if (steps) await show({ step: null, done: steps.length, total: steps.length, steps_ms: steps }) // every layer done, measured
+        await sleep(Math.max(0, shownAt + MIN_STEP_MS - performance.now()))
         setEngineConnected(true)
         setScanData(result)
         setAnimatedScore(result.score)
@@ -391,42 +439,39 @@ export default function App() {
   const handleFixAndVerify = (finding, mode = 'live') => {
     if (!finding || fixingFindingId !== null) return
     setFixError(null)
-    if (sampleMode) runSimulatedFix(finding)
+    if (sampleMode) finishFix(finding) // simulated and labelled: no steps are shown because none ran
     else runEngineFix(finding, mode)
   }
 
-  const runSimulatedFix = (finding) => {
-    setFixingFindingId(finding.id)
-    setCurrentStepIndex(0)
-
-    let step = 0
-    const interval = setInterval(() => {
-      step += 1
-      if (step < FIX_STEPS.length) {
-        setCurrentStepIndex(step)
-      } else {
-        clearInterval(interval)
-        finishFix(finding)
-      }
-    }, 850)
-  }
-
-  // The 5 steps are only a loading display. They wait on the last step until the engine answers.
+  // While the engine works only the real elapsed time is shown. When it answers, its measured steps are
+  // replayed, each visible for MIN_STEP_MS. A cached result has no live run, so nothing is replayed.
   const runEngineFix = async (finding, mode) => {
     setFixingFindingId(finding.id)
-    setCurrentStepIndex(0)
-    const ticker = setInterval(() => setCurrentStepIndex((i) => Math.min(i + 1, FIX_STEPS.length - 1)), 850)
+    setCurrentStepIndex(-1)
+    setFixLog(null)
+    setFixStartedAt(performance.now())
     try {
-      const { finding: updated, score_before, score_after, mode: usedMode, fallback_reason } = await requestFix(
-        scanData.scan_id,
-        finding.id,
-        mode
-      )
+      const {
+        finding: updated,
+        score_before,
+        score_after,
+        mode: usedMode,
+        fallback_reason,
+        verification
+      } = await requestFix(scanData.scan_id, finding.id, mode)
+      const log = usedMode === 'live' ? verification : null
+      if (log?.steps) {
+        setFixLog(log)
+        for (let i = 0; i <= FIX_STEPS.length; i++) {
+          setCurrentStepIndex(i)
+          if (i < FIX_STEPS.length) await sleep(MIN_STEP_MS)
+        }
+      }
       setScanData((prev) => {
         const findings = prev.findings.map((f) => (f.id === updated.id ? updated : f))
         return { ...prev, findings, score: score_after, counts: countOpen(findings) }
       })
-      setFixMeta((prev) => ({ ...prev, [updated.id]: { mode: usedMode, fallbackReason: fallback_reason } }))
+      setFixMeta((prev) => ({ ...prev, [updated.id]: { mode: usedMode, fallbackReason: fallback_reason, verification: log } }))
       if (updated.status === 'verified_fixed') {
         animateScore(score_before, score_after)
         setScoreHistory((prev) => ({ before: prev?.before ?? score_before, after: score_after }))
@@ -434,9 +479,9 @@ export default function App() {
     } catch (e) {
       setFixError(e.message) // the finding stays open
     } finally {
-      clearInterval(ticker)
       setFixingFindingId(null)
       setCurrentStepIndex(-1)
+      setFixLog(null)
     }
   }
 
@@ -702,23 +747,37 @@ export default function App() {
                   Scanning {sampleMode ? 'sample data' : SCAN_REQUEST.target_url}
                 </span>
                 <span className="font-mono text-[14px] text-muted tabular">
-                  {scanProgress ? `Step ${scanProgress.done + 1} of ${scanProgress.total}` : ''}
+                  {scanProgress
+                    ? scanProgress.done >= scanProgress.total
+                      ? `${scanProgress.total} of ${scanProgress.total} steps done`
+                      : `Step ${scanProgress.done + 1} of ${scanProgress.total}`
+                    : ''}
+                  {scanStartedAt !== null && !sampleMode && (
+                    <>
+                      {' · '}
+                      <Elapsed since={scanStartedAt} />
+                    </>
+                  )}
                 </span>
               </div>
               <ol className="list-none p-0 m-0 grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {SCAN_LAYERS.map(([name, steps]) => {
                   const state = layerState(steps, scanProgress)
+                  const ms = state === 'done' ? layerMs(steps, scanProgress) : null
                   return (
                     <li key={name} className={`flex items-center gap-2 text-[15px] ${state === 'pending' ? 'text-muted' : 'text-ink font-medium'}`}>
                       <StepMarker state={state} />
                       {name}
+                      {ms !== null && <span className="font-mono text-[13px] font-normal text-muted tabular">{secs(ms)}</span>}
                     </li>
                   )
                 })}
               </ol>
               <div className="text-[15px] text-ink">
                 {scanProgress
-                  ? SCAN_STEP_LABELS[scanProgress.step] || scanProgress.step
+                  ? scanProgress.step
+                    ? SCAN_STEP_LABELS[scanProgress.step] || scanProgress.step
+                    : 'All checks finished'
                   : sampleMode
                   ? 'Loading the sample scan'
                   : 'Starting the scan'}
@@ -989,17 +1048,30 @@ export default function App() {
                         <div className="flex items-baseline justify-between">
                           <Label>Fix and verify on a sandbox copy</Label>
                           <span className="font-mono text-[13px] text-muted tabular">
-                            Step {currentStepIndex + 1} of {FIX_STEPS.length}
+                            {currentStepIndex < 0 ? (
+                              <>
+                                Running · <Elapsed since={fixStartedAt} />
+                              </>
+                            ) : (
+                              `Engine took ${secs(fixLog.total_ms)}`
+                            )}
                           </span>
                         </div>
+                        {currentStepIndex < 0 && (
+                          <p className="text-[14px] text-muted m-0">
+                            The engine measures each step and reports them when the run ends.
+                          </p>
+                        )}
                         <ol className="list-none p-0 m-0 flex flex-col gap-2.5">
-                          {FIX_STEPS.map((stepText, sIdx) => {
+                          {FIX_STEPS.map(([key, stepText], sIdx) => {
                             const isDone = sIdx < currentStepIndex
                             const isCurrent = sIdx === currentStepIndex
+                            const ms = isDone ? fixLog?.steps.find((x) => x.step === key)?.ms : null
                             return (
-                              <li key={sIdx} className="flex items-center gap-3 text-[15px]">
+                              <li key={key} className="flex items-center gap-3 text-[15px]">
                                 <StepMarker state={isDone ? 'done' : isCurrent ? 'current' : 'pending'} />
                                 <span className={isDone ? 'text-ink' : isCurrent ? 'text-ink font-medium' : 'text-muted'}>{stepText}</span>
+                                {ms != null && <span className="ml-auto font-mono text-[13px] text-muted tabular">{secs(ms)}</span>}
                               </li>
                             )
                           })}
@@ -1087,6 +1159,47 @@ export default function App() {
                           <div className="flex flex-col gap-2">
                             <Label>Patch (unified diff)</Label>
                             <DiffViewer diffText={fix.diff} />
+                          </div>
+                        )}
+
+                        {/* Verification log: only from the live run's own measurements. Cached and sample results have none. */}
+                        {!sampleMode && fixMode?.verification && (
+                          <div className="flex flex-col gap-2">
+                            <Label>Verification log</Label>
+                            <div className="border border-line rounded-[6px] overflow-hidden text-[14px]">
+                              <ol className="list-none p-0 m-0">
+                                {FIX_STEPS.map(([key, stepText]) => {
+                                  const ms = fixMode.verification.steps.find((x) => x.step === key)?.ms
+                                  return (
+                                    <li key={key} className="flex items-center gap-3 px-3 py-1.5 border-b border-line">
+                                      <StepMarker state={ms != null ? 'done' : 'pending'} />
+                                      <span className="text-ink">{stepText}</span>
+                                      <span className="ml-auto font-mono text-muted tabular">{ms != null ? secs(ms) : '—'}</span>
+                                    </li>
+                                  )
+                                })}
+                              </ol>
+                              <dl className="grid grid-cols-[150px_1fr] gap-x-4 gap-y-1 px-3 py-3 m-0 bg-paper">
+                                <dt className="text-muted">Sandbox</dt>
+                                <dd className="m-0 font-mono break-all">
+                                  {fixMode.verification.sandbox} <span className="font-sans text-muted">(deleted after the run)</span>
+                                </dd>
+                                <dt className="text-muted">Patched app</dt>
+                                <dd className="m-0 font-mono">127.0.0.1:{fixMode.verification.port}</dd>
+                                <dt className="text-muted">Check re-run</dt>
+                                <dd className="m-0">
+                                  <span className="font-mono">{fixMode.verification.rescan_check}</span>: finding{' '}
+                                  <span className={fixMode.verification.rescan_result === 'gone' ? 'text-accent font-medium' : 'text-critical font-medium'}>
+                                    {fixMode.verification.rescan_result}
+                                  </span>{' '}
+                                  ({fixMode.verification.rescan_findings} findings in the re-scan of this copy)
+                                </dd>
+                                <dt className="text-muted">pytest</dt>
+                                <dd className="m-0 font-mono">{fixMode.verification.pytest_summary}</dd>
+                                <dt className="text-muted">Total</dt>
+                                <dd className="m-0 font-mono tabular">{secs(fixMode.verification.total_ms)}</dd>
+                              </dl>
+                            </div>
                           </div>
                         )}
 

@@ -39,6 +39,11 @@ def test_v1_fix_is_verified(tmp_path, fresh_db):
         "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "children_no_parental_consent", "missing_contact",
         "notice_drift"]
     assert "passed" in result.tests_output
+    log = result.log  # real facts of this run for the dashboard's verification log
+    assert [st["step"] for st in log["steps"]] == ["copy", "patch", "start", "rescan", "tests"] and all(st["ms"] >= 0 for st in log["steps"])
+    assert log["total_ms"] >= sum(st["ms"] for st in log["steps"]) - 5 and isinstance(log["port"], int)
+    assert log["rescan_check"] == "api_scan" and log["rescan_result"] == "gone" and log["rescan_findings"] == 7
+    assert "passed" in log["pytest_summary"] and not Path(log["sandbox"]).exists()  # sandbox removed after the run
     # golden saved from the verified live run only
     saved = load_golden("V1", golden)
     assert saved["verified"] is True and saved["source"] == "live" and saved["diff"] == fix.diff

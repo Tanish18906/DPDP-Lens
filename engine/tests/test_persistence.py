@@ -1,4 +1,5 @@
 """Saved scans survive an engine restart, and the runner reports real progress."""
+import time
 import json
 
 from fastapi.testclient import TestClient
@@ -92,8 +93,27 @@ def test_the_api_shows_progress_while_a_scan_runs_and_drops_it_after(tmp_path):
     (tmp_path / "x.db").write_text("")
     c = TestClient(create_app(scan_fn=slow_scan, repo_root=tmp_path))
     c.post("/scan", json=BODY)
-    assert seen == {"status": "running", "step": "api_scan", "done": 2, "total": 9}
+    assert seen == {"status": "running", "step": "api_scan", "done": 2, "total": 9, "steps_ms": []}
     assert "status" not in c.get("/scan/S-001").json() and c.get("/scan/S-001").json()["scan_id"] == "S-001"
+
+
+def test_the_api_measures_each_scan_step(tmp_path):
+    seen = {}
+
+    def two_steps(target, repo, db, scan_id, progress):
+        progress("api_scan", 0, 2)
+        time.sleep(0.05)
+        progress("db_scan", 1, 2)
+        seen.update(c.app.state.scans[scan_id])
+        return fake_scan(target, repo, db, scan_id)
+
+    (tmp_path / "x.db").write_text("")
+    c = TestClient(create_app(scan_fn=two_steps, repo_root=tmp_path))
+    c.post("/scan", json=BODY)
+    assert [s["step"] for s in seen["steps_ms"]] == ["api_scan"] and seen["steps_ms"][0]["ms"] >= 50
+    steps = c.get("/scan/S-001/timings").json()["steps"]
+    assert [s["step"] for s in steps] == ["api_scan", "db_scan"] and all(s["ms"] >= 0 for s in steps)
+    assert c.get("/scan/S-999/timings").status_code == 404
 
 
 def test_a_scan_function_without_progress_still_works(tmp_path):

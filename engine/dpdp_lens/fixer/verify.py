@@ -7,7 +7,7 @@ import py_compile
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -30,6 +30,7 @@ class Verification:
     fix: Fix
     rescan: ScanResult
     tests_output: str
+    log: dict = field(default_factory=dict)  # real timings and facts of this run, for the dashboard's verification log
 
 
 def _key(f: Finding):
@@ -53,8 +54,17 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
     tests_dir = Path(tests_dir or Path(repo_path).parent / "tests")
     frontend_dir = Path(frontend_dir or Path(repo_path).parent / "frontend") if template.needs_frontend else None
     deadline = time.monotonic() + timeout
+    started = last = time.monotonic()
+    steps: list[dict] = []
+
+    def mark(step: str) -> None:  # measured wall time of each phase, in the order the dashboard lists them
+        nonlocal last
+        now = time.monotonic()
+        steps.append({"step": step, "ms": round((now - last) * 1000)})
+        last = now
 
     with Sandbox(repo_path, db_path, start_timeout=min(START_TIMEOUT, timeout), frontend_path=frontend_dir) as sb:
+        mark("copy")
         changes = apply_template(template, {"backend": sb.repo, "frontend": sb.frontend})
         for change in changes:
             if change.label.endswith(".py"):
@@ -66,16 +76,19 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
         if template.needs_frontend:
             sb.build_frontend()  # PatchError if the patched frontend does not build
             _left(deadline)
+        mark("patch")  # includes the frontend build for a frontend patch
         url = sb.start()
         if template.needs_frontend:
             extra["frontend_url"] = sb.start_frontend()  # the re-scan looks at the patched page, not the original
         _left(deadline)
+        mark("start")
         # Re-scan first: pytest signs users up and deletes them, which would change the sandbox DB and the score.
         errors: list[str] = []
         rescan = run_scan(url, str(sb.repo), str(sb.db), timeout=min(SCANNER_TIMEOUT, _left(deadline)), errors=errors, **extra)
         broken = [e for e in errors if e.startswith(f"{template.scanner}:")]
         if broken:  # a scanner that could not run must never read as "the finding is gone"
             raise RuntimeError(f"the re-scan could not run {template.scanner}: {broken[0]}")
+        mark("rescan")
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "pytest", str(tests_dir), "-q", "-p", "no:cacheprovider"],
@@ -83,6 +96,8 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
                 env={**os.environ, "TUTORNEST_BASE_URL": url, "PYTHONDONTWRITEBYTECODE": "1"})  # original folder stays untouched
         except subprocess.TimeoutExpired as e:
             raise FixTimeout("the app's tests did not finish in time") from e
+        mark("tests")
+        sandbox_root = str(sb.root)
 
     gone = all(_key(f) != _key(finding) for f in rescan.findings)
     tests_ok = proc.returncode == 0  # for a frontend patch this also means the patched frontend built
@@ -92,7 +107,12 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
               score_before=score_before, score_after=rescan.score)
     if fix.verified:
         save_golden(template, fix, golden_dir)
-    return Verification(fix=fix, rescan=rescan, tests_output="\n".join(proc.stdout.splitlines()[-15:]))
+    out = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    log = {"steps": steps, "total_ms": round((time.monotonic() - started) * 1000),
+           "sandbox": sandbox_root, "port": urlparse(url).port,  # the sandbox folder is deleted when the run ends
+           "rescan_check": template.scanner, "rescan_findings": len(rescan.findings), "rescan_result": "gone" if gone else "still found",
+           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}"}
+    return Verification(fix=fix, rescan=rescan, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
 
 
 def save_golden(template: Template, fix: Fix, golden_dir=GOLDEN_DIR) -> None:
