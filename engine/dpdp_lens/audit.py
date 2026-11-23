@@ -13,7 +13,7 @@ from .store import Store
 
 TYPES = {"repo_connected", "scan_started", "scan_completed", "scan_incomplete", "scan_failed", "finding_created",
          "finding_resolved", "finding_reopened", "status_changed", "baseline_set", "watch_changed", "fix_started",
-         "fix_verified", "fix_failed", "policy_changed", "github_installed", "report_link_created"}
+         "fix_verified", "fix_failed", "policy_changed", "github_installed", "report_link_created", "pr_opened", "pr_failed"}
 GENESIS = "0" * 64
 _TOKEN = re.compile(r"xox[abeprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}"
                     r"|eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}")  # last: a JWT (the GitHub App's)

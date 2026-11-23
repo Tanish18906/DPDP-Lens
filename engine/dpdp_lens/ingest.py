@@ -1,6 +1,7 @@
 """Turns scans into finding records with stable human IDs and a triage status (master sections 6, 7 and 10).
 Everything here works on the Store and plain models, so tests need no network and no running app."""
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -278,8 +279,16 @@ def delta_of(store: Store, scan_id: str) -> dict:
             "health": health(store, scan["repo_id"])}
 
 
-_SELECT = ("SELECT f.*, r.full_name, r.branch, s1.finished_at AS first_seen_at, s2.finished_at AS last_seen_at FROM findings f "
+_SELECT = ("SELECT f.*, r.full_name, r.branch, r.installation_id, s1.finished_at AS first_seen_at, s2.finished_at AS last_seen_at FROM findings f "
            "JOIN repos r ON r.id=f.repo_id LEFT JOIN scans s1 ON s1.scan_id=f.first_seen_scan LEFT JOIN scans s2 ON s2.scan_id=f.last_seen_scan")
+
+
+def pr_available(row, last: dict) -> bool:
+    """Whether "Open pull request" may be offered for this finding: the switch is on, the repo is in DPDP_FIX_REPOS and connected through the
+    GitHub App, the fix is verified and no pull request was opened yet. api_v2 checks all of it again, and the fix mode, when the button is used."""
+    fix_repos = {x.strip().lower() for x in os.environ.get("DPDP_FIX_REPOS", "").split(",") if x.strip()}
+    return bool(os.environ.get("DPDP_ALLOW_PR") == "1" and row["full_name"].lower() in fix_repos and row["installation_id"] is not None
+                and row["status"] == "fixed" and (last.get("fix") or {}).get("verified") and not row["pr_url"])
 
 
 def record_of(row) -> dict:
@@ -291,6 +300,7 @@ def record_of(row) -> dict:
             "status": row["status"], "status_reason": row["status_reason"], "status_by": row["status_by"], "status_at": row["status_at"],
             "first_seen_at": row["first_seen_at"], "last_seen_at": row["last_seen_at"],
             "location": {"file": loc.get("file", ""), "line": loc.get("line", 0), "url": loc.get("url", "")},
+            "pr_url": row["pr_url"], "pr_available": pr_available(row, last),
             "fix_available": bool(last.get("fix", {}).get("available")), "explanation": last.get("explanation", ""),
             "slack": {"channel": row["slack_channel"], "ts": row["slack_ts"]} if row["slack_channel"] and row["slack_ts"] else None}
 
