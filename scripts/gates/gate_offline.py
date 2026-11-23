@@ -22,10 +22,14 @@ with sync_playwright() as p:
     page.get_by_text("Simulated (sample data)").wait_for(timeout=10000)
     t = c.body(page)
     g.check("sample fix labelled Simulated, no live claims", "Simulated. No real re-scan or tests were run." in t and "Cached golden" not in t
-            and "Verified on a sandbox copy" not in t and "Download patch" not in t)
+            and "Verified on a sandbox copy" not in t and "Download patch" not in t and "SIMULATED" in t and "VERIFIED" not in t)
     page.get_by_role("button", name="Notice vs Runtime").click()
-    g.check("sample drift shows the facebook.com request", "request:facebook.com" in c.body(page))
+    g.check("sample drift shows the facebook.com request", "facebook.com" in c.body(page))
     c.shot(page, "sample-mode")
+    page.get_by_role("button", name="Back to live engine").click()
+    page.get_by_role("button", name="Use sample data").wait_for(timeout=5000)  # engine still blocked: banner is back
+    t = c.body(page)
+    g.check("back to live: SAMPLE label and sample findings gone", "SAMPLE" not in t and "Sample Data Mode" not in t and "Findings (5)" not in t)
     g.check("no console errors", not c.real_errors(errs), "; ".join(errs))
     b.close()
 g.done()

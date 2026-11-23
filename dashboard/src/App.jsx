@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import sampleScan from './sample-scan.json'
 
 // API & Environment Constants
@@ -19,35 +19,56 @@ const SEVERITY_WEIGHTS = {
   low: 2
 }
 
+// Severity is always shown with its word, never colour alone. Full class names so Tailwind finds them.
 const SEVERITY_STYLES = {
-  critical: {
-    dot: 'bg-[#FF5C5C]',
-    text: 'text-[#FF5C5C]',
-    border: 'border-[#FF5C5C]/30',
-    bg: 'bg-[#FF5C5C]/10',
-    badge: 'border-[#FF5C5C] text-[#FF5C5C] bg-[#FF5C5C]/10'
-  },
-  high: {
-    dot: 'bg-[#FF9F43]',
-    text: 'text-[#FF9F43]',
-    border: 'border-[#FF9F43]/30',
-    bg: 'bg-[#FF9F43]/10',
-    badge: 'border-[#FF9F43] text-[#FF9F43] bg-[#FF9F43]/10'
-  },
-  medium: {
-    dot: 'bg-[#F5C451]',
-    text: 'text-[#F5C451]',
-    border: 'border-[#F5C451]/30',
-    bg: 'bg-[#F5C451]/10',
-    badge: 'border-[#F5C451] text-[#F5C451] bg-[#F5C451]/10'
-  },
-  low: {
-    dot: 'bg-[#6FA8DC]',
-    text: 'text-[#6FA8DC]',
-    border: 'border-[#6FA8DC]/30',
-    bg: 'bg-[#6FA8DC]/10',
-    badge: 'border-[#6FA8DC] text-[#6FA8DC] bg-[#6FA8DC]/10'
-  }
+  critical: { bar: 'bg-critical', text: 'text-critical', label: 'Critical' },
+  high: { bar: 'bg-high', text: 'text-high', label: 'High' },
+  medium: { bar: 'bg-medium', text: 'text-medium', label: 'Medium' },
+  low: { bar: 'bg-low', text: 'text-low', label: 'Low' }
+}
+
+function readiness(score) {
+  if (score === null) return 'No scan yet'
+  return score < 50 ? 'Not ready' : score < 80 ? 'Partly ready' : 'Ready for review'
+}
+
+// Brand mark: a ring with a notch and a centre point. Original, drawn by hand; public/favicon.svg is the same shape.
+function LogoMark({ className }) {
+  return (
+    <svg aria-hidden="true" className={className} viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="11" stroke="currentColor" strokeWidth="3.5" strokeDasharray="56 13.1" transform="rotate(-12 16 16)" />
+      <circle cx="16" cy="16" r="3.5" fill="currentColor" />
+    </svg>
+  )
+}
+
+// Done, current or pending marker for the fix steps and the scan layers.
+function StepMarker({ state }) {
+  if (state === 'done')
+    return (
+      <svg aria-hidden="true" className="w-5 h-5 text-accent shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+      </svg>
+    )
+  if (state === 'current')
+    return (
+      <span aria-hidden="true" className="w-5 h-5 rounded-full border-2 border-accent grid place-items-center shrink-0">
+        <span className="w-2 h-2 rounded-full bg-accent" />
+      </span>
+    )
+  return <span aria-hidden="true" className="w-5 h-5 rounded-full border border-line shrink-0" />
+}
+
+// One tag style for state labels (CACHED, SAMPLE).
+function Tag({ children }) {
+  return (
+    <span className="font-mono text-[13px] font-semibold tracking-[0.08em] px-1.5 rounded-[3px] bg-high text-white">{children}</span>
+  )
+}
+
+// Small uppercase heading used for every block in the detail panel.
+function Label({ children }) {
+  return <h3 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted m-0">{children}</h3>
 }
 
 const FIX_STEPS = [
@@ -72,6 +93,27 @@ const SCAN_STEP_LABELS = {
 }
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low']
+
+// Scan steps in the engine's order (runner.SCANNERS plus notice_drift); progress.done counts finished steps.
+const SCAN_ORDER = Object.keys(SCAN_STEP_LABELS)
+const SCAN_LAYERS = [
+  ['API', ['api_scan', 'idor_probe', 'children_scan']],
+  ['Database', ['db_scan', 'erasure_scan']],
+  ['Code', ['log_scan']],
+  ['Browser', ['browser_scan']],
+  ['Notice', ['contact_scan', 'notice_drift']]
+]
+
+function layerState(steps, progress) {
+  const done = progress?.done ?? 0
+  if (steps.every((st) => SCAN_ORDER.indexOf(st) < done)) return 'done'
+  return steps.includes(progress?.step) ? 'current' : 'pending'
+}
+
+// Notice vs Runtime layer columns, by the prefix of each notice_drift.observed[].where entry.
+const DRIFT_LAYERS = [['db', 'Database'], ['api', 'API'], ['request', 'Third party']]
+
+const LAYER_NAMES = { db: 'Database', code: 'Code', api: 'API', browser: 'Browser', notice: 'Notice' }
 
 // What the page shows before any scan. Never sample data.
 const EMPTY_SCAN = { target: '', scanned_at: null, score: null, counts: null, findings: [], notice_drift: null }
@@ -156,26 +198,24 @@ function DiffViewer({ diffText }) {
   const lines = diffText.split('\n')
 
   return (
-    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] overflow-x-auto text-[13px] font-mono p-3 leading-snug">
+    <div className="bg-surface border border-line rounded-[6px] overflow-x-auto text-[14px] font-mono py-2 leading-relaxed">
       {lines.map((line, idx) => {
-        let lineStyle = 'text-[#E6EDF3]'
-        let lineBg = 'transparent'
+        let lineStyle = 'text-ink'
+        let lineBg = ''
 
         if (line.startsWith('---') || line.startsWith('+++')) {
-          lineStyle = 'text-[#8B98A8] font-bold'
+          lineStyle = 'text-muted'
         } else if (line.startsWith('@@')) {
-          lineStyle = 'text-[#7AA2F7]'
-          lineBg = 'bg-[#7AA2F7]/10'
+          lineStyle = 'text-muted'
+          lineBg = 'bg-paper'
         } else if (line.startsWith('+')) {
-          lineStyle = 'text-[#3DDC97]'
-          lineBg = 'bg-[#3DDC97]/15'
+          lineBg = 'bg-[#E3F0EC]'
         } else if (line.startsWith('-')) {
-          lineStyle = 'text-[#FF5C5C]'
-          lineBg = 'bg-[#FF5C5C]/15'
+          lineBg = 'bg-[#FBE9E7]'
         }
 
         return (
-          <div key={idx} className={`px-2 rounded-[2px] whitespace-pre-wrap break-words ${lineStyle} ${lineBg}`}>
+          <div key={idx} className={`px-3 whitespace-pre-wrap break-words ${lineStyle} ${lineBg}`}>
             {line || ' '}
           </div>
         )
@@ -190,121 +230,29 @@ function StatusBadge({ label, passed }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] font-medium border ${
-        isPassed
-          ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/40'
-          : isFailed
-          ? 'bg-[#FF5C5C]/15 text-[#FF5C5C] border-[#FF5C5C]/40'
-          : 'bg-[#19212C] text-[#8B98A8] border-[#263140]'
+      className={`inline-flex items-center gap-2 text-[15px] font-medium ${
+        isPassed ? 'text-accent' : isFailed ? 'text-critical' : 'text-muted'
       }`}
     >
       {isPassed ? (
-        <svg className="w-3.5 h-3.5 text-[#3DDC97]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
         </svg>
       ) : isFailed ? (
-        <svg className="w-3.5 h-3.5 text-[#FF5C5C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
         </svg>
       ) : (
-        <span className="w-2 h-2 rounded-full bg-[#8B98A8]" />
+        <span aria-hidden="true" className="w-2 h-2 rounded-full bg-muted" />
       )}
       {label}
     </span>
   )
 }
 
-// Data Flow map. Fields are grouped by where-prefix of notice_drift.observed:
-// db -> DB to API arrow, api -> API to Frontend arrow, request -> Frontend to Third parties arrow.
-const FLOW_BOXES = [
-  { label: 'Database', sub: 'SQLite / demo.db' },
-  { label: 'Backend API', sub: ':8000 / FastAPI' },
-  { label: 'Frontend', sub: ':5173 / React' },
-  { label: 'Third parties', sub: '' },
-]
-const FLOW_HOPS = ['db', 'api', 'request']
-const BOX_W = 130
-const BOX_GAP = 100
-
-function flowFromDrift(drift) {
-  const fields = { db: [], api: [], request: [] }
-  const hosts = new Set()
-  for (const o of drift.observed || []) {
-    const prefixes = new Set((o.where || []).map((w) => w.split(':')[0]))
-    for (const p of FLOW_HOPS) if (prefixes.has(p)) fields[p].push(o.field)
-    for (const w of o.where || []) if (w.startsWith('request:')) hosts.add(w.slice('request:'.length))
-  }
-  return { fields, hosts: [...hosts] }
-}
-
-function FlowMap({ drift }) {
-  const undeclared = new Set(drift.undeclared || [])
-  const { fields, hosts } = flowFromDrift(drift)
-  const noRequests = fields.request.length === 0
-  const boxX = (i) => 10 + i * (BOX_W + BOX_GAP)
-  const hopColor = (list) =>
-    list.length === 0 ? '#8B98A8' : list.some((f) => undeclared.has(f)) ? '#FF5C5C' : '#3DDC97'
-  const summary = FLOW_HOPS.map(
-    (h, i) => `${FLOW_BOXES[i].label} to ${FLOW_BOXES[i + 1].label}: ${fields[h].join(', ') || 'none observed'}`,
-  ).join('. ')
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="w-full bg-[#0B0F14] border border-[#263140] rounded-[8px] p-6 overflow-x-auto">
-        <svg className="w-full min-w-[760px] h-[260px]" viewBox="0 0 860 260" role="img" aria-label={summary}>
-          <defs>
-            {[['green', '#3DDC97'], ['red', '#FF5C5C'], ['grey', '#8B98A8']].map(([n, c]) => (
-              <marker key={n} id={`flow-arrow-${n}`} markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-                <path d="M 0 0 L 8 4 L 0 8 z" fill={c} />
-              </marker>
-            ))}
-          </defs>
-
-          {FLOW_BOXES.map((b, i) => {
-            const thirdParty = i === 3
-            const stroke = thirdParty ? hopColor(fields.request) : '#263140'
-            return (
-              <g key={b.label}>
-                <rect x={boxX(i)} y="100" width={BOX_W} height="80" rx="8" fill="#121821" stroke={stroke} strokeWidth="1.5" />
-                <text x={boxX(i) + BOX_W / 2} y="135" fill="#E6EDF3" fontSize="14" fontWeight="600" textAnchor="middle">{b.label}</text>
-                {(thirdParty ? hosts.slice(0, 2) : [b.sub]).map((t, k) => (
-                  <text key={t || k} x={boxX(i) + BOX_W / 2} y={155 + k * 14} fill="#8B98A8" fontSize="11" fontFamily="monospace" textAnchor="middle">{t}</text>
-                ))}
-              </g>
-            )
-          })}
-
-          {FLOW_HOPS.map((h, i) => {
-            const list = fields[h]
-            const color = hopColor(list)
-            const name = color === '#FF5C5C' ? 'red' : color === '#3DDC97' ? 'green' : 'grey'
-            const x1 = boxX(i) + BOX_W
-            const x2 = boxX(i + 1)
-            return (
-              <g key={h}>
-                <path d={`M ${x1} 140 L ${x2 - 2} 140`} stroke={color} strokeWidth="2" strokeDasharray={list.length ? undefined : '4 4'} markerEnd={`url(#flow-arrow-${name})`} />
-                {list.map((f, k) => (
-                  <text key={f} x={(x1 + x2) / 2} y={128 - k * 14} fill={undeclared.has(f) ? '#FF5C5C' : '#3DDC97'} fontSize="11" fontFamily="monospace" textAnchor="middle">
-                    {undeclared.has(f) ? `! ${f}` : f}
-                  </text>
-                ))}
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-      <p className="text-[12px] text-[#8B98A8] m-0">
-        <span className="text-[#FF5C5C]">Red, marked !</span> = field not in the notice. <span className="text-[#3DDC97]">Green</span> = declared. Grey dashed = none observed.
-        {noRequests && ' No third-party request was observed as a drift field. Trackers are reported as findings (see tracker_before_consent).'}
-      </p>
-    </div>
-  )
-}
-
 export default function App() {
   const [scanData, setScanData] = useState(EMPTY_SCAN)
   const [activeTab, setActiveTab] = useState('findings')
-  const [activeTooltipClause, setActiveTooltipClause] = useState(null)
 
   // Real Engine & Mock Mode States
   const [sampleMode, setSampleMode] = useState(false) // only a click on "Use sample data" turns this on
@@ -381,6 +329,20 @@ export default function App() {
     setSelectedFindingId(sampleScan.findings[0]?.id ?? null)
   }
 
+  // Leave sample mode: clear the sample result and check the engine again.
+  const handleBackToLive = () => {
+    setSampleMode(false)
+    setScanData(EMPTY_SCAN)
+    setAnimatedScore(null)
+    setScoreHistory(null)
+    setFixMeta({})
+    setFixError(null)
+    setScanError(null)
+    setSelectedFindingId(null)
+    setEngineConnected(null)
+    checkEngineHealth()
+  }
+
   // Run scan: real engine by default. Any error is shown in a red banner, never replaced by sample data.
   const handleRunScan = async () => {
     setIsScanning(true)
@@ -410,10 +372,15 @@ export default function App() {
   }
 
   function animateScore(from, to) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setAnimatedScore(to)
+      return
+    }
     const startTime = performance.now()
     function animate(now) {
-      const progress = Math.min(1, (now - startTime) / 400)
-      setAnimatedScore(Math.round(from + (to - from) * progress))
+      const progress = Math.min(1, (now - startTime) / 800)
+      const eased = 1 - (1 - progress) ** 3 // ease-out
+      setAnimatedScore(Math.round(from + (to - from) * eased))
       if (progress < 1) requestAnimationFrame(animate)
     }
     requestAnimationFrame(animate)
@@ -546,7 +513,7 @@ export default function App() {
   }
 
   const score = animatedScore
-  const scoreColor = score === null ? '#8B98A8' : score < 50 ? '#FF5C5C' : score < 80 ? '#FF9F43' : '#3DDC97'
+  const openTotal = SEVERITIES.reduce((n, sev) => n + (scanData.counts?.[sev] || 0), 0)
 
   // Notice drift computed properties
   const drift = scanData.notice_drift || { declared: [], observed: [], undeclared: [] }
@@ -558,6 +525,15 @@ export default function App() {
   const allUniqueFieldsSet = new Set([...declaredList, ...observedFieldNames])
   const totalUniqueFields = allUniqueFieldsSet.size
   const undeclaredCount = undeclaredList.length
+  // One row per field, undeclared first: Field | In the notice? | Where it was seen.
+  const driftRows = [...allUniqueFieldsSet]
+    .map((field) => ({
+      field,
+      declared: declaredList.includes(field),
+      undeclared: undeclaredList.includes(field),
+      where: observedList.find((o) => o.field === field)?.where || []
+    }))
+    .sort((x, y) => y.undeclared - x.undeclared)
 
   const fix = selectedFinding?.fix || {}
   const fixMode = selectedFinding ? fixMeta[selectedFinding.id] : null
@@ -565,531 +541,518 @@ export default function App() {
     Boolean(selectedFinding) &&
     (selectedFinding.status === 'verified_fixed' || fix.rescan_passed != null || fix.tests_passed != null)
 
+  const views = [
+    { key: 'findings', label: 'Findings', count: sortedFindings.length, countText: 'findings' },
+    { key: 'notice_drift', label: 'Notice vs Runtime', count: undeclaredCount, countText: 'undeclared fields', alert: undeclaredCount > 0 }
+  ]
+  const showResults = hasScan && !isScanning
+  const fixable = (scanData.findings || []).filter((f) => f.fix?.available)
+  const allFixed = !sampleMode && fixable.length > 0 && fixable.every((f) => f.status === 'verified_fixed')
+  const cachedCount = fixable.filter((f) => fixMeta[f.id]?.mode === 'cached_golden').length
+  const manualCount = (scanData.findings || []).length - fixable.length
+  const firstRun = !hasScan && !isScanning && activeTab === 'findings'
+  const pageTitle = firstRun ? 'Readiness scan' : views.find((v) => v.key === activeTab)?.label
+
   return (
-    <div className="min-h-screen bg-[#0B0F14] text-[#E6EDF3] flex flex-col font-sans">
-      {/* 1. Sticky Top Bar */}
-      <header className="sticky top-0 z-50 bg-[#121821] border-b border-[#263140] px-6 py-2 print:hidden">
-        <div className="max-w-[1280px] mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[18px] font-semibold tracking-tight text-[#E6EDF3] m-0">DPDP Lens</h1>
-            <span className="mono text-[12px] bg-[#19212C] border border-[#263140] px-2 py-0.5 rounded-[6px] text-[#8B98A8]">
-              target: {scanData.target || 'no scan yet'}
-            </span>
-            {hasScan && (
-              <span className="text-[12px] text-[#8B98A8] hidden sm:inline">
-                scanned: {new Date(scanData.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
-            {/* Mode pill: sample data only after a click on "Use sample data" */}
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
-                sampleMode || engineConnected === false
-                  ? 'bg-[#FF9F43]/15 text-[#FF9F43] border-[#FF9F43]/30'
-                  : engineConnected
-                  ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/30'
-                  : 'bg-[#19212C] text-[#8B98A8] border-[#263140]'
+    <div className="min-h-screen bg-paper text-ink font-sans">
+      {/* 1. Left rail: brand, views, then target and engine status. A top block below the lg breakpoint. */}
+      <aside className="bg-surface border-b border-line lg:border-b-0 lg:border-r lg:fixed lg:inset-y-0 lg:left-0 lg:w-[220px] flex flex-col print:hidden">
+        <div className="flex items-center gap-2.5 px-5 pt-5 pb-4">
+          <LogoMark className="w-7 h-7 text-accent shrink-0" />
+          <span className="font-serif text-[22px] font-semibold leading-none text-ink">DPDP Lens</span>
+        </div>
+
+        <nav aria-label="Views" className="flex lg:flex-col gap-1 px-3 pb-3">
+          {views.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => setActiveTab(v.key)}
+              aria-current={activeTab === v.key ? 'page' : undefined}
+              className={`flex items-center gap-2 w-full text-left px-3 py-2.5 rounded-[6px] text-[15px] transition-colors duration-150 cursor-pointer ${
+                activeTab === v.key ? 'bg-accent-soft text-ink font-semibold' : 'text-muted hover:bg-paper hover:text-ink font-medium'
               }`}
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  sampleMode || engineConnected === false ? 'bg-[#FF9F43]' : engineConnected ? 'bg-[#3DDC97]' : 'bg-[#8B98A8]'
-                }`}
-              />
-              {sampleMode
-                ? 'Sample Data Mode'
-                : engineConnected
-                ? 'Live Engine (:8100)'
-                : engineConnected === false
-                ? 'Engine offline'
-                : 'Checking engine...'}
-            </span>
-          </div>
+              {v.label}
+              {(hasScan || sampleMode) && (
+                <span className={`ml-auto font-mono text-[14px] tabular ${v.alert ? 'text-critical font-semibold' : 'text-muted'}`}>
+                  {v.count}
+                  <span className="sr-only"> {v.countText}</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
 
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[#8B98A8] border border-[#263140] px-2.5 py-0.5 rounded-[6px] hidden lg:inline">
-              Readiness report, not a compliance certificate
-            </span>
-            {sampleMode && scoreHistory && (
+        <div className="lg:mt-auto flex flex-col gap-2 px-5 py-4 border-t border-line text-[13px]">
+          <div className="flex flex-col">
+            <span className="text-muted">Target</span>
+            <span className="font-mono text-ink break-all">{scanData.target || SCAN_REQUEST.target_url}</span>
+          </div>
+          <span className="text-muted tabular">
+            {hasScan
+              ? `Scanned ${new Date(scanData.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+              : 'No scan yet'}
+          </span>
+          {/* Engine status. Sample data only after a click on "Use sample data". */}
+          <span className={`inline-flex items-center gap-2 ${sampleMode || engineConnected === false ? 'text-high font-medium' : 'text-muted'}`}>
+            <span
+              aria-hidden="true"
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                sampleMode || engineConnected === false ? 'bg-high' : engineConnected ? 'bg-accent' : 'bg-muted'
+              }`}
+            />
+            {sampleMode
+              ? 'Sample Data Mode'
+              : engineConnected
+              ? 'Live Engine (:8100)'
+              : engineConnected === false
+              ? 'Engine offline'
+              : 'Checking engine...'}
+          </span>
+        </div>
+      </aside>
+
+      <div className="lg:pl-[220px] min-h-screen flex flex-col">
+        <div className="w-full max-w-[1280px] px-8 flex-1 flex flex-col">
+          {/* 2. Page header: title on the left, actions on the right */}
+          <header className="pt-6 pb-2 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <h1 className="font-serif text-[28px] leading-tight font-semibold text-ink m-0">{pageTitle}</h1>
+              {sampleMode && <Tag>SAMPLE</Tag>}
+            </div>
+            <div className="flex items-center gap-5 print:hidden">
+              {sampleMode && scoreHistory && (
+                <button
+                  type="button"
+                  onClick={handleResetDemo}
+                  className="text-[15px] text-muted hover:text-ink underline-offset-4 hover:underline transition-colors duration-150 cursor-pointer"
+                  title="Reset demo state"
+                >
+                  Reset demo
+                </button>
+              )}
+              {sampleMode && (
+                <button
+                  type="button"
+                  onClick={handleBackToLive}
+                  className="text-[15px] text-muted hover:text-ink underline-offset-4 hover:underline transition-colors duration-150 cursor-pointer"
+                >
+                  Back to live engine
+                </button>
+              )}
+              {hasScan && (
               <button
                 type="button"
-                onClick={handleResetDemo}
-                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#8B98A8] hover:text-[#E6EDF3] text-[13px] transition cursor-pointer"
-                title="Reset demo state"
+                onClick={handleExportReport}
+                className="text-[15px] font-medium text-accent hover:text-accent-hover underline-offset-4 hover:underline transition-colors duration-150 cursor-pointer"
               >
-                Reset demo
+                Export report
               </button>
-            )}
+              )}
+              {/* The first-run screen has its own Run scan button, so there is only ever one. */}
+              {!firstRun && (
+              <button
+                type="button"
+                disabled={isScanning}
+                onClick={handleRunScan}
+                className="px-5 py-2.5 rounded-[6px] bg-accent hover:bg-accent-hover disabled:opacity-60 text-white text-[15px] font-medium transition-colors duration-150 cursor-pointer"
+              >
+                {isScanning ? 'Scanning...' : 'Run scan'}
+              </button>
+              )}
+            </div>
+          </header>
+
+          {/* Red banner: the engine's own error text. Never replaced by sample data. */}
+          {scanError && (
+            <div role="alert" className="mt-4 bg-surface border border-line border-l-4 border-l-critical rounded-[6px] px-4 py-2.5 text-[15px] text-critical print:hidden">
+              <strong>Scan failed:</strong> {scanError}
+            </div>
+          )}
+
+          {fixError && (
+            <div role="alert" className="mt-4 bg-surface border border-line border-l-4 border-l-critical rounded-[6px] px-4 py-2.5 text-[15px] text-critical print:hidden">
+              <strong>Fix failed:</strong> {fixError}. The finding stays open.
+            </div>
+          )}
+
+          {/* Engine unreachable. Sample data only on a click. */}
+          {engineConnected === false && !sampleMode && (
+            <div className="mt-4 bg-surface border border-line border-l-4 border-l-high rounded-[6px] px-4 py-2.5 text-[15px] text-high flex flex-wrap items-center gap-4 print:hidden">
+              <span>Engine not reachable at {API_BASE}.</span>
+              <button
+                type="button"
+                onClick={handleUseSample}
+                className="font-medium text-accent hover:text-accent-hover underline underline-offset-4 cursor-pointer"
+              >
+                Use sample data
+              </button>
+            </div>
+          )}
+
+      {/* Main Content Area */}
+      <main className="py-6 flex-1 flex flex-col gap-6">
+        {/* Scanning: the five layers tick from the engine's real progress. Skeleton rows, no spinner. */}
+        {isScanning && (
+          <>
+            <section aria-live="polite" aria-label="Scan progress" className="bg-surface border border-line rounded-[6px] p-5 flex flex-col gap-4 print:hidden">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="font-serif text-[20px] font-semibold text-ink">
+                  Scanning {sampleMode ? 'sample data' : SCAN_REQUEST.target_url}
+                </span>
+                <span className="font-mono text-[14px] text-muted tabular">
+                  {scanProgress ? `Step ${scanProgress.done + 1} of ${scanProgress.total}` : ''}
+                </span>
+              </div>
+              <ol className="list-none p-0 m-0 grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {SCAN_LAYERS.map(([name, steps]) => {
+                  const state = layerState(steps, scanProgress)
+                  return (
+                    <li key={name} className={`flex items-center gap-2 text-[15px] ${state === 'pending' ? 'text-muted' : 'text-ink font-medium'}`}>
+                      <StepMarker state={state} />
+                      {name}
+                    </li>
+                  )
+                })}
+              </ol>
+              <div className="text-[15px] text-ink">
+                {scanProgress
+                  ? SCAN_STEP_LABELS[scanProgress.step] || scanProgress.step
+                  : sampleMode
+                  ? 'Loading the sample scan'
+                  : 'Starting the scan'}
+              </div>
+            </section>
+            <div aria-hidden="true" className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-pulse">
+              <div className="lg:col-span-5 bg-surface border border-line rounded-[6px] overflow-hidden">
+                {[0, 1, 2, 3, 4, 5].map((k) => (
+                  <div key={k} className="flex items-start gap-3 px-4 py-4 border-b border-line last:border-b-0">
+                    <span className="w-16 h-3 rounded bg-line" />
+                    <span className="flex-1 flex flex-col gap-2">
+                      <span className="h-3 rounded bg-line w-4/5" />
+                      <span className="h-3 rounded bg-line w-1/4" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="lg:col-span-7 bg-surface border border-line rounded-[6px] p-6 flex flex-col gap-4">
+                <span className="h-5 rounded bg-line w-3/5" />
+                <span className="h-3 rounded bg-line w-full" />
+                <span className="h-3 rounded bg-line w-5/6" />
+                <span className="h-24 rounded bg-line w-full" />
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* First run: no scan yet */}
+        {firstRun && (
+          <section aria-label="First run" className="flex flex-col items-start gap-5 py-12 max-w-[680px]">
+            <LogoMark className="w-12 h-12 text-accent" />
+            <h2 className="font-serif text-[36px] leading-tight font-semibold text-ink m-0">
+              Does your app do what its privacy notice says?
+            </h2>
+            <p className="text-[16px] leading-relaxed text-muted m-0">
+              DPDP Lens checks the database, code, running API and browser of{' '}
+              <span className="font-mono text-ink">{SCAN_REQUEST.target_url}</span>, maps each finding to the DPDP Act and Rules,
+              and proves a fix on a sandbox copy before calling it verified.
+            </p>
             <button
               type="button"
-              disabled={isScanning}
               onClick={handleRunScan}
-              className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] font-medium transition cursor-pointer flex items-center gap-2"
+              className="px-6 py-3 rounded-[6px] bg-accent hover:bg-accent-hover text-white text-[16px] font-medium transition-colors duration-150 cursor-pointer"
             >
-              {isScanning && <span className="w-3 h-3 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin" />}
-              {isScanning ? 'Scanning...' : 'Run scan'}
+              Run scan
             </button>
+          </section>
+        )}
+
+        {/* 3. Score hero: the big number, then one stacked bar of open findings by severity */}
+        {showResults && (
+        <section className="flex flex-wrap items-end gap-x-14 gap-y-5 pb-6 border-b border-line" aria-label="Summary">
+          <div className="flex items-end gap-4">
+            <div className="font-serif text-[72px] leading-[0.85] font-semibold text-ink tabular">{score ?? '-'}</div>
+            <div className="flex flex-col pb-0.5">
+              <span className="text-[16px] text-muted tabular">/ 100</span>
+              <span className="font-serif text-[22px] leading-tight font-semibold text-ink">{readiness(score)}</span>
+            </div>
+          </div>
+
+          {scoreHistory && (
+            <div className="flex flex-col pb-0.5">
+              <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">Score change</span>
+              <span className="font-serif text-[22px] leading-tight font-semibold text-accent tabular">
+                {scoreHistory.before} to {scoreHistory.after}
+              </span>
+            </div>
+          )}
+
+          <div className="flex-1 min-w-[280px] max-w-[520px] flex flex-col gap-2.5 pb-1 ml-auto">
+            <div className={`flex gap-0.5 h-3 rounded-[3px] overflow-hidden ${openTotal ? '' : 'bg-line'}`} aria-hidden="true">
+              {SEVERITIES.map(
+                (sev) =>
+                  scanData.counts?.[sev] > 0 && (
+                    <div key={sev} className={SEVERITY_STYLES[sev].bar} style={{ flex: `${scanData.counts[sev]} 1 0` }} />
+                  )
+              )}
+            </div>
+            <div className="flex flex-wrap gap-x-6 gap-y-1">
+              {SEVERITIES.map((sev) => (
+                <span key={sev} className="inline-flex items-center gap-2 text-[15px]">
+                  <span aria-hidden="true" className={`w-2.5 h-2.5 rounded-[2px] ${SEVERITY_STYLES[sev].bar}`} />
+                  <span className={`font-medium ${SEVERITY_STYLES[sev].text}`}>{SEVERITY_STYLES[sev].label}</span>{' '}
+                  <span className="font-mono font-medium text-ink tabular">{scanData.counts?.[sev] ?? '-'}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+        )}
+
+        {/* All findings that have a fix template are verified (live only, sample fixes are simulated) */}
+        {activeTab === 'findings' && showResults && allFixed && (
+          <section
+            aria-label="All fixes verified"
+            className="bg-accent-soft border border-line rounded-[6px] px-5 py-4 flex flex-wrap items-center justify-between gap-4"
+          >
+            <div className="flex flex-col gap-1">
+              <span className="font-serif text-[20px] font-semibold text-ink">
+                All {fixable.length} findings with a fix template are verified
+              </span>
+              <span className="text-[15px] text-muted tabular">
+                {scoreHistory && `Score ${scoreHistory.before} to ${scoreHistory.after}. `}
+                {manualCount} {manualCount === 1 ? 'finding still needs' : 'findings still need'} a manual change.
+                {cachedCount > 0 && ` ${cachedCount} of the results came from cached runs.`}
+              </span>
+            </div>
             <button
               type="button"
               onClick={handleExportReport}
-              className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] font-medium transition cursor-pointer"
+              className="px-4 py-2 rounded-[6px] border border-line bg-surface hover:bg-paper text-ink text-[15px] font-medium transition-colors duration-150 cursor-pointer"
             >
-              Export report
+              Export the report
             </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Red banner: the engine's own error text. Never replaced by sample data. */}
-      {scanError && (
-        <div
-          role="alert"
-          className="bg-[#FF5C5C]/15 border-b border-[#FF5C5C]/40 px-6 py-2 text-center text-[14px] text-[#FF5C5C] print:hidden"
-        >
-          <strong>Scan failed:</strong> {scanError}
-        </div>
-      )}
-
-      {fixError && (
-        <div
-          role="alert"
-          className="bg-[#FF5C5C]/15 border-b border-[#FF5C5C]/40 px-6 py-2 text-center text-[14px] text-[#FF5C5C] print:hidden"
-        >
-          <strong>Fix failed:</strong> {fixError}. The finding stays open.
-        </div>
-      )}
-
-      {/* Amber banner: engine unreachable. Sample data only on a click. */}
-      {engineConnected === false && !sampleMode && (
-        <div className="bg-[#FF9F43]/15 border-b border-[#FF9F43]/30 px-6 py-2 text-center text-[14px] text-[#FF9F43] flex items-center justify-center gap-3 print:hidden">
-          <span>Engine not reachable at {API_BASE}.</span>
-          <button
-            type="button"
-            onClick={handleUseSample}
-            className="underline font-semibold cursor-pointer text-[#E6EDF3] hover:text-white"
-          >
-            Use sample data
-          </button>
-        </div>
-      )}
-
-      {/* Scanner Progress Modal / Overlay */}
-      {isScanning && (
-        <div className="max-w-[1280px] w-full mx-auto px-6 pt-4 print:hidden">
-          <div className="bg-[#121821] border border-[#3DDC97]/40 rounded-[10px] p-5 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="w-4 h-4 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin" />
-                <span className="text-[15px] font-semibold text-[#E6EDF3]">
-                  Running Cross-Layer DPDP Compliance Scan...
-                </span>
-              </div>
-              <span className="mono text-[12px] text-[#8B98A8]">
-                {scanProgress ? `Step ${scanProgress.done + 1} of ${scanProgress.total}` : ''}
-              </span>
-            </div>
-
-            <div className="text-[14px] text-[#3DDC97]">
-              {scanProgress
-                ? SCAN_STEP_LABELS[scanProgress.step] || scanProgress.step
-                : sampleMode
-                ? 'Loading the sample scan'
-                : 'Starting the scan'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Content Area */}
-      <main className="max-w-[1280px] w-full mx-auto px-6 py-3 flex-1 flex flex-col gap-3">
-        {/* 2. Summary Row: score and the four counts in one slim row */}
-        <section
-          className="bg-[#121821] border border-[#263140] rounded-[10px] px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-2"
-          aria-label="Summary"
-        >
-          <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 shrink-0">
-              <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                <circle cx="18" cy="18" r="14" fill="none" stroke="#19212C" strokeWidth="4" />
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="14"
-                  fill="none"
-                  stroke={scoreColor}
-                  strokeWidth="4"
-                  strokeDasharray={`${((score ?? 0) / 100) * 88} 88`}
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span
-                className="absolute inset-0 flex items-center justify-center text-[18px] font-bold transition-colors duration-300"
-                style={{ color: scoreColor }}
-              >
-                {score ?? '-'}
-              </span>
-            </div>
-            <div className="flex flex-col leading-tight">
-              <span className="text-[11px] uppercase tracking-wider text-[#8B98A8] font-semibold">Readiness score</span>
-              <span className="text-[15px] font-semibold text-[#E6EDF3]">
-                {score === null ? 'No scan yet' : score < 50 ? 'Needs Attention' : score < 80 ? 'Moderate Posture' : 'Good Posture'}
-              </span>
-              {scoreHistory && (
-                <span className="text-[12px] text-[#3DDC97] font-medium">
-                  Score: {scoreHistory.before} → {scoreHistory.after} (+{scoreHistory.after - scoreHistory.before})
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {SEVERITIES.map((sev) => (
-              <div
-                key={sev}
-                className="bg-[#19212C] border border-[#263140] rounded-[6px] px-2.5 py-1 flex items-center gap-2"
-              >
-                <span className={`w-2 h-2 rounded-full ${SEVERITY_STYLES[sev].dot}`} />
-                <span className={`text-[12px] font-semibold uppercase tracking-wide ${SEVERITY_STYLES[sev].text}`}>{sev}</span>
-                <span className="text-[18px] font-bold text-[#E6EDF3]">{scanData.counts?.[sev] ?? '-'}</span>
-              </div>
-            ))}
-          </div>
-
-          <span className="text-[12px] text-[#8B98A8] ml-auto hidden md:inline">Readiness score. Higher is better.</span>
-        </section>
-
-        {/* 3. Navigation Tabs */}
-        <div className="flex border-b border-[#263140] gap-8 print:hidden">
-          <button
-            type="button"
-            onClick={() => setActiveTab('findings')}
-            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
-              activeTab === 'findings'
-                ? 'border-[#3DDC97] text-[#3DDC97]'
-                : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
-            }`}
-          >
-            Findings
-            <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#19212C] border border-[#263140] text-[#E6EDF3]">
-              {sortedFindings.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('notice_drift')}
-            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
-              activeTab === 'notice_drift'
-                ? 'border-[#3DDC97] text-[#3DDC97]'
-                : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
-            }`}
-          >
-            Notice vs Runtime
-            {undeclaredCount > 0 && (
-              <span className="text-[12px] px-2 py-0.5 rounded-full bg-[#FF5C5C]/20 border border-[#FF5C5C]/40 text-[#FF5C5C] font-semibold">
-                {undeclaredCount} drift
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('data_flow')}
-            className={`pb-2 text-[15px] font-medium transition cursor-pointer flex items-center gap-2 border-b-2 ${
-              activeTab === 'data_flow'
-                ? 'border-[#3DDC97] text-[#3DDC97]'
-                : 'border-transparent text-[#8B98A8] hover:text-[#E6EDF3]'
-            }`}
-          >
-            Data Flow
-          </button>
-        </div>
+          </section>
+        )}
 
         {/* 4. Tab 1: Findings Split View */}
-        {activeTab === 'findings' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            {/* Left Column: Findings List (40% width on desktop) */}
+        {activeTab === 'findings' && showResults && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Findings List, grouped by severity */}
             <section
-              className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] overflow-hidden"
+              className="lg:col-span-5 bg-surface border border-line rounded-[6px] overflow-hidden"
               aria-label="Findings list"
             >
-              <div className="px-4 py-2 border-b border-[#263140] flex items-center justify-between">
-                <span className="text-[14px] font-semibold text-[#E6EDF3]">
-                  Findings ({sortedFindings.length})
-                </span>
-                <span className="text-[12px] text-[#8B98A8]">
-                  Use ↑ ↓ to navigate
-                </span>
+              <div className="px-4 py-3 border-b border-line flex items-baseline justify-between">
+                <h2 className="font-serif text-[20px] font-semibold text-ink m-0">Findings ({sortedFindings.length})</h2>
+                <span className="text-[13px] text-muted">↑ ↓ to move</span>
               </div>
 
-              <div className="divide-y divide-[#263140]">
-                {sortedFindings.length === 0 && (
-                  <div className="p-6 text-[14px] text-[#8B98A8]">
-                    {hasScan
-                      ? 'No findings from the checks we ran. The checks are limited, so this is not a compliance result.'
-                      : 'No scan yet. Click Run scan.'}
-                  </div>
-                )}
-                {sortedFindings.map((finding) => {
-                  const isSelected = selectedFinding?.id === finding.id
-                  const severity = finding.severity || 'low'
-                  const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.low
-                  const isFixed = finding.status === 'verified_fixed'
+              {sortedFindings.length === 0 && (
+                <div className="p-6 text-[15px] text-muted">
+                  {hasScan
+                    ? 'No findings from the checks we ran. The checks are limited, so this is not a compliance result.'
+                    : 'No scan yet. Click Run scan.'}
+                </div>
+              )}
 
-                  return (
-                    <div
-                      key={finding.id}
-                      id={`finding-row-${finding.id}`}
-                      onClick={() => setSelectedFindingId(finding.id)}
-                      tabIndex={0}
-                      role="button"
-                      aria-pressed={isSelected}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setSelectedFindingId(finding.id)
-                        }
-                      }}
-                      className={`px-3 py-2 transition cursor-pointer flex flex-col gap-1 border-l-4 ${
-                        isSelected
-                          ? 'bg-[#19212C] border-l-[#3DDC97]'
-                          : 'border-l-transparent hover:bg-[#19212C]/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[5px] text-[11px] font-semibold uppercase tracking-wider border ${style.border} ${style.bg} ${style.text}`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                          {severity}
-                        </span>
+              {SEVERITIES.map((sev) => {
+                const group = sortedFindings.filter((f) => f.severity === sev)
+                if (!group.length) return null
+                return (
+                  <div key={sev}>
+                    <div className="px-4 py-1.5 bg-paper border-b border-line text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">
+                      {SEVERITY_STYLES[sev].label} ({group.length})
+                    </div>
+                    {group.map((finding) => {
+                      const isSelected = selectedFinding?.id === finding.id
+                      const style = SEVERITY_STYLES[sev]
+                      const isFixed = finding.status === 'verified_fixed'
 
-                        <span className="mono text-[11px] uppercase border border-[#263140] bg-[#0B0F14] text-[#8B98A8] px-2 py-0.5 rounded-[4px]">
-                          {finding.layer}
-                        </span>
-                      </div>
-
-                      <div className="text-[14px] font-medium text-[#E6EDF3] line-clamp-2 leading-snug">
-                        {finding.title}
-                      </div>
-
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 overflow-hidden">
-                          {(finding.clauses || []).slice(0, 2).map((clause, idx) => (
-                            <span
-                              key={idx}
-                              className="mono text-[11px] border border-[#263140] bg-[#0B0F14] text-[#8B98A8] px-1.5 py-0.5 rounded-[4px] truncate"
-                            >
-                              {clause.ref}
-                            </span>
-                          ))}
-                          {(finding.clauses?.length || 0) > 2 && (
-                            <span className="mono text-[11px] text-[#8B98A8]">
-                              +{finding.clauses.length - 2}
-                            </span>
-                          )}
-                        </div>
-
-                        <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-[4px] shrink-0 border ${
-                            isFixed
-                              ? 'bg-[#3DDC97]/15 text-[#3DDC97] border-[#3DDC97]/40'
-                              : 'bg-[#0B0F14] text-[#8B98A8] border-[#263140]'
+                      return (
+                        <div
+                          key={finding.id}
+                          id={`finding-row-${finding.id}`}
+                          onClick={() => setSelectedFindingId(finding.id)}
+                          tabIndex={0}
+                          role="button"
+                          aria-pressed={isSelected}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedFindingId(finding.id)
+                            }
+                          }}
+                          className={`flex items-start gap-3 pl-3 pr-4 py-3 border-b border-line border-l-[3px] cursor-pointer transition-colors duration-150 ${
+                            isSelected ? 'bg-accent-soft border-l-accent' : 'border-l-transparent hover:bg-paper'
                           }`}
                         >
-                          {isFixed ? 'Verified fixed' : 'Open'}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+                          <span className="flex items-center gap-2 w-[76px] shrink-0 pt-0.5">
+                            <span aria-hidden="true" className={`w-1 h-4 rounded-[1px] ${style.bar}`} />
+                            <span className={`text-[13px] font-semibold ${style.text}`}>{style.label}</span>
+                          </span>
+                          <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+                            <span className="text-[15px] font-medium text-ink leading-snug">{finding.title}</span>
+                            <span className="text-[13px] text-muted">{LAYER_NAMES[finding.layer] || finding.layer}</span>
+                          </span>
+                          <span className={`text-[13px] shrink-0 pt-0.5 ${isFixed ? 'text-accent font-semibold' : 'text-muted'}`}>
+                            {isFixed ? 'Verified fixed' : 'Open'}
+                            {isFixed && fixMeta[finding.id]?.mode === 'cached_golden' && ' · cached'}
+                            {isFixed && sampleMode && ' · simulated'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
             </section>
 
             {/* Right Column: Finding Detail Panel */}
             <section
-              className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-4 flex flex-col gap-3 sticky top-14 shadow-lg max-h-[calc(100vh-12rem)] overflow-y-auto"
+              className="lg:col-span-7 bg-surface border border-line rounded-[6px] p-6 flex flex-col gap-6 lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)] overflow-y-auto"
               aria-label="Finding detail"
             >
               {selectedFinding ? (
                 <>
-                  {/* 1. Title and Severity Header */}
-                  <div className="flex flex-col gap-2 pb-2.5 border-b border-[#263140]">
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <span className="mono text-[13px] bg-[#19212C] border border-[#263140] text-[#E6EDF3] px-2.5 py-1 rounded-[5px] font-semibold">
-                          {selectedFinding.id}
-                        </span>
-                        <span className="mono text-[12px] uppercase border border-[#263140] bg-[#0B0F14] text-[#8B98A8] px-2.5 py-1 rounded-[5px]">
-                          Layer: {selectedFinding.layer}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {selectedFinding.status === 'verified_fixed' && (
-                          <span className="text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#3DDC97]/15 text-[#3DDC97] border border-[#3DDC97]/40">
-                            Verified Fixed
-                          </span>
-                        )}
+                  {/* 1. Title */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-muted">
+                      <span className="font-mono">{selectedFinding.id}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{LAYER_NAMES[selectedFinding.layer] || selectedFinding.layer}</span>
+                      {selectedFinding.status === 'verified_fixed' && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-accent font-semibold">Verified fixed</span>
+                        </>
+                      )}
+                      <span
+                        className={`ml-auto inline-flex items-center gap-2 font-semibold ${
+                          (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).text
+                        }`}
+                      >
                         <span
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[6px] text-[12px] font-semibold uppercase tracking-wider border ${
-                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).border
-                          } ${
-                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).bg
-                          } ${
-                            (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).text
-                          }`}
-                        >
-                          <span
-                            className={`w-2 h-2 rounded-full ${
-                              (SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).dot
-                            }`}
-                          />
-                          {selectedFinding.severity}
-                        </span>
-                      </div>
+                          aria-hidden="true"
+                          className={`w-1 h-4 rounded-[1px] ${(SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).bar}`}
+                        />
+                        {(SEVERITY_STYLES[selectedFinding.severity] || SEVERITY_STYLES.low).label}
+                      </span>
                     </div>
-
-                    <h2 className="text-[18px] font-semibold text-[#E6EDF3] leading-snug m-0">
-                      {selectedFinding.title}
-                    </h2>
+                    <h2 className="font-serif text-[26px] leading-tight font-semibold text-ink m-0">{selectedFinding.title}</h2>
                   </div>
 
                   {/* 2. Plain English Explanation */}
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
-                      Explanation
-                    </span>
-                    <p className="text-[15px] leading-snug text-[#E6EDF3] m-0">
-                      {selectedFinding.explanation}
-                    </p>
+                  <p className="text-[16px] leading-relaxed text-ink m-0">{selectedFinding.explanation}</p>
+
+                  {/* 3. Law, as plain lines */}
+                  <div className="flex flex-col gap-2">
+                    <Label>Law</Label>
+                    <ul className="list-none p-0 m-0 flex flex-col gap-1">
+                      {(selectedFinding.clauses || []).map((clause, idx) => (
+                        <li key={idx} className="text-[15px] text-ink">
+                          <span className="font-mono font-medium">{clause.ref}</span>, {clause.note}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
 
-                  {/* 3. Clause Chips */}
+                  {/* 4. Evidence, set like a workpaper exhibit */}
                   <div className="flex flex-col gap-2">
-                    <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
-                      Governing Legal Clauses (DPDP Act & Rules)
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {(selectedFinding.clauses || []).map((clause, idx) => {
-                        const isTooltipActive = activeTooltipClause === `${selectedFinding.id}-${idx}`
-                        return (
-                          <div key={idx} className="relative">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActiveTooltipClause(isTooltipActive ? null : `${selectedFinding.id}-${idx}`)
-                              }
-                              onMouseEnter={() => setActiveTooltipClause(`${selectedFinding.id}-${idx}`)}
-                              onMouseLeave={() => setActiveTooltipClause(null)}
-                              className="mono text-[13px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] hover:border-[#8B98A8] text-[#E6EDF3] px-3 py-1 rounded-[6px] transition cursor-pointer flex flex-col items-start gap-0.5 text-left max-w-full"
-                            >
-                              <span>{clause.ref}</span>
-                              <span className="text-[#8B98A8] text-[11px] font-sans leading-tight whitespace-normal">
-                                {clause.note}
-                              </span>
-                            </button>
-
-                            {isTooltipActive && (
-                              <div className="absolute left-0 bottom-full mb-2 z-30 w-72 p-3 bg-[#19212C] border border-[#8B98A8]/40 rounded-[8px] shadow-xl text-[13px] text-[#E6EDF3]">
-                                <div className="mono font-semibold text-[#3DDC97] mb-1">{clause.ref}</div>
-                                <div className="text-[#8B98A8]">{clause.note}</div>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* 4. Evidence Block */}
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
-                        Technical Evidence ({selectedFinding.evidence?.kind || 'observed'})
-                      </span>
-                      {formatLocation(selectedFinding.evidence?.location) && (
-                        <span className="mono text-[12px] text-[#8B98A8] bg-[#0B0F14] px-2 py-0.5 rounded-[4px] border border-[#263140]">
-                          {formatLocation(selectedFinding.evidence?.location)}
+                    <Label>Evidence</Label>
+                    <div className="border border-line rounded-[6px] overflow-hidden">
+                      <div className="flex items-center justify-between gap-3 px-3 py-2 bg-paper border-b border-line text-[13px] text-muted">
+                        <span className="font-mono break-all">
+                          {formatLocation(selectedFinding.evidence?.location) || 'No location recorded'}
                         </span>
-                      )}
-                    </div>
-
-                    <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-3 flex flex-col gap-2 font-mono text-[14px]">
-                      <div className="text-[#8B98A8] text-[13px] font-sans">
-                        {selectedFinding.evidence?.summary}
+                        <span className="uppercase tracking-[0.06em] shrink-0">{selectedFinding.evidence?.kind || 'observed'}</span>
                       </div>
-
-                      {selectedFinding.evidence?.masked_sample && (
-                        <div className="bg-[#121821] border border-[#263140] rounded-[6px] p-3 overflow-x-auto text-[#E6EDF3]">
-                          <span className="text-[11px] uppercase tracking-wider text-[#8B98A8] block font-sans mb-1">
-                            Masked Sample
-                          </span>
-                          <code className="text-[#3DDC97] break-all">
-                            {selectedFinding.evidence.masked_sample}
-                          </code>
-                        </div>
-                      )}
+                      <div className="px-3 py-3 flex flex-col gap-2">
+                        <p className="text-[15px] text-ink m-0">{selectedFinding.evidence?.summary}</p>
+                        {selectedFinding.evidence?.masked_sample && (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[13px] text-muted">Masked sample</span>
+                            <code className="block font-mono text-[14px] text-ink bg-paper rounded-[4px] px-3 py-2 break-all">
+                              {selectedFinding.evidence.masked_sample}
+                            </code>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* 5. Fix & Verify Interactive Block */}
-                  <div className="pt-3 border-t border-[#263140] flex flex-col gap-3">
+                  {/* 5. Fix and verify */}
+                  <div className="pt-6 border-t border-line flex flex-col gap-4">
                     {fixingFindingId === selectedFinding.id && (
-                      <div className="bg-[#0B0F14] border border-[#263140] rounded-[8px] p-4 flex flex-col gap-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[13px] font-semibold text-[#3DDC97] uppercase tracking-wide">
-                            Fix & Verify Sandbox Execution
-                          </span>
-                          <span className="mono text-[12px] text-[#8B98A8]">
+                      <div aria-live="polite" className="flex flex-col gap-3">
+                        <div className="flex items-baseline justify-between">
+                          <Label>Fix and verify on a sandbox copy</Label>
+                          <span className="font-mono text-[13px] text-muted tabular">
                             Step {currentStepIndex + 1} of {FIX_STEPS.length}
                           </span>
                         </div>
-
-                        <div className="flex flex-col gap-2 mt-1">
+                        <ol className="list-none p-0 m-0 flex flex-col gap-2.5">
                           {FIX_STEPS.map((stepText, sIdx) => {
                             const isDone = sIdx < currentStepIndex
                             const isCurrent = sIdx === currentStepIndex
-
                             return (
-                              <div key={sIdx} className="flex items-center gap-3 text-[14px]">
-                                {isDone ? (
-                                  <svg className="w-4 h-4 text-[#3DDC97] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                ) : isCurrent ? (
-                                  <span className="w-4 h-4 rounded-full border-2 border-[#3DDC97] border-t-transparent animate-spin shrink-0" />
-                                ) : (
-                                  <span className="w-4 h-4 rounded-full border border-[#263140] bg-[#19212C] shrink-0" />
-                                )}
-                                <span className={isDone ? 'text-[#3DDC97]' : isCurrent ? 'text-[#E6EDF3] font-medium' : 'text-[#8B98A8]'}>
-                                  {stepText}
-                                </span>
-                              </div>
+                              <li key={sIdx} className="flex items-center gap-3 text-[15px]">
+                                <StepMarker state={isDone ? 'done' : isCurrent ? 'current' : 'pending'} />
+                                <span className={isDone ? 'text-ink' : isCurrent ? 'text-ink font-medium' : 'text-muted'}>{stepText}</span>
+                              </li>
                             )
                           })}
-                        </div>
+                        </ol>
                       </div>
                     )}
 
                     {showResult && (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2 bg-[#19212C] border border-[#263140] rounded-[8px] p-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge label="Re-scan passed" passed={fix.rescan_passed} />
-                            <StatusBadge label="Tests passed" passed={fix.tests_passed} />
-                            <StatusBadge label="Verified" passed={fix.verified} />
-                          </div>
-                          {fix.score_before != null && fix.score_after != null && (
-                            <span className="mono text-[12px] text-[#8B98A8]">
-                              Score {fix.score_before} → {fix.score_after}
+                      <div className="flex flex-col gap-4">
+                        {/* Result mark. Sample mode never claims VERIFIED; a failed fix says so in red. */}
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                          {sampleMode ? (
+                            <span className="font-mono text-[15px] font-semibold tracking-[0.12em] px-3 py-1 border-2 border-high text-high rounded-[4px]">
+                              SIMULATED
+                            </span>
+                          ) : fix.verified ? (
+                            <span className="inline-flex items-center gap-2 font-mono text-[15px] font-semibold tracking-[0.12em] px-3 py-1 border-2 border-accent text-accent rounded-[4px]">
+                              <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                              VERIFIED
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-2 font-mono text-[15px] font-semibold tracking-[0.12em] px-3 py-1 border-2 border-critical text-critical rounded-[4px]">
+                              <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                              NOT VERIFIED
+                            </span>
+                          )}
+                          {fix.verified && fix.score_before != null && fix.score_after != null && (
+                            <span className="flex items-baseline gap-2">
+                              <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">Score</span>
+                              <span className="font-serif text-[22px] font-semibold text-ink tabular">
+                                {fix.score_before} to {fix.score_after}
+                              </span>
                             </span>
                           )}
                         </div>
 
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pb-4 border-b border-line">
+                          <StatusBadge label="Re-scan passed" passed={fix.rescan_passed} />
+                          <StatusBadge label="Tests passed" passed={fix.tests_passed} />
+                          <StatusBadge label="Verified" passed={fix.verified} />
+                        </div>
+
                         {sampleMode ? (
-                          <span className="self-start text-[12px] font-semibold px-2.5 py-1 rounded-[5px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
+                          <span className="self-start text-[13px] font-semibold px-2 py-0.5 rounded-[4px] border border-high text-high">
                             Simulated (sample data)
                           </span>
                         ) : fixMode?.mode === 'cached_golden' ? (
-                          <div className="flex flex-wrap items-center gap-2 text-[13px] px-3 py-2 rounded-[6px] bg-[#FF9F43]/15 text-[#FF9F43] border border-[#FF9F43]/30">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] px-3 py-2 rounded-[6px] border border-high text-high">
+                            <Tag>CACHED</Tag>
                             <span className="font-semibold">Cached golden patch mode</span>
                             <span>
                               {fixMode.fallbackReason
@@ -1100,8 +1063,8 @@ export default function App() {
                         ) : null}
 
                         {fix.verified ? (
-                          <div className="flex items-center gap-2 text-[#3DDC97] text-[14px] font-medium bg-[#3DDC97]/10 px-3 py-2 rounded-[6px] border border-[#3DDC97]/30">
-                            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <p className="flex items-center gap-2 text-accent text-[16px] font-medium m-0">
+                            <svg aria-hidden="true" className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                             </svg>
                             <span>
@@ -1111,9 +1074,9 @@ export default function App() {
                                 ? 'Verified in a saved run. It was not run just now.'
                                 : "Verified. Re-scan passed and the app's tests still pass."}
                             </span>
-                          </div>
+                          </p>
                         ) : (
-                          <div className="text-[#FF5C5C] text-[14px] font-medium bg-[#FF5C5C]/10 px-3 py-2 rounded-[6px] border border-[#FF5C5C]/30">
+                          <div className="text-critical text-[16px] font-medium border-l-4 border-critical pl-3 py-1">
                             Not verified.
                             {fix.rescan_passed === false && ' The problem is still found after the fix.'}
                             {fix.tests_passed === false && " The app's tests failed."} The finding stays open.
@@ -1121,29 +1084,27 @@ export default function App() {
                         )}
 
                         {fix.diff && (
-                          <div className="flex flex-col gap-1.5">
-                            <span className="text-[13px] uppercase font-semibold tracking-wider text-[#8B98A8]">
-                              Patch (unified diff)
-                            </span>
+                          <div className="flex flex-col gap-2">
+                            <Label>Patch (unified diff)</Label>
                             <DiffViewer diffText={fix.diff} />
                           </div>
                         )}
 
                         {!sampleMode && fix.verified && fix.diff && (
-                          <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-[#8B98A8]">
+                          <div className="flex flex-wrap items-center justify-between gap-3 text-[14px] text-muted">
                             <span>Verified on a sandbox copy. Your original code is unchanged. Download the patch to apply it.</span>
                             <div className="flex items-center gap-2 shrink-0">
                               <button
                                 type="button"
                                 onClick={() => copyDiff(selectedFinding)}
-                                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] cursor-pointer"
+                                className="px-3 py-1.5 rounded-[6px] border border-line bg-surface hover:bg-paper text-ink text-[14px] font-medium transition-colors duration-150 cursor-pointer"
                               >
                                 {copyState?.id === selectedFinding.id ? (copyState.ok ? 'Copied' : 'Copy failed') : 'Copy diff'}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => downloadPatch(selectedFinding)}
-                                className="px-3 py-1 rounded-[6px] border border-[#263140] bg-[#19212C] hover:bg-[#263140] text-[#E6EDF3] text-[13px] cursor-pointer"
+                                className="px-3 py-1.5 rounded-[6px] border border-line bg-surface hover:bg-paper text-ink text-[14px] font-medium transition-colors duration-150 cursor-pointer"
                               >
                                 Download patch
                               </button>
@@ -1154,55 +1115,52 @@ export default function App() {
                     )}
 
                     {selectedFinding.status !== 'verified_fixed' && (
-                      <div className="flex items-center justify-between w-full gap-4">
-                        <div className="flex flex-col">
-                          <span className="text-[14px] text-[#E6EDF3] font-medium">
+                      <div className="flex flex-wrap items-center justify-between w-full gap-4">
+                        <div className="flex flex-col gap-1 max-w-[400px]">
+                          <span className="text-[16px] text-ink font-semibold">
                             {fix.available
                               ? sampleMode
                                 ? 'Simulated fix (sample data)'
-                                : 'Automated verified fix available'
+                                : 'Verified fix available'
                               : 'This finding needs a manual change'}
                           </span>
-                          <span className="text-[13px] text-[#8B98A8]">
+                          <span className="text-[14px] text-muted">
                             {fix.available
                               ? sampleMode
                                 ? 'No real sandbox run happens in sample mode'
-                                : 'Runs on a sandbox copy: patch, re-scan, then the app\'s tests'
+                                : "Proposed on a sandbox copy. Counts as verified only if the re-scan and the app's tests pass."
                               : 'No patch template exists for it yet'}
                           </span>
                         </div>
                         {fix.available ? (
-                          <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            disabled={fixingFindingId !== null}
-                            onClick={() => handleFixAndVerify(selectedFinding)}
-                            className="px-5 py-2 rounded-[6px] bg-[#3DDC97] hover:bg-[#32c283] disabled:opacity-50 text-[#0B0F14] font-semibold text-[15px] transition cursor-pointer shadow flex items-center gap-2 shrink-0"
-                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            Fix and verify
-                          </button>
-                          {!sampleMode && (
+                          <div className="flex items-center gap-5 shrink-0">
+                            {!sampleMode && (
+                              <button
+                                type="button"
+                                disabled={fixingFindingId !== null}
+                                onClick={() => handleFixAndVerify(selectedFinding, 'cached')}
+                                title="Show the saved result of an earlier verified run. Labelled as cached."
+                                className="text-[15px] text-accent hover:text-accent-hover underline underline-offset-4 disabled:opacity-50 transition-colors duration-150 cursor-pointer"
+                              >
+                                Use cached result
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={fixingFindingId !== null}
-                              onClick={() => handleFixAndVerify(selectedFinding, 'cached')}
-                              title="Show the saved result of an earlier verified run. Labelled as cached."
-                              className="px-3 py-2 rounded-[6px] bg-[#19212C] border border-[#263140] hover:border-[#FF9F43]/60 disabled:opacity-50 text-[#E6EDF3] text-[13px] transition cursor-pointer"
+                              onClick={() => handleFixAndVerify(selectedFinding)}
+                              className="px-5 py-2.5 rounded-[6px] bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-medium text-[16px] transition-colors duration-150 cursor-pointer"
                             >
-                              Replay saved result
+                              Fix and verify
                             </button>
-                          )}
                           </div>
                         ) : (
                           <button
                             type="button"
                             disabled
-                            className="px-5 py-2 rounded-[6px] bg-[#19212C] border border-[#263140] text-[#8B98A8] font-semibold text-[15px] cursor-not-allowed shrink-0"
+                            className="px-5 py-2.5 rounded-[6px] border border-line bg-paper text-muted font-medium text-[16px] cursor-not-allowed shrink-0"
                           >
-                            No automated fix yet
+                            No fix template yet
                           </button>
                         )}
                       </div>
@@ -1210,8 +1168,8 @@ export default function App() {
                   </div>
                 </>
               ) : (
-                <div className="text-center py-12 text-[#8B98A8]">
-                  Select a finding to inspect evidence and legal clauses.
+                <div className="text-center py-12 text-[15px] text-muted">
+                  {hasScan ? 'Select a finding to see its evidence and the law it maps to.' : 'Run a scan to see findings here.'}
                 </div>
               )}
             </section>
@@ -1219,13 +1177,13 @@ export default function App() {
         )}
 
         {/* 5. Tab 2: Notice vs Runtime */}
-        {activeTab === 'notice_drift' && !scanData.notice_drift && (
+        {activeTab === 'notice_drift' && !isScanning && !scanData.notice_drift && (
           <section
-            className="bg-[#121821] border border-[#263140] rounded-[10px] p-8 text-center flex flex-col gap-2"
+            className="bg-surface border border-line rounded-[6px] p-8 text-center flex flex-col gap-2"
             aria-label="Notice vs Runtime Truth"
           >
-            <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">No drift data yet</h2>
-            <p className="text-[14px] text-[#8B98A8] m-0">
+            <h2 className="font-serif text-[22px] font-semibold text-ink m-0">No drift data yet</h2>
+            <p className="text-[15px] text-muted m-0">
               {hasScan
                 ? 'The engine returned no Notice vs Runtime data for this scan.'
                 : 'Run a scan to compare the privacy notice with what the app handles.'}
@@ -1233,186 +1191,98 @@ export default function App() {
           </section>
         )}
 
-        {activeTab === 'notice_drift' && scanData.notice_drift && (
-          <section className="flex flex-col gap-6" aria-label="Notice vs Runtime Truth">
-            <div className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-3">
-                  <span className="w-3.5 h-3.5 rounded-full bg-[#FF5C5C] animate-pulse shrink-0" />
-                  <h2 className="text-[22px] font-bold text-[#FF5C5C] m-0 leading-tight">
-                    {undeclaredCount} of {totalUniqueFields} data fields are collected but not disclosed
-                  </h2>
-                </div>
-                <p className="text-[14px] text-[#8B98A8] m-0">
-                  Notice duties: Act s5, Rule 3 (standalone plain language notice itemising all personal data and specific purposes).
+        {activeTab === 'notice_drift' && !isScanning && scanData.notice_drift && (
+          <section className="flex flex-col gap-5" aria-label="Notice vs Runtime Truth">
+            <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2">
+              <div className="flex flex-col gap-1.5 max-w-[860px]">
+                <h2 className={`font-serif text-[28px] leading-tight font-semibold m-0 ${undeclaredCount ? 'text-critical' : 'text-ink'}`}>
+                  {undeclaredCount} of {totalUniqueFields} data fields the app handles are not in its privacy notice
+                </h2>
+                <p className="text-[15px] text-muted m-0">
+                  Notice duties: Act s5, Rule 3 (a standalone, plain language notice that itemises the personal data and its purposes).
                 </p>
               </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="mono text-[13px] bg-[#0B0F14] border border-[#263140] px-3 py-1.5 rounded-[6px] text-[#8B98A8]">
-                  Public Notice: /notice
-                </span>
-              </div>
+              <span className="text-[14px] text-muted">
+                Notice read from <span className="font-mono text-ink">/notice</span>
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              <div className="lg:col-span-5 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex flex-col gap-4">
-                <div className="flex items-center justify-between pb-3 border-b border-[#263140]">
-                  <div className="flex flex-col">
-                    <span className="text-[16px] font-semibold text-[#E6EDF3]">
-                      What the privacy notice says we collect
-                    </span>
-                    <span className="text-[13px] text-[#8B98A8]">
-                      Declared personal data fields in /notice
-                    </span>
-                  </div>
-                  <span className="mono text-[12px] bg-[#3DDC97]/15 text-[#3DDC97] border border-[#3DDC97]/30 px-2 py-0.5 rounded-[4px] font-semibold">
-                    {declaredList.length} declared
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-2.5">
-                  {declaredList.map((field, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-[#19212C] border border-[#263140] rounded-[8px] p-3.5 flex items-center justify-between"
+            <div className="bg-surface border border-line rounded-[6px] overflow-x-auto">
+              <table className="w-full border-collapse text-left" aria-label="Fields by layer">
+                <thead>
+                  <tr className="bg-paper border-b border-line text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">
+                    <th scope="col" className="pl-5 pr-4 py-2.5 font-semibold w-[180px]">Field</th>
+                    <th scope="col" className="px-4 py-2.5 font-semibold w-[190px]">In the notice?</th>
+                    {DRIFT_LAYERS.map(([, name]) => (
+                      <th key={name} scope="col" className="px-4 py-2.5 font-semibold">{name}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {driftRows.map((row) => (
+                    <tr
+                      key={row.field}
+                      className={`border-b border-line last:border-b-0 ${row.undeclared ? 'bg-[#FBF3F1]' : ''}`}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <span className="w-2 h-2 rounded-full bg-[#3DDC97]" />
-                        <span className="mono text-[15px] font-semibold text-[#E6EDF3]">
-                          {field}
-                        </span>
-                      </div>
-                      <span className="text-[12px] text-[#3DDC97] font-medium bg-[#3DDC97]/10 px-2 py-0.5 rounded-[4px]">
-                        Declared in notice
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="lg:col-span-7 bg-[#121821] border border-[#263140] rounded-[10px] p-5 flex flex-col gap-4">
-                <div className="flex items-center justify-between pb-3 border-b border-[#263140]">
-                  <div className="flex flex-col">
-                    <span className="text-[16px] font-semibold text-[#E6EDF3]">
-                      What the app really handles
-                    </span>
-                    <span className="text-[13px] text-[#8B98A8]">
-                      Observed in database, API responses, and network requests
-                    </span>
-                  </div>
-                  <span className="mono text-[12px] bg-[#19212C] border border-[#263140] text-[#E6EDF3] px-2 py-0.5 rounded-[4px] font-semibold">
-                    {observedList.length} observed
-                  </span>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  {observedList.map((item, idx) => {
-                    const isUndeclared = undeclaredList.includes(item.field)
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`rounded-[8px] p-4 border flex flex-col gap-2.5 transition ${
-                          isUndeclared
-                            ? 'bg-[#FF5C5C]/10 border-[#FF5C5C]/40'
-                            : 'bg-[#19212C] border-[#263140]'
+                      <th
+                        scope="row"
+                        className={`pl-4 pr-4 py-3 border-l-4 font-mono text-[16px] font-medium text-left ${
+                          row.undeclared ? 'border-l-critical text-critical' : 'border-l-transparent text-ink'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <span
-                              className={`w-2.5 h-2.5 rounded-full ${
-                                isUndeclared ? 'bg-[#FF5C5C]' : 'bg-[#3DDC97]'
-                              }`}
-                            />
-                            <span
-                              className={`mono text-[16px] font-bold ${
-                                isUndeclared ? 'text-[#FF5C5C]' : 'text-[#E6EDF3]'
-                              }`}
-                            >
-                              {item.field}
-                            </span>
-                          </div>
-
-                          {isUndeclared ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[5px] text-[12px] font-bold bg-[#FF5C5C] text-[#0B0F14] tracking-wide uppercase shadow">
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                              </svg>
-                              Not in the notice
-                            </span>
-                          ) : (
-                            <span className="text-[12px] text-[#3DDC97] font-medium bg-[#3DDC97]/15 px-2 py-0.5 rounded-[4px] border border-[#3DDC97]/30">
-                              Declared
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <span className="text-[12px] text-[#8B98A8] font-sans">
-                            Observed location:
-                          </span>
-                          {(item.where || []).map((loc, wIdx) => {
-                            let tagStyle = 'bg-[#0B0F14] text-[#8B98A8] border-[#263140]'
-                            if (loc.startsWith('db:')) tagStyle = 'bg-[#6FA8DC]/10 text-[#6FA8DC] border-[#6FA8DC]/30'
-                            else if (loc.startsWith('api:')) tagStyle = 'bg-[#3DDC97]/10 text-[#3DDC97] border-[#3DDC97]/30'
-                            else if (loc.startsWith('request:')) tagStyle = 'bg-[#FF9F43]/10 text-[#FF9F43] border-[#FF9F43]/30'
-
-                            return (
-                              <span
-                                key={wIdx}
-                                className={`mono text-[12px] border px-2.5 py-0.5 rounded-[4px] ${tagStyle}`}
-                              >
-                                {loc}
+                        {row.field}
+                      </th>
+                      <td className="px-4 py-3 text-[15px]">
+                        {row.undeclared ? (
+                          <span className="font-semibold text-critical">Not in the notice</span>
+                        ) : row.declared ? (
+                          <span className="text-ink">Yes</span>
+                        ) : (
+                          <span className="text-muted">No</span>
+                        )}
+                      </td>
+                      {DRIFT_LAYERS.map(([prefix, name]) => {
+                        const seen = row.where.filter((w) => w.startsWith(`${prefix}:`)).map((w) => w.slice(prefix.length + 1))
+                        return (
+                          <td key={prefix} className="px-4 py-3">
+                            {seen.length ? (
+                              <span className="flex flex-col gap-0.5">
+                                {seen.map((loc) => (
+                                  <span key={loc} className="font-mono text-[14px] text-ink break-all">{loc}</span>
+                                ))}
                               </span>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+                            ) : (
+                              <span className="text-[15px] text-muted">
+                                <span aria-hidden="true">—</span>
+                                <span className="sr-only">Not seen in {name}</span>
+                              </span>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </section>
-        )}
 
-        {/* 6. Tab 3: Data Flow */}
-        {activeTab === 'data_flow' && !scanData.notice_drift && (
-          <section
-            className="bg-[#121821] border border-[#263140] rounded-[10px] p-8 text-center flex flex-col gap-2"
-            aria-label="Data Flow Map"
-          >
-            <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">No data flow yet</h2>
-            <p className="text-[14px] text-[#8B98A8] m-0">
-              {hasScan
-                ? 'The engine returned no data flow information for this scan.'
-                : 'Run a scan to see how personal data moves between the database, API, frontend and third parties.'}
+            <p className="text-[14px] text-muted m-0">
+              Database: a column holding the field. API: a response returned without login. Third party: a request from the
+              browser that carried the field.
+              {!driftRows.some((r) => r.where.some((w) => w.startsWith('request:'))) &&
+                ' No third-party request carried a field in this scan. Trackers are reported as findings (see "Tracking script loads before any consent").'}
             </p>
           </section>
         )}
 
-        {activeTab === 'data_flow' && scanData.notice_drift && (
-          <section className="bg-[#121821] border border-[#263140] rounded-[10px] p-6 flex flex-col gap-6" aria-label="Data Flow Map">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-[18px] font-semibold text-[#E6EDF3] m-0">
-                Cross-Layer Data Flow Architecture
-              </h2>
-              <p className="text-[13px] text-[#8B98A8] m-0">
-                Flow of personal data across Database, Backend API, Frontend, and Third Parties. Red channels indicate undeclared drift.
-              </p>
-            </div>
-
-            <FlowMap drift={scanData.notice_drift} />
-          </section>
-        )}
       </main>
 
-      {/* 7. Footer */}
-      <footer className="border-t border-[#263140] py-4 px-6 text-center text-[13px] text-[#8B98A8] bg-[#0B0F14] print:hidden">
-        DPDP Lens is a readiness report, not a compliance certificate. Main duties apply from 13 May 2027.
-      </footer>
+          {/* 4. Footer */}
+          <footer className="border-t border-line py-4 text-[14px] text-muted">
+            DPDP Lens is a readiness report, not a compliance certificate. Main duties apply from 13 May 2027.
+          </footer>
+        </div>
+      </div>
     </div>
   )
 }

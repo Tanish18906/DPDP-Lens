@@ -27,7 +27,7 @@ def finding(fid="F-001", severity="critical", status="open", fix=None, **over):
 
 def test_sample_scan_report_has_everything_a_reader_needs():
     html = render_report(SAMPLE)
-    assert "<title>DPDP Lens readiness report - S-001</title>" in html
+    assert "<title>DPDP Lens: readiness report - S-001</title>" in html
     assert "DPDP Lens is a readiness report, not a compliance certificate. Main duties apply from 13 May 2027." in html
     assert f"<b>{SAMPLE.score}</b>readiness score" in html
     for f in SAMPLE.findings:
@@ -116,7 +116,7 @@ def test_report_endpoint_serves_a_locked_down_html_page(tmp_path):
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
     assert r.headers["content-security-policy"] == "default-src 'none'; style-src 'unsafe-inline'"
     assert r.headers["x-content-type-options"] == "nosniff"
-    assert "DPDP Lens readiness report - S-001" in r.text
+    assert "DPDP Lens: readiness report - S-001" in r.text
 
 
 def test_report_endpoint_errors_are_json(tmp_path):

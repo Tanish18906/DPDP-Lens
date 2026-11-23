@@ -118,6 +118,7 @@ Claude Code (engine, docs, dashboard wiring) and Antigravity (target app, dashbo
 | Vite, `@vitejs/plugin-react` | MIT |
 | Tailwind CSS, `@tailwindcss/vite` | MIT |
 | oxlint | MIT |
+| Newsreader, IBM Plex Sans, IBM Plex Mono fonts (bundled with the dashboard through `@fontsource/newsreader`, `@fontsource/ibm-plex-sans`, `@fontsource/ibm-plex-mono`) | SIL Open Font License 1.1 |
 
 ## Team
 

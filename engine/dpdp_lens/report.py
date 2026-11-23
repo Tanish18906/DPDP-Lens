@@ -5,43 +5,53 @@ from html import escape
 from .models import Finding, ScanResult
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+TAGLINE = "Does your app do what its privacy notice says?"
+# Same mark as the dashboard (LogoMark in dashboard/src/App.jsx). Inline SVG, so the CSP needs nothing extra.
+MARK = ('<svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="11" stroke="#0e5a55" '
+        'stroke-width="3.5" stroke-dasharray="56 13.1" transform="rotate(-12 16 16)"/><circle cx="16" cy="16" r="3.5" fill="#0e5a55"/></svg>')
 FOOTER = "DPDP Lens is a readiness report, not a compliance certificate. Main duties apply from 13 May 2027."
 
 CSS = """
-:root { --ink:#16202a; --muted:#5b6876; --line:#d5dbe2; --panel:#f5f7fa; --ok:#146c43; --bad:#b3261e; --warn:#8a5300;
-  --critical:#b3261e; --high:#c25e00; --medium:#8a6d00; --low:#1f5fa8; }
+:root { --ink:#1b1d22; --muted:#5b6270; --line:#ddd8cc; --panel:#f6f4ef; --ok:#0e5a55; --bad:#b42318; --warn:#b04a0a;
+  --critical:#b42318; --high:#b04a0a; --medium:#8a6308; --low:#5b6270;
+  --serif: Newsreader, Georgia, "Times New Roman", serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; }
+/* Same tokens as the dashboard (dashboard/src/index.css). No font files: the CSP allows nothing external, so the
+   named fonts are used only where installed, otherwise the system fallbacks. */
 * { box-sizing: border-box; }
-body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: #fff;
+body { font: 16px/1.5 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--panel);
   max-width: 920px; margin: 0 auto; padding: 24px 20px 40px; }
-h1 { font-size: 26px; margin: 0 0 4px; } h2 { font-size: 19px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+h1, h2, h3, .score b, .brand { font-family: var(--serif); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; margin-bottom: 18px; } .mark { width: 28px; height: 28px; }
+.tagline { font-family: var(--serif); font-size: 18px; margin: 2px 0 6px; }
+h1 { font-size: 28px; margin: 0 0 4px; } h2 { font-size: 20px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
 h3 { font-size: 16px; margin: 0 0 6px; } p { margin: 6px 0; } .muted { color: var(--muted); }
-.notice { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
-.summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 14px 0; }
-.score { border: 2px solid var(--ink); border-radius: 10px; padding: 8px 18px; text-align: center; }
-.score b { font-size: 34px; display: block; line-height: 1.1; }
-.count { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; text-align: center; min-width: 90px; }
-.count b { font-size: 24px; display: block; }
-.finding { border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; break-inside: avoid; }
+.notice { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 10px 14px; margin: 14px 0; }
+.summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 14px 0; font-variant-numeric: tabular-nums; }
+.score { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 8px 18px; text-align: center; }
+.score b { font-size: 44px; display: block; line-height: 1.1; }
+.count { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 8px 14px; text-align: center; min-width: 90px; }
+.count b { font-size: 24px; display: block; font-family: var(--mono); }
+.finding { border: 1px solid var(--line); border-left: 4px solid var(--line); background: #fff; border-radius: 6px; padding: 12px 14px; margin: 12px 0; break-inside: avoid; }
 .sev-critical { border-left-color: var(--critical); } .sev-high { border-left-color: var(--high); }
 .sev-medium { border-left-color: var(--medium); } .sev-low { border-left-color: var(--low); }
-.pill, .layer, .chip, .badge, .tag { display: inline-block; border: 1px solid var(--line); border-radius: 5px; padding: 0 7px; font-size: 12px; margin-right: 4px; }
+.pill, .layer, .chip, .badge, .tag { display: inline-block; border: 1px solid var(--line); border-radius: 4px; padding: 0 7px; font-size: 13px; margin-right: 4px; }
 .pill { font-weight: 700; text-transform: uppercase; } .layer { text-transform: uppercase; color: var(--muted); }
 .pill.critical { color: var(--critical); border-color: var(--critical); } .pill.high { color: var(--high); border-color: var(--high); }
 .pill.medium { color: var(--medium); border-color: var(--medium); } .pill.low { color: var(--low); border-color: var(--low); }
-.id, code, pre, .tag { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
-.chip b { font-family: ui-monospace, Menlo, Consolas, monospace; } .chip span { color: var(--muted); }
+.id, code, pre, .tag { font-family: var(--mono); }
+.chip b { font-family: var(--mono); } .chip span { color: var(--muted); }
 dl { display: grid; grid-template-columns: 130px 1fr; gap: 3px 12px; margin: 8px 0; } dt { color: var(--muted); } dd { margin: 0; word-break: break-word; }
-pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-size: 12.5px;
+pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-size: 13px;
   white-space: pre-wrap; word-break: break-word; }
-.add { color: var(--ok); } .del { color: var(--bad); } .hunk { color: var(--low); }
+.add { color: var(--ok); background: #e3f0ec; } .del { color: var(--bad); background: #fbe9e7; } .hunk { color: var(--muted); }
 .fix { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .badge.yes { color: var(--ok); border-color: var(--ok); } .badge.no { color: var(--bad); border-color: var(--bad); } .badge.unknown { color: var(--muted); }
-.label-cached { display: inline-block; color: var(--warn); border: 1px solid var(--warn); border-radius: 5px; padding: 1px 8px; font-weight: 600; }
+.label-cached { display: inline-block; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 1px 8px; font-weight: 600; }
 .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
 table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
-th { background: var(--panel); } tr.undeclared td { background: #fdecea; } .not-in-notice { color: var(--bad); font-weight: 700; }
-footer { margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
-@media print { body { padding: 0; max-width: none; } h2 { break-after: avoid; } .finding, tr { break-inside: avoid; } }
+th { background: var(--panel); } td { background: #fff; } tr.undeclared td { background: #fbf3f1; } .not-in-notice { color: var(--bad); font-weight: 700; }
+footer { margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+@media print { body { padding: 0; max-width: none; background: #fff; } h2 { break-after: avoid; } .finding, tr { break-inside: avoid; } }
 """
 
 
@@ -140,9 +150,11 @@ def render_report(scan: ScanResult, fix_modes: dict | None = None) -> str:
     counts = "".join(f'<div class="count"><b>{getattr(scan.counts, sev)}</b>{sev}</div>' for sev in SEVERITY_ORDER)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DPDP Lens readiness report - {h(scan.scan_id)}</title><style>{CSS}</style></head>
+<title>DPDP Lens: readiness report - {h(scan.scan_id)}</title><style>{CSS}</style></head>
 <body>
-<h1>DPDP Lens readiness report</h1>
+<div class="brand">{MARK}DPDP Lens</div>
+<h1>Readiness report</h1>
+<p class="tagline">{h(TAGLINE)}</p>
 <p class="muted">Scan {h(scan.scan_id)} of <code>{h(scan.target)}</code>, scanned {h(scan.scanned_at)}</p>
 <div class="notice"><b>{h(FOOTER)}</b></div>
 <div class="summary"><div class="score"><b>{h(scan.score)}</b>readiness score</div>{counts}</div>

@@ -1,24 +1,33 @@
+@import "@fontsource/newsreader/400.css";
+@import "@fontsource/newsreader/600.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 @import "tailwindcss";
 
-:root {
-  --bg: #0B0F14;
-  --panel: #121821;
-  --panel-2: #19212C;
-  --line: #263140;
-  --text: #E6EDF3;
-  --muted: #8B98A8;
-  --accent: #3DDC97;
-  --critical: #FF5C5C;
-  --high: #FF9F43;
-  --medium: #F5C451;
-  --low: #6FA8DC;
-  --focus: #7AA2F7;
+/* Design tokens (docs/ui-redesign-brief.md). One place: Tailwind classes such as bg-paper, text-ink, font-serif come from here.
+   Severity text colours pass 4.5:1 on paper: high and medium are darker than the brief's starting points. */
+@theme {
+  --color-paper: #F6F4EF;
+  --color-surface: #FFFFFF;
+  --color-ink: #1B1D22;
+  --color-muted: #5B6270;
+  --color-line: #DDD8CC;
+  --color-accent: #0E5A55;
+  --color-accent-hover: #0A4743;
+  --color-accent-soft: #E6EFEE;
+  --color-critical: #B42318;
+  --color-high: #B04A0A;
+  --color-medium: #8A6308;
+  --color-low: #5B6270;
 
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
-  color: var(--text);
-  background-color: var(--bg);
+  --font-serif: 'Newsreader', Georgia, serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --radius-token: 6px;
 }
 
 * {
@@ -27,26 +36,32 @@
 
 body {
   margin: 0;
-  background-color: var(--bg);
-  color: var(--text);
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
   font-size: 16px;
+  line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
 code, pre, .mono {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
-/* Custom utility colors mapped from doc 08 tokens */
-.bg-app { background-color: var(--bg); }
-.bg-panel { background-color: var(--panel); }
-.bg-panel-2 { background-color: var(--panel-2); }
-.border-line { border-color: var(--line); }
-.text-main { color: var(--text); }
-.text-muted-custom { color: var(--muted); }
-.text-accent { color: var(--accent); }
-.text-critical { color: var(--critical); }
-.text-high { color: var(--high); }
-.text-medium { color: var(--medium); }
-.text-low { color: var(--low); }
+/* Counts and scores line up in columns. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

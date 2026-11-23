@@ -1,4 +1,4 @@
-"""The docs/demo-script.md path on the live stack, with timings: scan, critical finding, fix V1, drift, data flow,
+"""The docs/demo-script.md path on the live stack, with timings: scan, critical finding, fix V1, drift,
 V3 and V5 fixes, report. Needs the demo stack (./run_demo.sh)."""
 import re
 import time
@@ -22,8 +22,12 @@ with sync_playwright() as p:
     b, errs = c.launch(p), []
     page = c.new_page(b, errs)
     c.open_live(page); lap("open dashboard")
+    g.check("first run: tagline and exactly one Run scan button",
+            "Does your app do what its privacy notice says?" in c.body(page) and page.get_by_role("button", name="Run scan").count() == 1)
+    c.shot(page, "first-run")
     page.get_by_role("button", name="Run scan").click()
     page.get_by_text(re.compile(r"Step \d+ of 9")).wait_for(timeout=4000)  # real steps from the engine, not timer text
+    page.screenshot(path=str(c.SHOT_DIR / "scanning.png"))  # no count-up wait: the scan is still running
     step_text = page.locator("body").inner_text()
     g.check("scan overlay shows a real engine step", any(label in step_text for label in (
         "Testing the API", "Testing API access", "Inspecting the database", "Scanning source code", "Checking that deletion",
@@ -40,14 +44,13 @@ with sync_playwright() as p:
     g.check("V1 live, verified, score 0 to 18", v1["mode"] == "live" and f["verified"] and (v1["score_before"], v1["score_after"]) == (0, 18),
             f'{v1["mode"]} {v1["score_before"]}->{v1["score_after"]}')
     g.check("V1 badges green", c.badges_green(page))
+    g.check("V1 VERIFIED mark with score 0 to 18", "VERIFIED" in c.detail(page).inner_text() and "0 to 18" in c.detail(page).inner_text())
     c.shot(page, "rehearsal-2-v1-fixed")
     page.get_by_role("button", name="Notice vs Runtime").click()
-    page.get_by_text("collected but not disclosed").wait_for(timeout=3000); lap("notice vs runtime tab")
+    page.get_by_text("are not in its privacy notice").wait_for(timeout=3000); lap("notice vs runtime tab")
     t = c.body(page)
-    g.check("drift headline and 3 red cards", "3 of 6 data fields are collected but not disclosed" in t and t.lower().count("not in the notice") == 3)
+    g.check("drift headline and 3 undeclared rows", "3 of 6 data fields the app handles are not in its privacy notice" in t and t.lower().count("not in the notice") == 3)
     c.shot(page, "rehearsal-3-drift")
-    page.get_by_role("button", name="Data Flow").click()
-    page.get_by_text("Cross-Layer Data Flow Architecture").wait_for(); lap("data flow tab")
     page.get_by_role("button", name="Findings").click()
     v3 = c.fix_and_wait(page, "Personal data written to logs"); lap("fix V3")
     g.check("V3 live, verified, 18 to 28", v3["mode"] == "live" and v3["finding"]["fix"]["verified"] and (v3["score_before"], v3["score_after"]) == (18, 28),
@@ -56,8 +59,8 @@ with sync_playwright() as p:
     g.check("V5 live, verified, 28 to 38", v5["mode"] == "live" and v5["finding"]["fix"]["verified"] and (v5["score_before"], v5["score_after"]) == (28, 38),
             f'{v5["mode"]} {v5["score_before"]}->{v5["score_after"]}')
     s = c.summary(page)
-    g.check("gauge 38, history 0 to 38", " 38 " in f" {s} " and "0 → 38" in s, s[:120])
-    c.shot(page, "rehearsal-4-after-3-fixes")
+    g.check("gauge 38, history 0 to 38", " 38 " in f" {s} " and "0 to 38" in s, s[:120])
+    c.shot(page, "rehearsal-4-after-3-fixes", top=True)
     with page.context.expect_page() as pop:
         page.get_by_role("button", name="Export report").click()
     rp = pop.value

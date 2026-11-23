@@ -11,7 +11,8 @@ ENGINE = os.environ.get("ENGINE_URL", "http://localhost:8100")
 SHOT_DIR = Path(os.environ.get("SHOT_DIR", ROOT / "docs" / "fallback-shots"))
 SHOT_DIR.mkdir(parents=True, exist_ok=True)
 
-GREEN, RED, GREY = "rgb(61, 220, 151)", "rgb(255, 92, 92)", "rgb(139, 152, 168)"
+# Redesign tokens: accent teal (passed), critical (failed), muted (pending).
+GREEN, RED, GREY = "rgb(14, 90, 85)", "rgb(180, 35, 24)", "rgb(91, 98, 112)"
 VIEWPORT = {"width": 1366, "height": 768}
 FIXED = "Verified. Re-scan passed and the app's tests still pass."
 
@@ -98,11 +99,15 @@ def fix_and_wait(page, title, timeout=60000):
     with page.expect_response(lambda r: "/fix" in r.url and r.request.method == "POST") as resp:
         page.get_by_role("button", name="Fix and verify").click()
     page.get_by_text(FIXED).wait_for(timeout=timeout)
-    page.wait_for_timeout(700)  # score animation
+    page.wait_for_timeout(900)  # score count-up is 800 ms
     return resp.value.json()
 
 
-def shot(page, name):
+def shot(page, name, top=False):
+    """Save a fallback screenshot. top=True scrolls the page up so the score is in the picture."""
+    if top:
+        page.evaluate("window.scrollTo(0, 0)")
+    page.wait_for_timeout(900)  # let the 800 ms score count-up finish
     page.screenshot(path=str(SHOT_DIR / f"{name}.png"))
 
 
