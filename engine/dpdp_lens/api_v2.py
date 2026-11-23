@@ -178,7 +178,8 @@ def create_router(store: Store, core) -> APIRouter:
             m = ingest.scan_summary(store, r["scan_id"])
             out.append({"scan_id": r["scan_id"], "trigger": r["trigger_kind"], "commit": r["commit_sha"], "status": r["status"],
                         "mode": r["mode"], "started_at": r["started_at"], "finished_at": r["finished_at"],
-                        "findings": m.get("findings", 0), "new": m.get("new", 0), "resolved": m.get("resolved", 0)})
+                        "findings": m.get("findings", 0), "new": m.get("new", 0), "resolved": m.get("resolved", 0),
+                        "errors": json.loads(r["errors_json"] or "[]")})  # scanner, kind, message of a failed or incomplete scan
         return out
 
     @router.get("/repos/{repo_id}/diff")

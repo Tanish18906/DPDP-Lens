@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import sampleScan from './sample-scan.json'
+import Feed, { IncompleteBanner } from './Feed'
+import { useOpenCount } from './feedApi'
 
 // API & Environment Constants
 const API_BASE = 'http://localhost:8100'
@@ -417,7 +419,7 @@ export default function App() {
   useEffect(() => {
     function handleKeyDown(e) {
       if (e.target.closest?.('[role="menu"]')) return // arrow keys inside the export menu move between formats
-      if (!sortedFindings.length || fixingFindingId !== null || isScanning) return
+      if (!sortedFindings.length || fixingFindingId !== null || isScanning || activeTab === 'feed') return // the Feed has its own keys
       const currentIndex = sortedFindings.findIndex((f) => f.id === selectedFindingId)
 
       if (e.key === 'ArrowDown') {
@@ -433,7 +435,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedFindingId, sortedFindings, fixingFindingId, isScanning])
+  }, [selectedFindingId, sortedFindings, fixingFindingId, isScanning, activeTab])
 
   const handleUseSample = () => {
     setSampleMode(true)
@@ -667,8 +669,10 @@ export default function App() {
     Boolean(selectedFinding) &&
     (selectedFinding.status === 'verified_fixed' || fix.rescan_passed != null || fix.tests_passed != null)
 
+  const feedOpen = useOpenCount(API_BASE, engineConnected === true && !sampleMode)
   const views = [
     { key: 'findings', label: 'Findings', count: sortedFindings.length, countText: 'findings' },
+    { key: 'feed', label: 'Feed', count: sampleMode ? sampleScan.findings.length : feedOpen || null, countText: 'open', always: true },
     { key: 'notice_drift', label: 'Notice vs Runtime', count: undeclaredCount, countText: 'undeclared fields', alert: undeclaredCount > 0 },
     { key: 'data_flow', label: 'Data Flow' }
   ]
@@ -701,7 +705,7 @@ export default function App() {
               }`}
             >
               {v.label}
-              {(hasScan || sampleMode) && v.count != null && (
+              {(hasScan || sampleMode || v.always) && v.count != null && (
                 <span className={`ml-auto font-mono text-[14px] tabular ${v.alert ? 'text-critical font-semibold' : 'text-muted'}`}>
                   {v.count}
                   <span className="sr-only"> {v.countText}</span>
@@ -788,6 +792,13 @@ export default function App() {
           {scanError && (
             <div role="alert" className="mt-4 bg-surface border border-line border-l-4 border-l-critical rounded-[6px] px-4 py-2.5 text-[15px] text-critical print:hidden">
               <strong>Scan failed:</strong> {scanError}
+            </div>
+          )}
+
+          {/* The scan ran but did not look at everything: say so, and never show its score as a clean result. */}
+          {activeTab === 'findings' && hasScan && !sampleMode && scanData.complete === false && (
+            <div className="mt-4">
+              <IncompleteBanner errors={scanData.scan_errors || []} />
             </div>
           )}
 
@@ -969,6 +980,8 @@ export default function App() {
             </button>
           </section>
         )}
+
+        {activeTab === 'feed' && <Feed apiBase={API_BASE} sampleMode={sampleMode} sampleScan={sampleScan} />}
 
         {/* 4. Tab 1: Findings Split View */}
         {activeTab === 'findings' && showResults && (

@@ -117,7 +117,8 @@ def test_full_flow_connect_scan_ingest_patch_list_audit(api):
     delta = api.get(f"/scans/{sid}/delta").json()
     assert len(delta["new"]) == found["total"] and delta["complete"] is True and delta["commit"] == api.sha
     hist = api.get(f"/repos/{rid}/history").json()
-    assert hist[0]["scan_id"] == sid and hist[0]["new"] == found["total"] and hist[0]["status"] == "complete"
+    assert hist[0]["scan_id"] == sid and hist[0]["new"] == found["total"] and hist[0]["status"] == "complete" and hist[0]["errors"] == []
+    assert "explanation" in one and one["explanation"]  # one line for the Feed list
 
 
 def test_second_scan_has_no_new_findings_and_keeps_the_baseline(api):
@@ -163,7 +164,8 @@ def test_a_failed_clone_is_stored_and_health_is_unknown(api):
     r = api.get(f"/scan/{sid}")
     assert r.status_code == 500 and "RepoError" in r.json()["detail"]
     assert api.get(f"/repos/{rid}/health").json()["status"] == "unknown"
-    assert api.get(f"/repos/{rid}/history").json()[0]["status"] == "failed"
+    hist = api.get(f"/repos/{rid}/history").json()[0]
+    assert hist["status"] == "failed" and hist["errors"][0]["scanner"] == "scan" and "RepoError" in hist["errors"][0]["message"]
     assert "scan_failed" in [e["type"] for e in api.get("/audit/events").json()]
     assert api.get("/audit/verify").json()["ok"]
 

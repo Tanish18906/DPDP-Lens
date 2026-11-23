@@ -201,6 +201,12 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 
 Scheduled monitoring (never "real-time" or "continuous": nothing is watched between two scans). `POST /repos/{id}/watch {minutes}` makes the engine re-scan that repo every N minutes (1 to 10080). The schedule is stored in SQLite, so a restart keeps it, and a window missed while the engine was down runs once. One scan runs at a time. A failed clone, a crash or an incomplete scan is stored as such and the repo turns "unknown"; so does a repo with no complete scan in twice its interval ("stale"). `GET /repos/{id}/health` shows `failed_streak` and `last_error`. The monitor adds two outbox kinds, written in the same transaction as the change that caused them: `scan_delta` (a scheduled scan found a new or reopened critical or high finding) and `health_changed` (health moved into or out of at_risk or unknown, so an unchanged state alerts once, not on every scan). Manual scans never queue these two kinds.
 
+### Feed (dashboard)
+
+The dashboard's **Feed** view lists the findings of every connected repository (IDs like DPDP-014), with status tabs and counts, a repository filter, search, a detail drawer (reason, law, masked evidence, recommended fix, timeline), a health pill per repository (reasons on hover and for screen readers) and a red banner when the latest scan of a repository is incomplete or failed. It polls the engine every 5 seconds (no websockets), so a status changed in Slack shows up here without a reload, and the other way round. In live mode it shows engine data only; sample mode shows the sample scan, read only, labelled SAMPLE. The Findings view gets the same red banner when its scan has `complete: false`.
+
+To change a status or run a fix from the page, give the dashboard the engine's token when you start it: `VITE_DPDP_TOKEN=<same value as DPDP_API_TOKEN> npm run dev`. **Demo only:** a `VITE_` variable is bundled into the page, so it is not a secret. This is acceptable because the engine and the dashboard bind to localhost. Without it the Feed is read only and says so.
+
 Health is "unknown" whenever the latest scan is incomplete or failed, never green. Until the policy file lands (a later block), "blocking" means critical or high severity.
 
 ## Slack bot

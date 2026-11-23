@@ -291,7 +291,7 @@ def record_of(row) -> dict:
             "status": row["status"], "status_reason": row["status_reason"], "status_by": row["status_by"], "status_at": row["status_at"],
             "first_seen_at": row["first_seen_at"], "last_seen_at": row["last_seen_at"],
             "location": {"file": loc.get("file", ""), "line": loc.get("line", 0), "url": loc.get("url", "")},
-            "fix_available": bool(last.get("fix", {}).get("available")),
+            "fix_available": bool(last.get("fix", {}).get("available")), "explanation": last.get("explanation", ""),
             "slack": {"channel": row["slack_channel"], "ts": row["slack_ts"]} if row["slack_channel"] and row["slack_ts"] else None}
 
 
