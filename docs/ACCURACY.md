@@ -18,7 +18,7 @@ describe it, not code in general.
 | config_db_exposed | 3 | 0 | 0 | 3 | 100% | 100% |
 | config_debug_enabled | 4 | 0 | 0 | 5 | 100% | 100% |
 | config_env_in_image | 3 | 0 | 0 | 4 | 100% | 100% |
-| config_secret_committed | 8 | 4 | 6 | 13 | 67% | 57% |
+| config_secret_committed | 13 | 1 | 1 | 16 | 93% | 93% |
 | consent_not_recorded | 3 | 0 | 0 | 4 | 100% | 100% |
 | fe_pii_in_storage | 3 | 1 | 1 | 4 | 75% | 75% |
 | log_pii | 4 | 2 | 4 | 13 | 67% | 50% |
@@ -27,21 +27,13 @@ describe it, not code in general.
 | pii_email | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_pan | 3 | 0 | 0 | 0 | 100% | 100% |
 | pii_phone | 3 | 2 | 0 | 0 | 60% | 100% |
-| OVERALL (corpus) | 47 | 9 | 11 | 51 | 84% | 81% |
+| OVERALL (corpus) | 52 | 6 | 6 | 54 | 90% | 90% |
 | TutorNest static ground truth | 11 | 0 | 0 | - | 100% | 100% |
 
 ## Misses (every false positive and false negative)
 
-- `FP config_secret_committed/neg_changeme`
 - `FP config_secret_committed/neg_py_field_name_constant`
-- `FP config_secret_committed/neg_yaml_dummy_value`
-- `FP config_secret_committed/neg_yaml_example_value`
-- `FN config_secret_committed/pos_aws_key_in_env_odd_name`
-- `FN config_secret_committed/pos_github_pat_in_yaml`
-- `FN config_secret_committed/pos_github_token_odd_name`
 - `FN config_secret_committed/pos_json_token`
-- `FN config_secret_committed/pos_slack_token_in_yaml`
-- `FN config_secret_committed/pos_stripe_key_in_js`
 - `FP fe_pii_in_storage/neg_commented_out`
 - `FN fe_pii_in_storage/pos_ts_email_object`
 - `FP log_pii/neg_py_email_count`
@@ -60,3 +52,4 @@ Each row is a measured run of `python -m dpdp_lens.eval` on the corpus, after th
 | Step | Corpus precision | Corpus recall | config_secret_committed (P / R) | log_pii (P / R) | pii_phone (P / R) | TutorNest (found / extra) |
 |------|------------------|---------------|-------------------------------|-----------------|-------------------|---------------------------|
 | Baseline (block 06 step 1, before any change) | 84% | 81% | 67% / 57% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |
+| 1. Vendor token shapes (AWS, GitHub, Slack, Stripe) and a longer placeholder list in `config_scan` | 90% | 90% | 93% / 93% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |

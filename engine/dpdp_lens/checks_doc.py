@@ -20,11 +20,12 @@ RECOGNIZERS = [
 
 SECRET_RULES = [
     f"A key matches `{config_scan.KEY}` and its value is a literal of 4 or more characters.",
-    "Not a literal: `${...}`, `$VAR`, `<...>`, `your-...`, `xxx`, `null`, `none` or an empty value.",
+    "Not a literal: `${...}`, `$VAR`, `<...>`, `your-...`, `xxx`, `null`, `none`, `changeme`, `replace-me`, `example`, `sample`, `dummy`, `placeholder`, `todo`, `redacted` or an empty value.",
+    "A value with a vendor token shape counts whatever the key is called: AWS access key id (`AKIA...`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), Slack (`xox...-`), Stripe secret (`sk_live_`, `rk_live_`). JavaScript, TypeScript and shell files are read for these shapes only.",
     "A URL with `user:password@host` counts, with the password as the secret.",
     "`.env.example`, `.env.sample` and `.env.template` are never flagged.",
     "Python is read with `ast` (assignments of a string literal to a secret-like name), other config files line by line.",
-    "Test folders, `test_*.py` and `conftest.py` are skipped. JavaScript and TypeScript source is not scanned for secrets.",
+    "Test folders, `test_*.py` and `conftest.py` are skipped. JavaScript and TypeScript source is not scanned for secrets by key name.",
     "A secret is shown as its first 2 characters plus `***`, never in full. One finding per file.",
 ]
 

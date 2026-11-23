@@ -96,3 +96,47 @@ def test_compose_not_yaml_falls_back_to_line_scan(tmp_path):
 def test_unreadable_or_huge_files_do_not_raise(tmp_path):
     (tmp_path / ".env").write_bytes(b"\xff\xfe\x00bad")
     assert config_scan.scan(tmp_path) == []
+
+
+# ---- block 06 item 1: vendor token shapes and more placeholders (tokens are joined here, so no whole token is in the source)
+AWS = "AK" + "IA" + "IOSFODNN7EXAMPLE"
+GHP = "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
+SLACK = "xo" + "xb-" + "123456789012-1234567890123-aBcDeFgHiJkLmNoPqRsTuVwX"
+STRIPE = "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+
+
+def scan_root(tmp_path, files):
+    run(tmp_path, files)
+    return config_scan.scan(tmp_path)
+
+
+@pytest.mark.parametrize("value", ["changeme", "change-me", "replace_me", "example", "sample", "dummy", "placeholder", "TODO", "redacted"])
+def test_more_placeholders_are_not_secrets(tmp_path, value):
+    assert run(tmp_path, {".env": f"DB_PASSWORD={value}\n", "s.yml": f"password: {value}\n"}) == []
+
+
+def test_a_weak_real_password_is_still_a_secret(tmp_path):  # "admin123" is a hard-coded credential, not a placeholder
+    assert run(tmp_path, {".env": "DB_PASSWORD=admin123\n"}) == [("config_secret_committed", ".env", 1)]
+
+
+@pytest.mark.parametrize("name, text", [
+    ("ci.py", f'auth = "{GHP}"\n'), ("notify.yml", f'hook: "{SLACK}"\n'), (".env.production", f"STORAGE_ID={AWS}\n"),
+    ("frontend/pay.js", f'const s = Stripe("{STRIPE}");\n'), ("deploy.sh", f"curl -H 'Authorization: token {GHP}' x\n"),
+    ("src/a.ts", f"const x = '{AWS}'\n")])
+def test_vendor_token_shapes_are_found_under_any_key_name(tmp_path, name, text):
+    assert run(tmp_path, {name: text}) == [("config_secret_committed", name, 1)]
+
+
+def test_a_token_is_never_shown_in_full(tmp_path):
+    found = scan_root(tmp_path, {"ci.py": f'auth = "{GHP}"\n', "p.js": f'Stripe("{STRIPE}")\n'})
+    blob = " ".join(f.model_dump_json() for f in found)
+    assert found and GHP not in blob and STRIPE not in blob and GHP[:8] not in blob and "gh***" in blob
+
+
+def test_js_is_read_for_token_shapes_only_not_by_key_name(tmp_path):
+    assert run(tmp_path, {"frontend/a.js": 'const apiKey = "abcd1234efgh";\nconst password = "hunter2hunter2";\n'}) == []
+
+
+def test_publishable_stripe_keys_and_node_modules_are_not_flagged(tmp_path):
+    pk = "pk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
+    assert run(tmp_path, {"pay.js": f'Stripe("{pk}")\n', "node_modules/x/i.js": f'a("{STRIPE}")\n'}) == []

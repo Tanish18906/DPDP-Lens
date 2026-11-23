@@ -15,7 +15,18 @@ from ..models import Evidence, Finding, Fix, Location
 KEY = r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key|access[_-]?key|jwt)"
 KV = re.compile(rf"""^\s*(?:-\s*)?(?:export\s+)?["']?([\w.\-]*{KEY}[\w.\-]*)["']?\s*[:=]\s*(.*?)\s*$""", re.I)
 KEY_ONLY = re.compile(KEY, re.I)
-PLACEHOLDER = re.compile(r"^(\$\{.*\}|\$\w+|<.*>|your[-_].*|x{3,}|null|none)$", re.I)
+PLACEHOLDER = re.compile(
+    r"^(\$\{.*\}|\$\w+|<.*>|your[-_].*|x{3,}|null|none|\*{3,}"
+    r"|change[-_]?me|change[-_]?it|replace[-_]?me|insert[-_].*|example|sample|dummy|placeholder|todo|fixme|redacted|undefined|not[-_]?set)$", re.I)
+# Token shapes with a vendor prefix: flagged by their value, whatever the key is called. Stripe publishable keys (pk_) are public and not listed.
+TOKEN_SHAPES = [
+    ("AWS access key id", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")),
+    ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{22,}\b")),
+    ("Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b")),
+    ("Stripe secret key", re.compile(r"\b[sr]k_live_[A-Za-z0-9]{16,}\b")),
+]
+TOKEN_ONLY_SUFFIXES = (".js", ".jsx", ".ts", ".tsx", ".sh")  # no key-name rule here, only the token shapes above
 URL_CRED = re.compile(r"://[^/\s:@\"']+:([^@\s/\"']+)@")
 DEBUG_LINE = re.compile(r"^\s*(?:-\s*)?(?:export\s+)?DEBUG\s*[:=]\s*[\"']?(true|1|yes|on)\b", re.I)
 CORS_HEADER = re.compile(r"Access-Control-Allow-Origin[\"']?[\s:,=]+[\"']?\*", re.I)
@@ -58,10 +69,12 @@ def _finding(check: str, severity: str, title: str, rel: str, line: int, summary
         fix=Fix(available=False))
 
 
-def _secrets(text: str, rel: str, is_py: bool) -> list[tuple[int, str, str]]:
-    """(line, key, masked) for each literal secret. Python goes through ast, other files line by line."""
+def _secrets(text: str, rel: str, is_py: bool, token_only: bool = False) -> list[tuple[int, str, str]]:
+    """(line, key, masked) for each literal secret. Python goes through ast, other files line by line. token_only: just the token shapes."""
     hits = []
-    if is_py:
+    if token_only:
+        pass
+    elif is_py:
         try:
             for n in ast.walk(ast.parse(text)):
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(n, ast.AnnAssign) else []
@@ -75,8 +88,13 @@ def _secrets(text: str, rel: str, is_py: bool) -> list[tuple[int, str, str]]:
             if (m := KV.match(line)) and (v := _literal(m.group(2))):
                 hits.append((i, m.group(1), _mask(v)))
     for i, line in enumerate(text.splitlines(), 1):  # user:password@host in a URL
-        if (m := URL_CRED.search(line)) and (v := _literal(m.group(1))) and not any(h[0] == i for h in hits):
+        if not token_only and (m := URL_CRED.search(line)) and (v := _literal(m.group(1))) and not any(h[0] == i for h in hits):
             hits.append((i, "url password", _mask(v)))
+        if not any(h[0] == i for h in hits):  # a vendor token shape, whatever the key is called (never shown in full)
+            for label, shape in TOKEN_SHAPES:
+                if m := shape.search(line):
+                    hits.append((i, label, _mask(m.group(0))))
+                    break
     return sorted(hits)
 
 
@@ -214,7 +232,8 @@ def scan(app_root) -> list[Finding]:
         is_docker = name.startswith("dockerfile") or name.endswith(".dockerfile")
         is_compose = name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
         is_py = name.endswith(".py")
-        if not (is_docker or is_py or _is_env(name) or name.endswith(CONFIG_SUFFIXES)):
+        token_only = name.endswith(TOKEN_ONLY_SUFFIXES)
+        if not (is_docker or is_py or _is_env(name) or name.endswith(CONFIG_SUFFIXES) or token_only):
             continue
         try:
             text = read_capped(root, rel)
@@ -223,8 +242,10 @@ def scan(app_root) -> list[Finding]:
         if is_docker:
             findings += _dockerfile(rel, text)
             continue
-        if hits := _secrets(text, rel, is_py):
+        if hits := _secrets(text, rel, is_py, token_only):
             findings.append(_secret_finding(root, rel, hits))
+        if token_only:
+            continue
         if is_py:
             findings += _python_rules(rel, text)
             continue
