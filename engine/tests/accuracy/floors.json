@@ -20,7 +20,35 @@
    "precision": 1.0,
    "recall": 1.0
   },
+  "config_k8s_host_network": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_k8s_privileged": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_k8s_secret_in_env": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_s3_public": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
   "config_secret_committed": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_security_group_ingress_anywhere": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_storage_unencrypted": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_tf_hardcoded_secret": {
    "precision": 1.0,
    "recall": 1.0
   },

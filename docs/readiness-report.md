@@ -14,7 +14,7 @@ A browser cannot send the token header, so it opens the signed link. The link is
 
 ## What is in it
 
-Repo, branch, commit, scan id, date, policy and scanner version. Scope: static or full, how many of the 19 checks ran, which did not and why, scan errors. Health and its reasons. Counts by severity and by status. A findings table, critical first: id, severity, title with the masked evidence, the DPDP clauses, file:line, proof (static or live), status with reason and actor, and the fix result with exactly what was verified (live sandbox run or cached replay, re-scan, app tests passed or not run, score change). The audit chain check (intact, or the first bad event) and the number of events for the repo. Limits.
+Repo, branch, commit, scan id, date, policy and scanner version. Scope: static or full, how many of the 26 checks ran, which did not and why, scan errors. Health and its reasons. Counts by severity and by status. A findings table, critical first: id, severity, title with the masked evidence, the DPDP clauses, file:line, proof (static or live), status with reason and actor, and the fix result with exactly what was verified (live sandbox run or cached replay, re-scan, app tests passed or not run, score change). The audit chain check (intact, or the first bad event) and the number of events for the repo. Limits.
 
 An incomplete or failed scan, a newer failed scan, or an Unknown health is said in the first lines and the report never reads as clean. Evidence is the masked text the scanners stored and is masked again when the page is made.
 

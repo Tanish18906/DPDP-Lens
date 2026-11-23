@@ -18,7 +18,14 @@ describe it, not code in general.
 | config_db_exposed | 3 | 0 | 0 | 3 | 100% | 100% |
 | config_debug_enabled | 4 | 0 | 0 | 5 | 100% | 100% |
 | config_env_in_image | 3 | 0 | 0 | 4 | 100% | 100% |
+| config_k8s_host_network | 1 | 0 | 0 | 2 | 100% | 100% |
+| config_k8s_privileged | 2 | 0 | 0 | 2 | 100% | 100% |
+| config_k8s_secret_in_env | 1 | 0 | 0 | 4 | 100% | 100% |
+| config_s3_public | 2 | 0 | 0 | 3 | 100% | 100% |
 | config_secret_committed | 14 | 0 | 0 | 17 | 100% | 100% |
+| config_security_group_ingress_anywhere | 2 | 0 | 0 | 3 | 100% | 100% |
+| config_storage_unencrypted | 2 | 0 | 0 | 3 | 100% | 100% |
+| config_tf_hardcoded_secret | 2 | 0 | 0 | 3 | 100% | 100% |
 | consent_not_recorded | 3 | 0 | 0 | 4 | 100% | 100% |
 | fe_pii_in_storage | 4 | 0 | 0 | 5 | 100% | 100% |
 | log_pii | 8 | 2 | 0 | 13 | 80% | 100% |
@@ -27,7 +34,7 @@ describe it, not code in general.
 | pii_email | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_pan | 4 | 0 | 0 | 0 | 100% | 100% |
 | pii_phone | 5 | 0 | 0 | 0 | 100% | 100% |
-| OVERALL (corpus) | 62 | 2 | 0 | 56 | 97% | 100% |
+| OVERALL (corpus) | 74 | 2 | 0 | 76 | 97% | 100% |
 | TutorNest static ground truth | 11 | 0 | 0 | - | 100% | 100% |
 
 ## Misses (every false positive and false negative)
@@ -50,5 +57,6 @@ Each row is a measured run of `python -m dpdp_lens.eval` on the corpus, after th
 | B. `frontend_scan`: plain `.ts` files are read as front end source | 95% | 98% | 93% / 93% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
 | C. `config_scan`: a constant named like a field or label (`PASSWORD_FIELD = "password"`) is not a secret | 97% | 98% | 100% / 93% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
 | D. `config_scan`: `"key": "value"` pairs are read anywhere in a JSON file, so a one-line `{"api_token": "..."}` is found | 97% | 100% | 100% / 100% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
+| Block 14: Cloud configuration checks (Terraform S3 public, SG ingress anywhere, unencrypted storage, provider secret; K8s privileged, hostNetwork, secret in env) | 97% | 100% | 100% / 100% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
 
 Item 4 notes. Three of the brief's four points were already in `recognizers.py` before this block and have tests and corpus cases that pass at baseline: the PAN fourth letter must be a holder type (P C H F A T B L J G) and the digits cannot be 0000, an Aadhaar starts with 2 to 9 and must pass the Verhoeff check, and a 10 digit number inside a longer digit run is not a phone number. The measured gap was the phone recognizer (decimals, invoice and build numbers beside the word "mobile", numbers written 5 + 5), which is what changed. The corpus was extended first (row above) so the before number is on the same corpus as the after number. Floors in `tests/accuracy/floors.json` were regenerated after that extension, because the corpus changed, not the code.

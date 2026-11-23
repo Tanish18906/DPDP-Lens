@@ -69,7 +69,7 @@ settings:
 
 - [ ] Bot starts, no "Missing environment" line, no token in the log.
 - [ ] `/dpdp help` in the allowed channel shows the help. In another channel it answers "does not take commands in this channel".
-- [ ] `/dpdp connect Tanish18906/acme-tutornest` posts "Scanning ... (static checks only)", then a summary with the coverage line "static checks only (n of 19)", then one card per finding, critical first.
+- [ ] `/dpdp connect Tanish18906/acme-tutornest` posts "Scanning ... (static checks only)", then a summary with the coverage line "static checks only (n of 26)", then one card per finding, critical first.
 - [ ] Every card shows its id as plain text (no link). View Details ends with a small "Open in dashboard" line that links to `DASHBOARD_URL/?finding=DPDP-nnn`.
 - [ ] `/dpdp scan` again: a summary only, no new cards.
 - [ ] View Details answers in the card's thread with clauses and masked evidence only.
