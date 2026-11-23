@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from ..models import Evidence, Finding, Fix, Location
-from ..recognizers import find_pii
+from ..recognizers import find_pii, is_name_column
 
 SAMPLE_ROWS = 20
 FLAGGED = {"aadhaar", "pan"}  # phone, email and dob only go in the evidence list
@@ -36,6 +36,22 @@ def observe(db_path: str) -> list[tuple[str, str, str, str]]:
                         continue
                     for pii_type, _, _, masked in find_pii(text, col):
                         found.append((table, col, pii_type, masked))
+    finally:
+        con.close()
+    return found
+
+
+def observe_names(db_path: str) -> list[tuple[str, str]]:
+    """(table, column) for name columns that hold at least one non-empty value. Names have no value pattern, so column context only."""
+    found = []
+    con = _connect(db_path)
+    try:
+        tables = [r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+        for table in tables:
+            for col in (r[1] for r in con.execute(f"PRAGMA table_info({_q(table)})") if is_name_column(r[1])):
+                if con.execute(f"SELECT 1 FROM {_q(table)} WHERE TRIM(CAST({_q(col)} AS TEXT)) != '' LIMIT 1").fetchone():
+                    found.append((table, col))
     finally:
         con.close()
     return found

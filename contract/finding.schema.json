@@ -223,6 +223,33 @@
           ],
           "default": null,
           "title": "Score After"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "pending_inputs": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Inputs"
         }
       },
       "title": "Fix",
@@ -281,6 +308,21 @@
           },
           "title": "Undeclared",
           "type": "array"
+        },
+        "undeclared_detail": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/UndeclaredDetail"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Undeclared Detail"
         }
       },
       "required": [
@@ -310,6 +352,37 @@
         "where"
       ],
       "title": "ObservedField",
+      "type": "object"
+    },
+    "UndeclaredDetail": {
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "where": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Where",
+          "type": "array"
+        },
+        "needs_review": {
+          "title": "Needs Review",
+          "type": "boolean"
+        },
+        "review_note": {
+          "title": "Review Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "where",
+        "needs_review",
+        "review_note"
+      ],
+      "title": "UndeclaredDetail",
       "type": "object"
     }
   },

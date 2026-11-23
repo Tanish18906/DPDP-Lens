@@ -12,14 +12,15 @@ from typing import Literal
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+from .fixer.notice_align import NOTICE_ALIGN
 from .fixer.templates import TEMPLATES, PatchError
 from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
 from .netutil import is_local as _is_local
 from .models import Fix, ScanResult, compute_counts, compute_score
-from .report import render_report
+from .report import render_pdf, render_report
 from .sarif import to_sarif
 from .runner import run_scan
 
@@ -43,7 +44,8 @@ def default_state_dir() -> Path:
     return Path(os.environ.get("DPDP_STATE_DIR") or default_repo_root() / ".dpdp-state")
 
 
-def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR, state_dir=None) -> FastAPI:
+def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR, state_dir=None,
+               pdf_fn=render_pdf) -> FastAPI:
     """state_dir=None keeps everything in memory only (the tests). The real app below passes default_state_dir()."""
     root = Path(repo_root).resolve() if repo_root else default_repo_root()
     app = FastAPI(title="DPDP Lens engine")
@@ -164,8 +166,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(404, f"Unknown scan {scan_id}")
         return {"steps": timings.get(scan_id, [])}
 
-    @app.get("/report/{scan_id}")
-    def get_report(scan_id: str):
+    def _finished(scan_id: str) -> ScanResult:
         scan = scans.get(scan_id)
         if scan is None:
             raise HTTPException(404, f"Unknown scan {scan_id}")
@@ -173,6 +174,23 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             if scan["status"] == "running":
                 raise HTTPException(409, f"Scan {scan_id} is not finished")
             raise HTTPException(500, scan["detail"])
+        return scan
+
+    # Registered before /report/{scan_id}, which would otherwise take "S-001.pdf" as a scan id.
+    @app.get("/report/{scan_id}.pdf")
+    def get_report_pdf(scan_id: str):
+        scan = _finished(scan_id)
+        try:
+            pdf = pdf_fn(render_report(scan, fix_modes.get(scan_id, {})), scan_id)
+        except Exception as e:  # no Playwright or no browser on this machine
+            log.warning("pdf_error %s: %s", scan_id, str(e).splitlines()[0][:200] if str(e) else type(e).__name__)
+            raise HTTPException(503, "PDF needs Chromium or Chrome, use the HTML report")
+        return Response(pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="dpdp-lens-{scan_id}.pdf"'})
+
+    @app.get("/report/{scan_id}")
+    def get_report(scan_id: str):
+        scan = _finished(scan_id)
         return HTMLResponse(render_report(scan, fix_modes.get(scan_id, {})), headers={
             "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",  # no scripts, nothing external
             "X-Content-Type-Options": "nosniff"})
@@ -187,7 +205,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         finding = next((f for f in scan.findings if f.id == finding_id), None)
         if finding is None:
             raise HTTPException(404, f"Unknown finding {finding_id} in scan {scan_id}")
-        template = TEMPLATES.get(finding.check)
+        template = NOTICE_ALIGN if finding.check == "notice_drift" else TEMPLATES.get(finding.check)
         if not finding.fix.available or template is None:
             raise HTTPException(400, f"No automated fix for {finding.check}")
         if finding.status == "verified_fixed":
@@ -202,7 +220,8 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
                 fix, used = _golden_fix(golden, scan.score), "cached_golden"
             else:
                 try:
-                    run = fix_fn(finding, *inputs[scan_id], score_before=scan.score, golden_dir=golden_dir)
+                    extra = {"drift": scan.notice_drift} if finding.check == "notice_drift" else {}
+                    run = fix_fn(finding, *inputs[scan_id], score_before=scan.score, golden_dir=golden_dir, **extra)
                     fix, used, vlog = run.fix, "live", run.log or None
                 except PatchError as e:
                     raise HTTPException(422, f"The patch does not apply: {e}")
@@ -235,7 +254,8 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
 def _golden_fix(golden: dict, score_before: int) -> Fix:
     """Replay of a saved verified live run. Scores are filled in by the caller's scan, not copied."""
     return Fix(available=True, diff=golden["diff"], verified=golden["verified"], rescan_passed=golden["rescan_passed"],
-               tests_passed=golden["tests_passed"], score_before=score_before)
+               tests_passed=golden["tests_passed"], score_before=score_before,
+               kind=golden.get("kind"), pending_inputs=golden.get("pending_inputs"))
 
 
 app = create_app(state_dir=default_state_dir())

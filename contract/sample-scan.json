@@ -138,6 +138,14 @@
       {"field": "dob", "where": ["db:students.dob", "api:/api/students"]},
       {"field": "parent_pan", "where": ["db:students.parent_pan", "api:/api/students"]}
     ],
-    "undeclared": ["dob", "aadhaar", "parent_pan"]
+    "undeclared": ["dob", "aadhaar", "parent_pan"],
+    "undeclared_detail": [
+      {"field": "dob", "where": ["db:students.dob", "api:/api/students"], "needs_review": true,
+       "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."},
+      {"field": "aadhaar", "where": ["db:students.aadhaar", "api:/api/students", "request:facebook.com"], "needs_review": true,
+       "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."},
+      {"field": "parent_pan", "where": ["db:students.parent_pan", "api:/api/students"], "needs_review": true,
+       "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."}
+    ]
   }
 }

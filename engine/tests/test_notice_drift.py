@@ -8,7 +8,8 @@ from conftest import BACKEND
 from dpdp_lens import runner
 from dpdp_lens.htmltext import list_items, visible_text
 from dpdp_lens.models import NoticeDrift, ObservedField
-from dpdp_lens.scanners import notice_drift
+from dpdp_lens.recognizers import is_name_column
+from dpdp_lens.scanners import db_scan, notice_drift
 from dpdp_lens.scanners.notice_drift import declared_fields, field_name
 
 
@@ -24,6 +25,30 @@ def test_declared_fields_fall_back_to_visible_text_without_a_list():
     assert declared_fields("<p>We collect your name, e-mail and mobile number.</p><!-- aadhaar -->") == ["name", "email", "phone"]
     assert declared_fields("<p>We collect your date of birth, Aadhaar and PAN.</p>") == ["dob", "aadhaar", "pan", "parent_pan"]
     assert declared_fields("<p>Nothing here.</p>") == []
+
+
+@pytest.mark.parametrize("item,expected", [
+    ("Full Name", ["name"]), ("Student's name", ["name"]), ("Username", []), ("Surname", [])])
+def test_declared_name_keyword(item, expected):
+    assert declared_fields(f"<ul><li>{item}</li></ul>") == expected
+
+
+@pytest.mark.parametrize("column,expected", [
+    ("name", True), ("Full_Name", True), ("parent_name", True), ("username", False), ("name_hash", False), (None, False)])
+def test_is_name_column(column, expected):
+    assert is_name_column(column) is expected
+
+
+def test_name_needs_a_non_empty_value(tmp_path):
+    db = tmp_path / "n.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE a (name TEXT, username TEXT)")
+    con.execute("CREATE TABLE b (full_name TEXT)")
+    con.executemany("INSERT INTO a VALUES (?, ?)", [("", "x"), (None, "y")])
+    con.execute("INSERT INTO b VALUES ('Test Person')")
+    con.commit()
+    con.close()
+    assert db_scan.observe_names(str(db)) == [("b", "full_name")]
 
 
 def test_html_helpers_ignore_comments_scripts_and_styles():
@@ -42,9 +67,10 @@ def test_field_name(pii_type, column, expected):
 def test_real_target_drift(target, target_db):
     drift = notice_drift.build(target, str(target_db))
     assert drift.declared == ["name", "email", "phone"]
-    assert [o.field for o in drift.observed] == ["email", "phone", "dob", "aadhaar", "parent_pan"]
-    assert drift.undeclared == ["dob", "aadhaar", "parent_pan"]
+    assert [o.field for o in drift.observed] == ["name", "email", "phone", "dob", "aadhaar", "parent_pan"]
+    assert drift.undeclared == ["dob", "aadhaar", "parent_pan"]  # name is observed and declared: no false drift
     where = {o.field: o.where for o in drift.observed}
+    assert where["name"] == ["db:students.name", "api:/api/students"]
     assert where["aadhaar"] == ["db:students.aadhaar", "api:/api/students"]
     assert "db:students.parent_pan" in where["parent_pan"] and "api:/api/students" in where["dob"]
 
@@ -93,3 +119,25 @@ def test_unreadable_notice_leaves_the_block_null_and_the_scan_alive(monkeypatch,
     monkeypatch.setattr(notice_drift, "build", broken)
     r = runner.run_scan(target, str(BACKEND), str(target_db))
     assert r.notice_drift is None and len(r.findings) == 7 and r.score == 18
+
+
+# --- per-field detail (optional block in the contract)
+def test_undeclared_detail_on_the_real_target(target, target_db):
+    drift = notice_drift.build(target, str(target_db))
+    assert [d.field for d in drift.undeclared_detail] == drift.undeclared == ["dob", "aadhaar", "parent_pan"]
+    assert all(d.needs_review and d.review_note == notice_drift.REVIEW_NOTE for d in drift.undeclared_detail)
+    assert drift.undeclared_detail[1].where == ["db:students.aadhaar", "api:/api/students"]
+
+
+def test_undeclared_detail_review_only_for_sensitive_fields(monkeypatch):
+    obs = [ObservedField(field=f, where=[f"db:t.{f}"]) for f in ("email", "dob")]
+    monkeypatch.setattr(notice_drift, "observed_fields", lambda t, d: obs)
+    monkeypatch.setattr(notice_drift.httpx, "get", lambda *a, **k: httpx.Response(
+        200, text="<ul><li>Name</li></ul>", request=httpx.Request("GET", "http://x/notice")))
+    drift = notice_drift.build("http://x", "x.db")
+    assert [(d.field, d.needs_review, bool(d.review_note)) for d in drift.undeclared_detail] == [
+        ("email", False, False), ("dob", True, True)]
+
+
+def test_older_scan_without_detail_still_validates():
+    assert NoticeDrift(declared=[], observed=[], undeclared=[]).undeclared_detail is None

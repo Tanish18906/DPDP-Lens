@@ -53,6 +53,14 @@ def mask(pii_type: str, value: str) -> str:
     return _MASKERS[pii_type](value)
 
 
+_NAME_COL = re.compile(r"(?:^|_)name$")
+
+
+def is_name_column(column: str | None) -> bool:
+    """Column or JSON key that holds a person's name: 'name', 'full_name', 'parent_name'. Not 'username'."""
+    return bool(column and _NAME_COL.search(column.lower()))
+
+
 def column_hint(column: str | None) -> str | None:
     """PII type a column name suggests, or None."""
     if not column:

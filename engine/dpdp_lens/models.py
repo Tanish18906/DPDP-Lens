@@ -38,6 +38,8 @@ class Fix(BaseModel):
     tests_passed: Optional[bool] = None
     score_before: Optional[int] = None
     score_after: Optional[int] = None
+    kind: Optional[str] = None  # "notice_align": the drift is closed, the purposes are still open
+    pending_inputs: Optional[list[str]] = None  # what only the owner can supply, e.g. "purpose for dob"
 
 
 class Finding(BaseModel):
@@ -58,10 +60,18 @@ class ObservedField(BaseModel):
     where: list[str]
 
 
+class UndeclaredDetail(BaseModel):
+    field: str
+    where: list[str]
+    needs_review: bool
+    review_note: str
+
+
 class NoticeDrift(BaseModel):
     declared: list[str]
     observed: list[ObservedField]
     undeclared: list[str]
+    undeclared_detail: Optional[list[UndeclaredDetail]] = None  # optional: older scans and clients do not have it
 
 
 class Counts(BaseModel):

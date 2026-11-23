@@ -3,7 +3,7 @@ import httpx
 
 from .. import config
 from ..models import Evidence, Finding, Fix, Location
-from ..recognizers import find_pii
+from ..recognizers import find_pii, is_name_column
 
 # Never probed: docs, schema, health and the static notice page.
 SKIP_PATHS = {"/health", "/openapi.json", "/docs", "/redoc", "/notice"}
@@ -45,10 +45,27 @@ def _open_routes(target_url: str, transport=None):
                 yield path, r.json()
 
 
+def name_keys(obj, key=None, out=None) -> set[str]:
+    """JSON keys like 'name' that hold a non-empty string. Column context only, as names have no value pattern."""
+    out = set() if out is None else out
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            name_keys(v, k, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            name_keys(v, key, out)
+    elif isinstance(obj, str) and obj.strip() and is_name_column(key):
+        out.add(key)
+    return out
+
+
 def observe(target_url: str, transport=None) -> list[tuple[str, str, str]]:
-    """(path, field name, pii type) for PII an unauthenticated GET returns."""
-    return [(path, key, t) for path, body in _open_routes(target_url, transport)
-            for key, (t, _) in pii_matches(body).items()]
+    """(path, field name, pii type) for PII an unauthenticated GET returns. A name key is reported as type 'name'."""
+    found = []
+    for path, body in _open_routes(target_url, transport):
+        found += [(path, key, t) for key, (t, _) in pii_matches(body).items()]
+        found += [(path, key, "name") for key in sorted(name_keys(body))]
+    return found
 
 
 def scan(target_url: str, transport=None) -> list[Finding]:

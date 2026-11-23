@@ -12,8 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ..models import Finding, Fix, ScanResult
+from ..models import Finding, Fix, NoticeDrift, ScanResult
 from ..runner import SCANNER_TIMEOUT, run_scan
+from ..scanners import notice_drift as drift_scan
+from .notice_align import NOTICE_ALIGN, align_notice, pending_inputs
 from .sandbox import START_TIMEOUT, Sandbox
 from .templates import TEMPLATES, PatchError, Template, apply_template
 
@@ -28,7 +30,7 @@ class FixTimeout(Exception):
 @dataclass
 class Verification:
     fix: Fix
-    rescan: ScanResult
+    rescan: ScanResult | None  # None for the notice fix, which re-runs one scanner only
     tests_output: str
     log: dict = field(default_factory=dict)  # real timings and facts of this run, for the dashboard's verification log
 
@@ -46,8 +48,22 @@ def _left(deadline: float) -> float:
     return left
 
 
+def _run_pytest(tests_dir: Path, url: str, deadline: float) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", str(tests_dir), "-q", "-p", "no:cacheprovider"],
+            cwd=tests_dir, capture_output=True, text=True, timeout=_left(deadline),
+            env={**os.environ, "TUTORNEST_BASE_URL": url, "PYTHONDONTWRITEBYTECODE": "1"})  # original folder stays untouched
+    except subprocess.TimeoutExpired as e:
+        raise FixTimeout("the app's tests did not finish in time") from e
+
+
 def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend_dir=None, template: Template | None = None,
-               score_before: int | None = None, golden_dir=GOLDEN_DIR, timeout: float = FIX_TIMEOUT) -> Verification:
+               score_before: int | None = None, golden_dir=GOLDEN_DIR, timeout: float = FIX_TIMEOUT,
+               drift: NoticeDrift | None = None) -> Verification:
+    if finding.check == "notice_drift":  # generated patch, not a fixed snippet
+        return verify_notice_align(finding, repo_path, db_path, drift=drift, tests_dir=tests_dir,
+                                   score_before=score_before, golden_dir=golden_dir, timeout=timeout)
     template = template or TEMPLATES.get(finding.check)
     if template is None:
         raise PatchError(f"no fix template for {finding.check}")
@@ -89,13 +105,7 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
         if broken:  # a scanner that could not run must never read as "the finding is gone"
             raise RuntimeError(f"the re-scan could not run {template.scanner}: {broken[0]}")
         mark("rescan")
-        try:
-            proc = subprocess.run(
-                [sys.executable, "-m", "pytest", str(tests_dir), "-q", "-p", "no:cacheprovider"],
-                cwd=tests_dir, capture_output=True, text=True, timeout=_left(deadline),
-                env={**os.environ, "TUTORNEST_BASE_URL": url, "PYTHONDONTWRITEBYTECODE": "1"})  # original folder stays untouched
-        except subprocess.TimeoutExpired as e:
-            raise FixTimeout("the app's tests did not finish in time") from e
+        proc = _run_pytest(tests_dir, url, deadline)
         mark("tests")
         sandbox_root = str(sb.root)
 
@@ -115,6 +125,61 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
     return Verification(fix=fix, rescan=rescan, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
 
 
+def verify_notice_align(finding: Finding, repo_path, db_path, *, drift: NoticeDrift | None, tests_dir=None,
+                        score_before: int | None = None, golden_dir=GOLDEN_DIR, timeout: float = FIX_TIMEOUT) -> Verification:
+    """Add the notice section on a sandbox copy, re-run ONLY notice_drift against it, run the app's tests.
+    Verified = nothing undeclared any more AND the tests pass. The purposes stay pending, so that is said in the fix."""
+    if drift is None or not drift.undeclared:
+        raise PatchError("this scan has no notice drift to align")
+    tests_dir = Path(tests_dir or Path(repo_path).parent / "tests")
+    deadline = time.monotonic() + timeout
+    started = last = time.monotonic()
+    steps: list[dict] = []
+
+    def mark(step: str) -> None:
+        nonlocal last
+        now = time.monotonic()
+        steps.append({"step": step, "ms": round((now - last) * 1000)})
+        last = now
+
+    with Sandbox(repo_path, db_path, start_timeout=min(START_TIMEOUT, timeout)) as sb:  # the finally in __exit__ kills the process group
+        mark("copy")
+        notice = sb.repo / "static" / "notice.html"
+        try:
+            original = notice.read_text()
+        except OSError as e:
+            raise PatchError(f"cannot read static/notice.html: {e}") from e
+        patched = align_notice(original, drift)
+        if patched == original:
+            raise PatchError("static/notice.html already has the notice-align section")
+        notice.write_text(patched)
+        mark("patch")
+        url = sb.start()
+        _left(deadline)
+        mark("start")
+        after = drift_scan.build(url, str(sb.db))  # only this scanner, the rest of the scan does not matter here
+        mark("rescan")
+        proc = _run_pytest(tests_dir, url, deadline)
+        mark("tests")
+        sandbox_root = str(sb.root)
+
+    gone = not after.undeclared
+    tests_ok = proc.returncode == 0
+    diff = "".join(difflib.unified_diff(original.splitlines(True), patched.splitlines(True),
+                                        "a/static/notice.html", "b/static/notice.html"))
+    fix = Fix(available=True, diff=diff, verified=gone and tests_ok, rescan_passed=gone, tests_passed=tests_ok,
+              score_before=score_before, kind="notice_align", pending_inputs=pending_inputs(drift))
+    if fix.verified:
+        save_golden(NOTICE_ALIGN, fix, golden_dir)
+    out = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    log = {"steps": steps, "total_ms": round((time.monotonic() - started) * 1000),
+           "sandbox": sandbox_root, "port": urlparse(url).port,
+           "rescan_check": "notice_drift", "rescan_findings": len(after.undeclared),
+           "rescan_result": "gone" if gone else "still found",
+           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}"}
+    return Verification(fix=fix, rescan=None, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
+
+
 def save_golden(template: Template, fix: Fix, golden_dir=GOLDEN_DIR) -> None:
     """Only a verified live run is saved. The cached demo mode replays it."""
     Path(golden_dir).mkdir(parents=True, exist_ok=True)
@@ -122,7 +187,7 @@ def save_golden(template: Template, fix: Fix, golden_dir=GOLDEN_DIR) -> None:
         "golden_id": template.golden_id, "check": template.check, "source": "live",
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "diff": fix.diff, "verified": fix.verified, "rescan_passed": fix.rescan_passed,
-        "tests_passed": fix.tests_passed}, indent=2) + "\n")
+        "tests_passed": fix.tests_passed, "kind": fix.kind, "pending_inputs": fix.pending_inputs}, indent=2) + "\n")
 
 
 def load_golden(golden_id: str, golden_dir=GOLDEN_DIR) -> dict | None:
