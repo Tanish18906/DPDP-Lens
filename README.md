@@ -216,6 +216,8 @@ Install the engine from a checkout with `pip install -e "<checkout>/engine"`. A 
 
 `ci` runs the static checks and judges them with `engine/dpdp_lens/policies/default.yaml` (critical and high block, medium warn, low info). Exit 0 = pass or warn, 1 = blocking findings, 2 = the scan was incomplete or the config, policy or baseline is invalid (never a pass). An optional `.dpdp-lens.yml` in the scanned repo sets `policy`, `block_on`, `warn_on`, `categories`, `new_only`, `baseline` and `suppress` (see `docs/ci-example/dpdp-lens.config.yml`).
 
+On this repository `ci --repo-dir ..` exits 1 (blocking findings), because it contains the deliberately vulnerable demo app; `ci --repo-dir ../target-app --write-baseline` followed by `--new-only` exits 0.
+
 Copy `docs/ci-example/dpdp-lens.yml` to `.github/workflows/` of the repo to scan. It uploads SARIF (code scanning annotations need a public repo or GitHub Code Security, and GitHub shows them in a pull request only on lines the pull request changed), writes a step summary, keeps the JSON and SARIF as an artifact, and posts to Slack if the secret `SLACK_WEBHOOK_URL` is set and the decision is not pass. SARIF lists only findings that have a repo file; live API, database and browser findings stay in the JSON.
 
 A live scan can also write SARIF (`scan ... --out scan.json --sarif scan.sarif`, or `GET /scan/{scan_id}/sarif`): one rule per check, one result per open finding that has a file, severity mapped to error (critical, high), warning (medium) and note (low), clauses in the rule help text, masked text only. The SARIF output is validated against the official 2.1.0 schema in the tests. An upload to GitHub code scanning and the Slack webhook step have not been tried against GitHub or Slack.
