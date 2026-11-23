@@ -70,5 +70,13 @@
   "fe_pii_in_storage": [
     {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
     {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+  ],
+  "consent_not_recorded": [
+    {"ref": "Act s6(10)", "note": "the fiduciary must prove notice and consent"},
+    {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"}
+  ],
+  "consent_no_withdrawal": [
+    {"ref": "Act s6(4)", "note": "withdrawal must be as easy as giving consent"},
+    {"ref": "Act s6(6)", "note": "stop processing after consent is withdrawn"}
   ]
 }

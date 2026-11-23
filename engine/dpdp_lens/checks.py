@@ -84,6 +84,14 @@ _CHECKS = [
           "localStorage or sessionStorage setItem is called with a key or value that names personal data.",
           "Do not keep personal data in browser storage. Keep it on the server and use short lived session tokens.",
           "Medium: {fields} are kept in {storage}.", False),
+    Check("consent_not_recorded", "code", "medium", "No consent record found in the schema or source",
+          "No consent table, column or model field exists in the schema or the backend source.",
+          "Record each consent (who, what, when, which notice version) so you can prove it later.",
+          "Medium: no consent record found in the schema or source.", False),
+    Check("consent_no_withdrawal", "api", "medium", "No consent withdrawal route found",
+          "No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing.",
+          "Add a way to withdraw consent that is as easy as giving it, and stop processing when it is used.",
+          "Medium: none of the {n} API routes is about consent or withdrawal.", False),
 ]
 
 CHECKS: dict[str, Check] = {c.id: c for c in _CHECKS}

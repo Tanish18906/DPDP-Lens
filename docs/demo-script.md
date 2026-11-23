@@ -14,21 +14,21 @@ This replaces the numbers in the script in docs/11. Everything below was run end
 |------|----|-----|
 | 0:00 | Show http://localhost:5173 for 5 seconds | "This is TutorNest, a tutoring app for school students. It looks fine." |
 | 0:10 | Click **Run scan** (takes about 2 seconds) | "We scan the database, the code, the running API and the browser." |
-| 0:25 | Findings appear | "Score 17 out of 100. 19 findings: 2 critical, 10 high, 6 medium, 1 low." |
+| 0:25 | Findings appear | "Score 13 out of 100. 21 findings: 2 critical, 10 high, 8 medium, 1 low." |
 | 0:35 | Click the first critical finding, "Public API endpoint" | "A public endpoint returns Aadhaar and PAN with no login. Act section 8(5), Rule 6(1)(b). This is the evidence, masked." |
 | 0:55 | Click **Fix and verify** (a real elapsed clock while the engine works, about 2 seconds, then its 5 measured steps appear, 0.6 seconds each) | "We patch a copy, restart it, re-run the check and run the app's own tests." |
 | 1:15 | Diff and three ticks appear (Re-scan passed, Tests passed, Verified) | "Re-scan passed, tests passed, verified. The original code is untouched." |
-| 1:30 | Point at the score: the big number counts up to 27, next to it "Score change 17 to 27" | "10 points, proven, not claimed. A critical finding costs 10 points, a high one 5, a medium 2, a low 1." |
+| 1:30 | Point at the score: the big number counts up to 23, next to it "Score change 13 to 23" | "10 points, proven, not claimed. A critical finding costs 10 points, a high one 5, a medium 2, a low 1." |
 | 1:35 | Click **Notice vs Runtime** | "The notice lists name, email and phone. The app also handles date of birth, Aadhaar and parent PAN. 3 of 6 fields the app handles are not in its privacy notice. That gap is what a regulator cares about." |
 | 1:50 | Click **Data Flow** (optional, 5 seconds) | "One lane per field. Red lanes start at a cross: Aadhaar, date of birth and parent PAN sit in the database and come out of the API without login, and the notice never mentions them." |
 | 1:55 | | "Readiness report, not a certificate. Thank you." |
 
-If there is time, or a judge asks: fix the next ones live, about 3 seconds each. In click order after V1 (17 to 27): V2 IDOR 37, V3 logs 42, V5 tracker 47, V6 consent 49, V7 erasure 54, V8 minors 59. The Findings tab then shows 12 left open (plaintext columns, notice drift, missing contact, the 8 config findings and the browser storage finding).
+If there is time, or a judge asks: fix the next ones live, about 3 seconds each. In click order after V1 (13 to 23): V2 IDOR 33, V3 logs 38, V5 tracker 43, V6 consent 45, V7 erasure 50, V8 minors 55. The Findings tab then shows 14 left open (plaintext columns, notice drift, missing contact, the 8 config findings, the browser storage finding and the two consent findings).
 
 ## Facts to say correctly
 - The tracker is shown as its own finding ("Tracking script loads before any consent"), not as a field in the Notice vs Runtime tab. Do not say the drift tab shows the tracker. In live mode the Data Flow Browser column is empty on purpose (the footnote says no third-party request was seen as a drift field and trackers are reported as findings).
 - The sample data mode has its own numbers (score 73, a `facebook.com` request in the drift tab) and is labelled "Sample Data Mode". Do not mix them up with live numbers.
-- 7 findings have a verified fix (V1, V2, V3, V5, V6, V7, V8). Plaintext columns (V4), the notice drift and the missing contact show a disabled "No fix template yet" button. Fixing all seven moves the score 17 to 59. Two fixes are partial: V8 only requires a well-formed parent PAN (the parent is not verified), V6 fixes the box but not the notice.
+- 7 findings have a verified fix (V1, V2, V3, V5, V6, V7, V8). Plaintext columns (V4), the notice drift and the missing contact show a disabled "No fix template yet" button. Fixing all seven moves the score 13 to 55. Two fixes are partial: V8 only requires a well-formed parent PAN (the parent is not verified), V6 fixes the box but not the notice.
 - Under-18 signup without parental consent (V8) is detected (high, Act s9(1), Rule 10) but has no verified fix yet.
 
 ## Fallbacks (all tested)
@@ -36,7 +36,7 @@ If there is time, or a judge asks: fix the next ones live, about 3 seconds each.
 |---------|--------------|----|
 | Live fix cannot finish (sandbox error, timeout of 60 s) | Amber CACHED tag and "Cached golden patch mode" label with the reason, the diff and badges from a saved verified run | Keep going and say: "This is the saved result of a run that was verified earlier. It is labelled." Never present it as live. You can also choose it on purpose: the **Use cached result** link sits next to Fix and verify (live mode only) |
 | Engine dies | Header status "Engine offline", banner "Engine not reachable at http://localhost:8100" with **Use sample data** | Either restart the engine (below) and reload the page, or click Use sample data. Sample mode is labelled and its fix says "Simulated (sample data)". The other servers keep running |
-| Frontend :5173 is down | A scan has 17 findings and score 24 (no browser findings, so no tracker finding to fix) | Restart it: `cd target-app/frontend && npm run dev` |
+| Frontend :5173 is down | A scan has 19 findings and score 20 (no browser findings, so no tracker finding to fix) | Restart it: `cd target-app/frontend && npm run dev` |
 | Patch does not apply | Red "Fix failed" banner with the engine's text, finding stays open | Say so honestly, move on to another finding |
 | Everything is broken | Sample mode, or the screenshots in `docs/fallback-shots/` and the video | Say it is a recording |
 
@@ -58,9 +58,9 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - All 4 already up: it reuses them. A mix of up and down ports: it stops and says so.
 - It re-seeds `demo.db` at the end. A single gate can be run alone, for example `.venv/bin/python scripts/gates/gate_rehearsal.py` (stack must be up).
 - Settings: `DASH_URL` (default http://localhost:5174), `ENGINE_URL` (default http://localhost:8100), `SHOT_DIR` (default `docs/fallback-shots`).
-- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 17 to 59), `children`, `data_flow` (the Data Flow field lanes), `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified, the Use cached result link).
+- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 13 to 55), `children`, `data_flow` (the Data Flow field lanes), `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified, the Use cached result link).
 - The `offline` and `fix_states` gates block or rewrite requests in the browser. They never stop a server.
-- The numbers in `scripts/gates/common.py` are the demo facts (19 findings, score 17, the fix order). If the checks or scores change, update them there.
+- The numbers in `scripts/gates/common.py` are the demo facts (21 findings, score 13, the fix order). If the checks or scores change, update them there.
 - A run rewrites the screenshots in `docs/fallback-shots/`. `fix-cached-label`, `fix-error-banner` and `fix-unverified` show simulated states (the engine's answer is rewritten in the browser), not a real failure.
 
 ## Not rehearsed yet

@@ -172,17 +172,20 @@ const SCAN_STEP_LABELS = {
   children_scan: 'Testing signup for under-18 users',
   contact_scan: 'Looking for a DPO or grievance contact',
   browser_scan: 'Auditing the signup page in a browser',
-  notice_drift: 'Comparing the privacy notice with what runs'
+  notice_drift: 'Comparing the privacy notice with what runs',
+  config_scan: 'Reading config files, Dockerfiles and source for secrets',
+  frontend_scan: 'Reading the front end source for personal data in browser storage',
+  consent_scan: 'Checking that consent is recorded and can be withdrawn'
 }
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low']
 
-// Scan steps in the engine's order (runner.SCANNERS plus notice_drift); progress.done counts finished steps.
+// Scan steps in the engine's order (runner.SCANNERS, notice_drift, then LATE_SCANNERS); progress.done counts finished steps.
 const SCAN_ORDER = Object.keys(SCAN_STEP_LABELS)
 const SCAN_LAYERS = [
   ['API', ['api_scan', 'idor_probe', 'children_scan']],
   ['Database', ['db_scan', 'erasure_scan']],
-  ['Code', ['log_scan']],
+  ['Code', ['log_scan', 'config_scan', 'frontend_scan', 'consent_scan']],
   ['Browser', ['browser_scan']],
   ['Notice', ['contact_scan', 'notice_drift']]
 ]
@@ -203,7 +206,18 @@ function layerState(steps, progress) {
 const DRIFT_LAYERS = [['db', 'Database'], ['api', 'API'], ['request', 'Browser']]
 const LANE_COLS = [['notice', 'Notice'], ...DRIFT_LAYERS]
 
-const LAYER_NAMES = { db: 'Database', code: 'Code', api: 'API', browser: 'Browser', notice: 'Notice' }
+const LAYER_NAMES = { db: 'Database', code: 'Code', api: 'API', browser: 'Browser', notice: 'Notice', config: 'Config', frontend: 'Front end' }
+// An unknown layer (a newer engine) is shown as its own name with a capital, never hidden.
+const layerName = (layer) => LAYER_NAMES[layer] || (layer ? layer[0].toUpperCase() + layer.slice(1) : '')
+
+// "API 5 · Database 2 ...": findings per layer, known layers first, unknown ones after them.
+function layerSummary(findings) {
+  const count = {}
+  findings.forEach((f) => { count[f.layer] = (count[f.layer] || 0) + 1 })
+  const known = Object.keys(LAYER_NAMES).filter((l) => count[l])
+  const rest = Object.keys(count).filter((l) => !LAYER_NAMES[l]).sort()
+  return [...known, ...rest].map((l) => `${layerName(l)} ${count[l]}`).join(' · ')
+}
 
 // What the page shows before any scan. Never sample data.
 const EMPTY_SCAN = { target: '', scanned_at: null, score: null, counts: null, findings: [], notice_drift: null }
@@ -286,7 +300,7 @@ async function requestFix(scanId, findingId, mode = 'live') {
 
 function formatLocation(loc) {
   if (!loc) return null
-  if (loc.file) return `${loc.file}${loc.line ? `:${loc.line}` : ''}`
+  if (loc.file) return `${loc.file}${loc.line ? `:${loc.line}` : ''}${loc.url ? ` · ${loc.url}` : ''}`
   if (loc.url) return loc.url
   if (loc.table) return `${loc.table}${loc.column ? `.${loc.column}` : ''}`
   return null
@@ -968,6 +982,11 @@ export default function App() {
                 <h2 className="font-serif text-[20px] font-semibold text-ink m-0">Findings ({sortedFindings.length})</h2>
                 <span className="text-[13px] text-muted">↑ ↓ to move</span>
               </div>
+              {sortedFindings.length > 0 && (
+                <div data-testid="layer-summary" className="px-4 py-2 border-b border-line text-[13px] text-muted">
+                  By layer: {layerSummary(sortedFindings)}
+                </div>
+              )}
 
               {sortedFindings.length === 0 && (
                 <div className="p-6 text-[15px] text-muted">
@@ -1014,7 +1033,7 @@ export default function App() {
                           </span>
                           <span className="flex-1 min-w-0 flex flex-col gap-0.5">
                             <span className="text-[15px] font-medium text-ink leading-snug">{finding.title}</span>
-                            <span className="text-[13px] text-muted">{LAYER_NAMES[finding.layer] || finding.layer}</span>
+                            <span className="text-[13px] text-muted">{layerName(finding.layer)}</span>
                           </span>
                           <span className={`text-[13px] shrink-0 pt-0.5 ${isFixed ? 'text-accent font-semibold' : 'text-muted'}`}>
                             {isFixed ? 'Verified fixed' : 'Open'}
@@ -1041,7 +1060,7 @@ export default function App() {
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-muted">
                       <span className="font-mono">{selectedFinding.id}</span>
                       <span aria-hidden="true">·</span>
-                      <span>{LAYER_NAMES[selectedFinding.layer] || selectedFinding.layer}</span>
+                      <span>{layerName(selectedFinding.layer)}</span>
                       {selectedFinding.status === 'verified_fixed' && (
                         <>
                           <span aria-hidden="true">·</span>
@@ -1061,6 +1080,9 @@ export default function App() {
                       </span>
                     </div>
                     <h2 className="font-serif text-[26px] leading-tight font-semibold text-ink m-0">{selectedFinding.title}</h2>
+                    {selectedFinding.severity_reason && (
+                      <p data-testid="severity-reason" className="text-[15px] text-muted m-0">{selectedFinding.severity_reason}</p>
+                    )}
                   </div>
 
                   {/* 2. Plain English Explanation */}
@@ -1101,6 +1123,14 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* 4b. Recommended fix, static text per check. The verified patch below is separate. */}
+                  {selectedFinding.recommendation && (
+                    <div className="flex flex-col gap-2">
+                      <Label>Recommended fix</Label>
+                      <p data-testid="recommendation" className="text-[15px] text-ink m-0">{selectedFinding.recommendation}</p>
+                    </div>
+                  )}
 
                   {/* 5. Fix and verify */}
                   <div className="pt-6 border-t border-line flex flex-col gap-4">
@@ -1431,7 +1461,7 @@ export default function App() {
 
             <p className="text-[14px] text-muted m-0">
               Where it was seen: <span className="font-mono">db:</span> a database column, <span className="font-mono">api:</span> an API
-              response without login, <span className="font-mono">request:</span> a request to a third party. The Data Flow view shows
+              response without login, <span className="font-mono">request:</span> a request to a third party, <span className="font-mono">frontend:</span> a form field in the page source. The Data Flow view shows
               the same data by layer.
             </p>
           </section>

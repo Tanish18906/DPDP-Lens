@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import time
 
 import jsonschema
@@ -34,9 +35,10 @@ def test_config_findings_come_after_the_first_ten_so_their_ids_do_not_move(targe
     config = r.findings[8:]
     assert sorted(f.check for f in config) == sorted([
         "config_secret_committed"] * 3 + ["config_env_in_image", "config_container_root", "config_cors_wildcard",
-                                          "config_debug_enabled", "config_db_exposed", "fe_pii_in_storage"])  # .env, compose, auth.py (a real one)
-    assert all(f.layer in ("config", "frontend") and f.clauses and f.evidence.location.line > 0 for f in config)
-    assert config[-1].check == "fe_pii_in_storage" and config[-1].layer == "frontend"  # the front end scan runs last
+                                          "config_debug_enabled", "config_db_exposed", "fe_pii_in_storage", "consent_not_recorded", "consent_no_withdrawal"])  # .env, compose, auth.py (a real one)
+    assert all(f.layer in ("config", "frontend", "code", "api") and f.clauses and f.evidence.location.line > 0 for f in config)
+    assert [f.check for f in config[-3:]] == ["fe_pii_in_storage", "consent_not_recorded", "consent_no_withdrawal"]  # late scanners keep their order
+    assert all("def signup" in (Path(__file__).resolve().parents[2] / "target-app" / f.evidence.location.file).read_text().splitlines()[f.evidence.location.line] for f in config[-2:])  # both point at the signup handler
     assert not any(v in r.model_dump_json() for v in ("tutornest-demo-secret-123", "admin123", "mail-demo-pass-456", "hackathon-insecure"))
 
 

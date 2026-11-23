@@ -44,8 +44,25 @@ def unverified(page):
     page.route("**/findings/*/fix*", handler)
 
 
+def unknown_layer(page):
+    def handler(route):
+        r = route.fetch()
+        b = r.json()
+        if isinstance(b, dict) and b.get("findings"):
+            b["findings"][0]["layer"] = "mystery"
+        route.fulfill(response=r, json=b)
+    page.route("**/scan/S-*", handler)
+
+
 with sync_playwright() as p:
     b = c.launch(p)
+
+    page, errs = session(b, unknown_layer)
+    first = c.row(page, "Public API endpoint")
+    first.click()
+    g.check("unknown layer: shown as its own name in the list, the detail and the layer summary",
+            "Mystery" in first.inner_text() and "Mystery" in c.detail(page).inner_text() and "Mystery 1" in page.get_by_test_id("layer-summary").inner_text())
+    g.check("unknown layer: no console errors", not c.real_errors(errs), "; ".join(errs))
 
     page, errs = session(b, cached)
     c.row(page, "Public API endpoint").click()
@@ -66,7 +83,7 @@ with sync_playwright() as p:
     msg = alert.inner_text()
     g.check("error: red banner with the engine's text", "Fix failed:" in msg and "no cached golden result exists" in msg, msg)
     g.check("error: finding stays open, button still there", "Verified fixed" not in c.body(page) and page.get_by_role("button", name="Fix and verify").is_enabled())
-    g.check("error: score unchanged at 17", f" {c.START_SCORE} " in f" {c.summary(page)} ")
+    g.check("error: score unchanged at 13", f" {c.START_SCORE} " in f" {c.summary(page)} ")
     c.shot(page, "fix-error-banner")
     g.check("error: no console errors besides the 502", not c.real_errors(errs), "; ".join(errs))
 
@@ -77,7 +94,7 @@ with sync_playwright() as p:
     g.check("unverified: red Re-scan, green Tests, red Verified",
             (c.color(page, "Re-scan passed"), c.color(page, "Tests passed"), c.color(page, "Verified")) == (c.RED, c.GREEN, c.RED))
     g.check("unverified: finding open, no patch download", "Verified fixed" not in c.body(page) and "Download patch" not in c.body(page))
-    g.check("unverified: NOT VERIFIED mark, no score claim", "NOT VERIFIED" in c.detail(page).inner_text() and "Score 17 to 27" not in c.detail(page).inner_text())
+    g.check("unverified: NOT VERIFIED mark, no score claim", "NOT VERIFIED" in c.detail(page).inner_text() and "Score 13 to 23" not in c.detail(page).inner_text())
     c.shot(page, "fix-unverified")
 
     page, errs = session(b)
@@ -87,7 +104,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(900)
     t = c.body(page)
     g.check("replay button: labelled cached, says it is a replay", "Replayed from a saved verified run, not run just now." in t and c.FIXED not in t)
-    g.check("replay button: finding fixed, score 17 to 27", "Verified fixed" in c.row(page, "Public API endpoint").inner_text() and " 27 " in f" {c.summary(page)} ")
+    g.check("replay button: finding fixed, score 13 to 23", "Verified fixed" in c.row(page, "Public API endpoint").inner_text() and " 23 " in f" {c.summary(page)} ")
     c.shot(page, "fix-replay-button")
 
     page, errs = session(b)

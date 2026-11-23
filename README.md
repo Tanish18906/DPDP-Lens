@@ -15,7 +15,7 @@ The main DPDP duties apply from **13 May 2027**. Under the Act's Schedule, faili
 - **Notice vs Runtime Truth.** Compares the personal data fields the public notice lists against the fields found in the DB and in unauthenticated API responses. Fields collected but not declared are flagged.
 - **HTML report.** `GET /report/{scan_id}` gives a self-contained, printable report.
 
-Verified fixes exist for seven of the seventeen checks (everything except plaintext columns, the notice items and the config checks). Each has a cached golden result for offline demos. Two fixes are partial and say so: the under-18 fix (V8) only requires a well-formed parent PAN, it does not verify the parent (Rule 10), and the consent fix (V6) unticks the box and drops the marketing wording, while the notice still does not list every field, so `notice_drift` stays open. On the demo app, fixing all seven moves the score from 17 to 59. The dashboard labels it clearly as "Cached golden patch mode" when it is used.
+Verified fixes exist for seven of the nineteen checks (everything except plaintext columns, the notice items and the config checks). Each has a cached golden result for offline demos. Two fixes are partial and say so: the under-18 fix (V8) only requires a well-formed parent PAN, it does not verify the parent (Rule 10), and the consent fix (V6) unticks the box and drops the marketing wording, while the notice still does not list every field, so `notice_drift` stays open. On the demo app, fixing all seven moves the score from 13 to 55. The dashboard labels it clearly as "Cached golden patch mode" when it is used.
 
 ## Architecture
 

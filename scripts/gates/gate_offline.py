@@ -18,6 +18,9 @@ with sync_playwright() as p:
     page.get_by_text("Findings (5)").wait_for(timeout=15000)
     g.check("sample scan: 5 findings, score 73 (the sample's own numbers)", " 73 " in f" {c.summary(page)} ", c.summary(page)[:80])
     page.locator('[id^="finding-row-"]').first.click()
+    g.check("sample finding shows its severity reason and recommendation",
+            "Critical: no login needed, 15 records returned with name, phone, dob, aadhaar, parent_pan." in c.body(page)
+            and "Require authentication and authorisation on this route" in c.body(page))
     page.get_by_role("button", name="Fix and verify").click()
     page.get_by_text("Simulated (sample data)").wait_for(timeout=10000)
     g.check("sample fix: score 73 to 83, taken from the sample's own fix.score_after", " 83 " in f" {c.summary(page)} ")

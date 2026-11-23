@@ -11,7 +11,7 @@ from . import config
 from .checks import CHECKS
 from .locator import find_column, find_route, find_text
 from .models import Clause, Finding, ScanResult, compute_counts, compute_score
-from .scanners import api_scan, browser_scan, children_scan, config_scan, contact_scan, frontend_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
+from .scanners import api_scan, browser_scan, children_scan, config_scan, consent_scan, contact_scan, frontend_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
 log = logging.getLogger("dpdp_lens")
 CLAUSES = Path(__file__).resolve().parents[2] / "contract" / "clauses.json"
@@ -33,6 +33,7 @@ SCANNERS = [
 LATE_SCANNERS = [
     ("config_scan", lambda target, repo, db, frontend: config_scan.scan(app_root_of(repo))),  # static, reads files only
     ("frontend_scan", lambda target, repo, db, frontend: frontend_scan.scan(app_root_of(repo))),  # static, reads the front end source
+    ("consent_scan", lambda target, repo, db, frontend: consent_scan.scan(target, app_root_of(repo))),  # schema and source, plus the OpenAPI spec
 ]
 
 
@@ -46,7 +47,8 @@ def _run(fn, args, timeout):
 
 
 FRONTEND_GLOBS = ["frontend/*.html", "frontend/src/*.jsx", "frontend/src/*.tsx", "frontend/src/*.js"]
-ROUTES = {"erasure_incomplete": ("DELETE", "/api/students/{id}"), "children_no_parental_consent": ("POST", "/api/signup")}
+ROUTES = {"erasure_incomplete": ("DELETE", "/api/students/{id}"), "children_no_parental_consent": ("POST", "/api/signup"),
+          "consent_not_recorded": ("POST", "/api/signup"), "consent_no_withdrawal": ("POST", "/api/signup")}  # the signup handler
 
 
 def app_root_of(repo_path) -> Path:
