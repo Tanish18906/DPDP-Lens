@@ -1,0 +1,6 @@
+# DPDP Lens project config for this repo's CI job: scan the demo app, fail only on findings that are not in the baseline.
+# Paths here are relative to this file's folder (.github/). Create or refresh the baseline with:
+#   cd engine && python -m dpdp_lens ci --repo-dir ../target-app --config ../.github/dpdp-lens.yml --write-baseline
+policy: default
+new_only: true
+baseline: dpdp-baseline.json

@@ -1,0 +1,58 @@
+# DPDP Lens on this repo: a static scan of the demo app (target-app), judged by the default policy against a committed baseline.
+# Exit 0 pass or warn, 1 blocking findings that are not in the baseline, 2 scan incomplete or config invalid (never a pass).
+# Readiness report, not a compliance certificate. For another repo, copy docs/ci-example/dpdp-lens.yml instead.
+name: DPDP Lens
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write  # upload-sarif
+jobs:
+  dpdp-lens:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install the engine
+        run: pip install -e engine
+      - name: Scan
+        run: >
+          python -m dpdp_lens ci --repo-dir target-app --config .github/dpdp-lens.yml
+          --sarif dpdp-lens.sarif --json dpdp-lens.json --summary dpdp-lens.md
+      - name: Step summary
+        if: always()
+        run: '[ -f dpdp-lens.md ] && cat dpdp-lens.md >> "$GITHUB_STEP_SUMMARY" || echo "No summary: the scan did not run." >> "$GITHUB_STEP_SUMMARY"'
+      - name: Upload SARIF (public repos or GitHub Code Security)
+        if: always() && github.event.repository.private == false && hashFiles('dpdp-lens.sarif') != ''
+        continue-on-error: true  # a fork pull request token cannot write security events
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dpdp-lens.sarif
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dpdp-lens
+          path: |
+            dpdp-lens.json
+            dpdp-lens.sarif
+          if-no-files-found: ignore
+      - name: Slack alert (when the decision is not pass)
+        if: always()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$SLACK_WEBHOOK_URL" ] || exit 0
+          decision=$(jq -r '.evaluation.decision' dpdp-lens.json 2>/dev/null || echo error)
+          [ "$decision" = pass ] && exit 0
+          # the webhook URL goes to curl through a config file descriptor, never on the command line
+          jq -n --arg t "DPDP Lens: $decision on $GITHUB_REPOSITORY ($GITHUB_REF_NAME). $RUN_URL" '{text: $t}' |
+            curl -sS --fail -K <(printf 'url = "%s"\n' "$SLACK_WEBHOOK_URL") -H 'Content-Type: application/json' --data-binary @-

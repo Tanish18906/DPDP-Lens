@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "Rule": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "block",
+            "warn",
+            "info"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "severity_override": {
+          "anyOf": [
+            {
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity Override"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "Rule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "policy_id": {
+      "minLength": 1,
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "effective_date": {
+      "format": "date",
+      "title": "Effective Date",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "source": {
+      "default": "",
+      "title": "Source",
+      "type": "string"
+    },
+    "rules": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Rule"
+      },
+      "title": "Rules",
+      "type": "object"
+    }
+  },
+  "required": [
+    "policy_id",
+    "version",
+    "effective_date",
+    "rules"
+  ],
+  "title": "Policy",
+  "type": "object"
+}
