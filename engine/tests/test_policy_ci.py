@@ -125,7 +125,7 @@ def test_summary_markdown_snapshot():
         "## DPDP Lens: FAIL", "", "1 blocking, 0 warning, 0 info. Policy dpdp-lens-default 1.0.0.", "",
         "### New blocking findings", "", "| Finding | Check | File:line | Clause |", "|---|---|---|---|",
         "| F-001 | log_pii | backend/app/main.py:87 | Act s8(5) |", "", "1 existing findings in baseline.", "",
-        "Coverage: static checks only, 0 of 19.", "", "_Readiness report, not a compliance certificate._", ""])
+        "Coverage: static checks only, 0 of 26.", "", "_Readiness report, not a compliance certificate._", ""])
     assert "a\\|b.py" in ci.summary_md(scan_of(finding(2, file="a|b.py")), evaluate(scan_of(finding(2, file="a|b.py")), POLICY))
 
 

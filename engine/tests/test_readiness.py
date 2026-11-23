@@ -68,10 +68,10 @@ def test_the_report_of_a_tutornest_ingest_has_every_section(api):
     j = api.get(f"/repos/{rid}/report", params={"format": "json"}, headers=TOKEN).json()
     assert j["repo"] == {"id": rid, "full_name": "acme/tutornest", "branch": "main"} and j["scan"]["scan_id"] == sid
     assert j["scan"]["commit"] == api.get(f"/scans/{sid}/delta").json()["commit"] and j["scan"]["scanner_version"] and j["complete"] is True
-    assert j["scope"]["mode"] == "static" and j["scope"]["checks_total"] == 19 and j["scope"]["checks_run"] == len(j["scope"]["run"]) < 19
+    assert j["scope"]["mode"] == "static" and j["scope"]["checks_total"] == 26 and j["scope"]["checks_run"] == len(j["scope"]["run"]) < 26
     assert {n["check"] for n in j["scope"]["not_run"]} >= {"api_pii_exposure", "api_idor"} and all("running app" in n["reason"] for n in j["scope"]["not_run"])
-    assert f"static checks only ({j['scope']['checks_run']} of 19)" in html and "tamper-evident, not tamper-proof" in html
-    assert "static" in " ".join(j["limits"]) and "10 of 19" in " ".join(j["limits"])
+    assert f"static checks only ({j['scope']['checks_run']} of 26)" in html and "tamper-evident, not tamper-proof" in html
+    assert "static" in " ".join(j["limits"]) and "10 of 26" in " ".join(j["limits"])
     stored = api.get("/findings", params={"repo_id": rid, "limit": 500}).json()
     assert len(j["findings"]) == stored["total"] == j["summary"]["findings"] and sum(j["summary"]["by_severity"].values()) == stored["total"]
     sev = [f["severity"] for f in j["findings"]]

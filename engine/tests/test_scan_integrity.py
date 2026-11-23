@@ -18,8 +18,12 @@ from test_contract import load_sample
 
 TARGET_APP = BACKEND.parent
 CLEAN_APP = Path(__file__).parent / "fixtures" / "clean_app"
-STATIC_CHECKS = {"log_pii", "config_secret_committed", "config_env_in_image", "config_container_root", "config_cors_wildcard",
-                 "config_debug_enabled", "config_db_exposed", "fe_pii_in_storage", "consent_not_recorded"}
+TUTORNEST_STATIC_CHECKS = {"log_pii", "config_secret_committed", "config_env_in_image", "config_container_root", "config_cors_wildcard",
+                           "config_debug_enabled", "config_db_exposed", "fe_pii_in_storage", "consent_not_recorded"}
+STATIC_CHECKS = TUTORNEST_STATIC_CHECKS | {
+    "config_s3_public", "config_security_group_ingress_anywhere", "config_storage_unencrypted",
+    "config_tf_hardcoded_secret", "config_k8s_privileged", "config_k8s_host_network", "config_k8s_secret_in_env",
+}
 LOG_SCAN = ("log_scan", lambda target, repo, db, fe: log_scan.scan(repo))
 
 
@@ -119,7 +123,7 @@ def test_static_mode_on_the_clean_app_has_no_findings(with_late_scanners):
 def test_static_mode_on_target_app_runs_only_static_checks(with_late_scanners):
     r = static(TARGET_APP)
     assert r.complete is True and r.notice_drift is None
-    assert {f.check for f in r.findings} == STATIC_CHECKS
+    assert {f.check for f in r.findings} == TUTORNEST_STATIC_CHECKS
     assert set(r.coverage.checks_run) == STATIC_CHECKS
     assert set(r.coverage.checks_skipped) == set(CHECKS) - STATIC_CHECKS  # includes consent_no_withdrawal
     assert "consent_no_withdrawal" in r.coverage.checks_skipped

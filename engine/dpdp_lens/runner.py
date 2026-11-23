@@ -45,7 +45,9 @@ SCANNER_CHECKS = {
     "erasure_scan": ["erasure_incomplete"], "children_scan": ["children_no_parental_consent"], "contact_scan": ["missing_contact"],
     "browser_scan": ["tracker_before_consent", "consent_bundled"], "notice_drift": ["notice_drift"],
     "config_scan": ["config_secret_committed", "config_env_in_image", "config_container_root", "config_cors_wildcard",
-                    "config_debug_enabled", "config_db_exposed"],
+                    "config_debug_enabled", "config_db_exposed", "config_s3_public",
+                    "config_security_group_ingress_anywhere", "config_storage_unencrypted", "config_tf_hardcoded_secret",
+                    "config_k8s_privileged", "config_k8s_host_network", "config_k8s_secret_in_env"],
     "frontend_scan": ["fe_pii_in_storage"], "consent_scan": ["consent_not_recorded", "consent_no_withdrawal"]}
 # Static mode: no live app, no database. Only these scanners run, and consent_scan only does its source half.
 STATIC_SCANNERS = ["log_scan", "config_scan", "frontend_scan", "consent_scan"]

@@ -57,12 +57,20 @@ RULES = {
     "config_debug_enabled": lambda f, r: [_path(f, r)],
     "config_db_exposed": lambda f, r: [_path(f, r)],
     "fe_pii_in_storage": lambda f, r: [_path(f, r)],
+    "config_s3_public": lambda f, r: [_path(f, r)],
+    "config_security_group_ingress_anywhere": lambda f, r: [_path(f, r)],
+    "config_storage_unencrypted": lambda f, r: [_path(f, r)],
+    "config_tf_hardcoded_secret": lambda f, r: [_path(f, r)],
+    "config_k8s_privileged": lambda f, r: [_path(f, r)],
+    "config_k8s_host_network": lambda f, r: [_path(f, r)],
+    "config_k8s_secret_in_env": lambda f, r: [_path(f, r)],
 }
 
 
 def fingerprint(f: Finding, root=None) -> str:
-    """16 hex characters: sha256 of the check id and its rule's parts joined by "|". Raises KeyError for an unknown check."""
-    return hashlib.sha256("|".join([f.check, *RULES[f.check](f, root)]).encode()).hexdigest()[:16]
+    """16 hex characters: sha256 of the check id and its rule's parts joined by "|". Safe fallback for unknown checks."""
+    rule = RULES.get(f.check, lambda f, r: [_path(f, r)])
+    return hashlib.sha256("|".join([f.check, *rule(f, root)]).encode()).hexdigest()[:16]
 
 
 def fingerprints(findings: list[Finding], root=None) -> list[str]:

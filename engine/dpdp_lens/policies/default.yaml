@@ -26,3 +26,10 @@ rules:
   fe_pii_in_storage: {action: warn}
   consent_not_recorded: {action: warn}
   consent_no_withdrawal: {action: warn}
+  config_s3_public: {action: block}
+  config_security_group_ingress_anywhere: {action: block}
+  config_storage_unencrypted: {action: block}
+  config_tf_hardcoded_secret: {action: block}
+  config_k8s_privileged: {action: warn}
+  config_k8s_host_network: {action: warn}
+  config_k8s_secret_in_env: {action: block}

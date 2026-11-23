@@ -264,7 +264,7 @@ def test_stale_scan_makes_health_unknown_when_a_watch_is_set(store):
 
 def test_static_scan_health_says_how_many_checks_ran(store):
     ingest_scan(store, 1, scan("S-001", [], run=("a", "b", "c")), "manual", "t")
-    assert "static checks only (3 of 19)" in health(store, 1)["reasons"]
+    assert "static checks only (3 of 26)" in health(store, 1)["reasons"]
 
 
 # ---- audit
