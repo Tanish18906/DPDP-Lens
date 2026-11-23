@@ -45,6 +45,7 @@ def tokens() -> dict[str, str]:
         "stripe": "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc",
         "aadhaar": good,
         "aadhaar_spaced": f"{good[:4]} {good[4:8]} {good[8:]}",
+        "aadhaar_dashed": f"{good[:4]}-{good[4:8]}-{good[8:]}",
         "aadhaar_bad": good[:-1] + str((int(good[-1]) + 1) % 10),
         "aadhaar_one": "1" + good[1:-1] + verhoeff.calc_check_digit("1" + good[1:-1]),
     }

@@ -18,7 +18,10 @@ _WINDOW = 20  # chars either side of a match that count as "nearby"
 
 _AADHAAR_RE = re.compile(r"(?<!\d)[2-9]\d{3}[ -]?\d{4}[ -]?\d{4}(?!\d)")
 _PAN_RE = re.compile(r"\b[A-Z]{3}[PCHFATBLJG][A-Z](?!0000)\d{4}[A-Z]\b")
-_PHONE_RE = re.compile(r"(?<!\d)(?:\+91[\s-]?|0)?[6-9]\d{9}\b")
+# A mobile number is 10 digits, optionally written 5 + 5 ("98765 43210"). Not part of a longer digit run, and not a decimal ("6.9876543210", "9876543210.55").
+_PHONE_RE = re.compile(r"(?<!\d)(?<!\d\.)(?:\+91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}\b(?!\.\d)")
+# Words just before a number that make it an identifier, not a phone number, even when "mobile" or "contact" is nearby.
+_NOT_PHONE_BEFORE = re.compile(r"(?<![a-z])(build|version|release|order|invoice|ticket|tracking|serial|batch|sku|ref|reference|id)(?![a-z])")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _DOB_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}-\d{2}-\d{2}(?!\d)")
 
@@ -89,7 +92,8 @@ def find_pii(text: str, column: str | None = None) -> list[tuple[str, int, int, 
     for m in _PAN_RE.finditer(text):
         out.append(("pan", m.start(), m.end(), mask_pan(m.group())))
     for m in _PHONE_RE.finditer(text):
-        if has_ctx("phone", m):
+        before = text[max(0, m.start() - _WINDOW):m.start()].lower()
+        if has_ctx("phone", m) and (hint == "phone" or not _NOT_PHONE_BEFORE.search(before)):
             out.append(("phone", m.start(), m.end(), mask_phone(m.group())))
     for m in _EMAIL_RE.finditer(text):
         out.append(("email", m.start(), m.end(), mask_email(m.group())))

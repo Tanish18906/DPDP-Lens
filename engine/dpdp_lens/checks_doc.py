@@ -10,7 +10,7 @@ from .scanners import config_scan
 RECOGNIZERS = [
     ("Aadhaar", "12 digits starting 2 to 9, Verhoeff checksum valid, and the column name or a nearby word says aadhaar, aadhar or uid"),
     ("PAN", "5 letters (4th is one of P C H F A T B L J G), 4 digits, 1 letter, not 0000"),
-    ("Indian mobile", "10 digits starting 6 to 9, optional +91 or 0, and the column name or a nearby word says phone, mobile or contact"),
+    ("Indian mobile", "10 digits starting 6 to 9 (optionally written 5 + 5), optional +91 or 0, not inside a longer digit run and not a decimal, and the column name or a nearby word says phone, mobile or contact. A nearby word does not count when build, version, release, order, invoice, ticket, tracking, serial, batch, sku, ref, reference or id stands just before the number"),
     ("Email", "local part, @, domain with a dot"),
     ("Date of birth", "YYYY-MM-DD in 19xx or 20xx, and the column name or a nearby word says dob or birth"),
     ("Name", "a column or JSON key that is `name` or ends in `_name` (not `username`)"),

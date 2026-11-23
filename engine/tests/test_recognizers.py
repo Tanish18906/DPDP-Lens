@@ -94,3 +94,35 @@ def test_column_hint():
 
 def test_mask_helper():
     assert mask("aadhaar", VALID) == "XXXX XXXX " + VALID[-4:]
+
+
+# block 06 item 4: phone numbers that are identifiers or decimals, and numbers written 5 + 5
+def test_phone_written_in_two_groups_of_five():
+    assert types("phone 98765 43210") == ["phone"] and types("mobile +91-98765-43210") == ["phone"]
+    (t, _, _, masked), = find_pii("phone 98765 43210")
+    assert masked == "98XXXXXX10"
+
+
+def test_phone_inside_a_decimal_is_not_flagged():
+    assert types("mobile version 6.9876543210") == [] and types("mobile 9876543210.55") == []
+
+
+def test_phone_with_an_identifier_word_before_it_is_not_flagged():
+    for text in ("mobile app build 9876543210 shipped", "contact invoice 9876543210", "phone ticket 9876543210", "contact id 9876543210"):
+        assert types(text) == [], text
+
+
+def test_phone_next_to_an_identifier_word_after_it_is_still_flagged():
+    assert types("phone: 9876543210, order id 7") == ["phone"]
+
+
+def test_phone_column_hint_still_wins_over_identifier_words():
+    assert types("order 9876543210", "phone") == ["phone"]
+
+
+def test_phone_not_inside_a_longer_digit_run_either_side():
+    assert types("phone: 98765432101234") == [] and types("phone: 1998765432101") == [] and types("phone: 98765 432101234") == []
+
+
+def test_aadhaar_written_with_dashes():
+    assert types(f"aadhaar {VALID[:4]}-{VALID[4:8]}-{VALID[8:]}") == ["aadhaar"]

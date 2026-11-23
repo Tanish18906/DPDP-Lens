@@ -45,7 +45,7 @@
    "recall": 1.0
   },
   "pii_phone": {
-   "precision": 0.6,
+   "precision": 1.0,
    "recall": 1.0
   },
   "pii_email": {
