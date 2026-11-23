@@ -107,7 +107,11 @@ def fix_and_verify(ctx, user: str, channel: str, ts: str, hid: str) -> None:
     lines.append(f"Re-scan of the fixed copy: {_yn(fix.get('rescan_passed'))} · App tests: {_yn(fix.get('tests_passed'))}")
     if fix.get("score_before") is not None and fix.get("score_after") is not None:
         lines.append(f"Score {fix['score_before']} to {fix['score_after']}")
-    post("\n".join(lines), [cards._section("\n".join(lines))])
+    blocks = [cards._section("\n".join(lines))]
+    rec = out.get("record") or {}
+    if fix.get("verified") is True and out.get("mode") != "cached_golden" and rec.get("pr_available") and not rec.get("pr_url"):  # approvers only: _gate above
+        blocks.append({"type": "actions", "block_id": f"pr:{hid}", "elements": [cards.pr_button(hid)]})  # the button answers through its own response_url
+    post("\n".join(lines), blocks)
     if fix.get("diff"):
         post(*cards.diff_reply(hid, fix["diff"]))
     try:

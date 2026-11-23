@@ -375,14 +375,15 @@ def test_a_version_2_database_is_migrated_and_keeps_its_data(tmp_path):
     s.run("INSERT INTO repos(full_name, created_at) VALUES ('acme/app', 'x')")
     s.run("ALTER TABLE repos DROP COLUMN installation_id")
     s.run("DROP TABLE installations")
+    s.run("ALTER TABLE findings DROP COLUMN pr_url")  # the object of version 4
     s.run("PRAGMA user_version=2")
     s.close()
     new = Store(path)
-    assert SCHEMA_VERSION == 3 and new.one("PRAGMA user_version")[0] == 3
+    assert SCHEMA_VERSION == 4 and new.one("PRAGMA user_version")[0] == 4
     assert new.one("SELECT full_name, installation_id FROM repos")[:] == ("acme/app", None)
     new.run("INSERT INTO installations VALUES (5, 'octo', 'User', 'x')")
     assert new.one("SELECT account_login FROM installations")[0] == "octo"
-    assert sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0] == 3
+    assert sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 # ---- redaction

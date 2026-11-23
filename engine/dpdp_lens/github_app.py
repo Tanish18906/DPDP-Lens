@@ -100,9 +100,9 @@ class GitHubApp:
     def install_url(self, state: str) -> str:
         return f"{INSTALL_BASE}/{self.slug}/installations/new?state={state}"
 
-    def _req(self, method: str, path: str, bearer: str, params=None):
+    def _req(self, method: str, path: str, bearer: str, params=None, json=None):
         try:
-            r = self.http.request(method, f"{self.api}{path}", params=params, timeout=15, headers={
+            r = self.http.request(method, f"{self.api}{path}", params=params, json=json, timeout=15, headers={
                 "Authorization": f"Bearer {bearer}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
         except httpx.HTTPError as e:
             raise GitHubAppError("network", f"cannot reach GitHub ({type(e).__name__})") from None
@@ -114,6 +114,17 @@ class GitHubApp:
             kind = "notfound" if r.status_code == 404 else "auth" if r.status_code in (401, 403) else "api"
             raise GitHubAppError(kind, f"GitHub answered {r.status_code}" + (f": {why}" if why else ""))
         return r.json()
+
+    def api_call(self, method: str, path: str, token: str, params=None, json=None):
+        """One REST call with a token the caller holds (the downscoped pull request token). Raises GitHubAppError."""
+        return self._req(method, path, token, params, json)
+
+    def pr_token(self, installation_id: int, repo_name: str) -> str:
+        """A fresh installation token for the pull request action only: limited to ONE repository (its name, without the owner) and to
+        contents:write and pull_requests:write. Never cached and never used for a scan or a clone: the caller uses it once and drops it."""
+        data = self._req("POST", f"/app/installations/{int(installation_id)}/access_tokens", self.app_jwt(),
+                         json={"repositories": [repo_name], "permissions": {"contents": "write", "pull_requests": "write"}})
+        return data["token"]
 
     def info(self) -> dict:
         """GET /app: the app this key belongs to (its slug, name, id)."""

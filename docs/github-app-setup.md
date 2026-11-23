@@ -10,7 +10,7 @@ Create it once at github.com, Settings, Developer settings, GitHub Apps, New Git
 
 | Setting | Value |
 |---|---|
-| Repository permissions | Contents: **Read-only**. Metadata: **Read-only** (GitHub adds it). Nothing else. |
+| Repository permissions | Contents: **Read-only** to scan and connect. Add **Read and write** on Contents and **Read and write** on Pull requests only if you want the Open pull request action (see below). Metadata: **Read-only** (GitHub adds it). Nothing else. |
 | Account permissions | none |
 | Webhook | **Off** (Active unchecked). The engine never receives a GitHub event. |
 | Setup URL | `http://localhost:8100/github/setup` (the engine's port). Tick "Redirect on update" if you want the page after changing the shared repositories. |
@@ -63,10 +63,32 @@ These two reads are guarded because they reveal who installed the app and privat
 
 - **Single tenant.** One engine, one app, a shared Slack channel. There is no per-user login and no isolation between installations: any approver can connect any repo an installation shares.
 - **No webhooks.** The engine learns about an install only from the browser redirect, and about changes to the shared repos only when it asks (at connect, at `/dpdp repos`, at each scan). Removing a repo from the installation makes its next scan fail (shown as Unknown, never healthy).
-- **Static scan only.** A connected repo gets the 9 static checks, as before. The app has read-only access and never runs repo code.
+- **Static scan only.** A connected repo gets the 9 static checks, as before. Scans and clones always use a read-only installation token and never run repo code.
 - **Fix only for `DPDP_FIX_REPOS`.** Installing the app on a repo never makes it fix-eligible: the fix sandbox runs repo code, so it stays restricted to the repos named in `DPDP_FIX_REPOS`, and the engine checks that on every fix.
-- **Not built:** webhooks, OAuth user login, multi-tenant accounts, write permissions, pull requests, scanning a whole organisation automatically.
+- **Not built:** webhooks, OAuth user login, multi-tenant accounts, merging a pull request, deleting or force-pushing a branch, scanning a whole organisation automatically.
 - **Database.** Schema version 3 adds `installations` and `repos.installation_id`. An existing file migrates on first start. An older engine refuses a version 3 file, so do not point two engine versions at the same `DPDP_DB`.
+
+## Open pull request (block 13)
+
+After a VERIFIED live fix an approver can click **Open pull request** (Slack row, Slack fix result, Slack details, dashboard drawer, or `POST /findings/{human_id}/pr` with the token). The engine pushes a branch with the verified change and opens a pull request. A person merges it. The engine never merges, never pushes to the default branch, never force-pushes and never deletes.
+
+**It is off by default.** It works only when all of these hold. Otherwise the button does not appear and the route answers 403 (or 409 for an unverified fix) with a plain reason:
+- `DPDP_ALLOW_PR=1` on the engine.
+- The repo is in `DPDP_FIX_REPOS`.
+- The repo was connected through the GitHub App installation (not through `GITHUB_TOKEN` and the allowlist).
+- The fix is verified, was run live (a cached replay is refused) and has not got a pull request yet.
+- In Slack the user is in `SLACK_APPROVERS`. In the dashboard the page needs `VITE_DPDP_TOKEN`, as Fix and verify does.
+
+**The app needs more permission for this only:** Contents **Read and write** and Pull requests **Read and write** (account Settings, Developer settings, your app, Permissions; then accept the change on the installation). Scans and clones keep using the read-only installation token. For the pull request the engine asks GitHub for a separate installation token limited to that one repository and to `contents: write` and `pull_requests: write` (the `repositories` and `permissions` fields of `POST /app/installations/{id}/access_tokens`). It is kept in memory for that one action, never cached, never used for a scan, and never logged (`ghs_` tokens are redacted everywhere).
+
+**What it does:**
+- Branch `dpdp-lens/fix-<human_id>-<first 7 characters of the scanned commit>` (checked against a strict pattern), made from the exact commit that was scanned and fixed. If the branch exists, the engine reports it and returns its open pull request when there is one. It never touches the existing branch.
+- The files on the branch are the verified result: the stored verified diff is applied to the exact blobs of the scanned commit through the git data API, and the result must reproduce that diff character for character, or nothing is pushed. Only the files in the diff change, with their modes.
+- If the default branch has moved on since the scan, the pull request is still made against it and its body says so.
+- Title `DPDP Lens: fix <human_id> <title>`. Body: the finding with its clause references ("Likely does not meet ..."), a per-file summary, the two lines "Verified: ..." and "Not verified / you still must: ..." exactly as the engine wrote them, and that it was generated by DPDP Lens, must be reviewed, and is a readiness fix, not a compliance certificate. No raw personal data, no tokens.
+- The audit log gets `pr_opened` (with the url, branch and actor) or `pr_failed` (with the reason). The pull request url is stored on the finding and shown in Slack and the dashboard. The finding stays Fixed after the verified fix; only a later scan of the merged code resolves it. Schema version 4 adds `findings.pr_url`.
+
+**Limits:** a file without a newline at its end, or whose content at the scanned commit differs from what was verified, is refused (nothing is pushed). Only repos in `DPDP_FIX_REPOS`. One pull request per finding. No automatic close or rollback: close the pull request and delete the branch on GitHub if you do not want it. `scripts/preflight.py` shows a `pull requests` line (SKIP unless `DPDP_ALLOW_PR=1`); it cannot check the app's write permission, only a real click can.
 
 ## Credits
 

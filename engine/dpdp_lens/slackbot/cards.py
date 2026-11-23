@@ -43,6 +43,8 @@ def finding_card(rec: dict, dashboard_url: str, can_fix: bool) -> tuple[str, lis
                PROOF.get(rec["proof"], "Static check")]
     if rec["status"] != "open" and rec.get("status_reason"):
         context.append(f"Reason: {esc(cut(rec['status_reason'], 120))}")
+    if rec.get("pr_url"):
+        context.append(f"<{rec['pr_url']}|Pull request>")
     actions = [{"type": "button", "text": {"type": "plain_text", "text": "View Details"}, "action_id": "dpdp_details", "value": hid},
                {"type": "static_select", "action_id": "dpdp_status", "placeholder": {"type": "plain_text", "text": "Change Status"},
                 "options": [_opt(hid, s) for s in SELECTABLE]}]
@@ -89,7 +91,7 @@ def fix_scope_lines(fix: dict, verified: bool) -> list[str]:
                    "Other findings are not affected."]
 
 
-def details(rec: dict, dashboard_url: str = "", fix_button: bool = False) -> tuple[str, list]:
+def details(rec: dict, dashboard_url: str = "", fix_button: bool = False, pr: bool = False) -> tuple[str, list]:
     """The reply for View Details (a thread reply under a card, or an ephemeral message under a list). `rec` is GET /findings/{id}: the
     record plus the last finding JSON. fix_button adds Fix and verify (the caller decides: approver, repo allows, fix available).
     dashboard_url adds a small "Open in dashboard" line at the bottom, never the main action."""
@@ -113,9 +115,15 @@ def details(rec: dict, dashboard_url: str = "", fix_button: bool = False) -> tup
                                f"Re-scan of the fixed copy: {_yn(fix.get('rescan_passed'))} · App tests: {_yn(fix.get('tests_passed'))}",
                                *fix_scope_lines(fix, verified)]))
     blocks = [_section(p) for p in parts if p.strip()]
+    buttons = []
     if fix_button:
-        blocks.append({"type": "actions", "block_id": f"det:{rec['human_id']}", "elements": [
-            {"type": "button", "text": {"type": "plain_text", "text": "Fix and verify"}, "action_id": "dpdp_row_fix", "value": rec["human_id"]}]})
+        buttons.append({"type": "button", "text": {"type": "plain_text", "text": "Fix and verify"}, "action_id": "dpdp_row_fix", "value": rec["human_id"]})
+    if pr and not rec.get("pr_url"):
+        buttons.append(pr_button(rec["human_id"]))
+    if buttons:
+        blocks.append({"type": "actions", "block_id": f"det:{rec['human_id']}", "elements": buttons})
+    if rec.get("pr_url"):
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"Pull request: <{rec['pr_url']}|{rec['pr_url']}>"}]})
     if dashboard_url:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"<{dashboard_url.rstrip('/')}/?finding={rec['human_id']}|Open in dashboard>"}]})
     return f"{rec['human_id']} details", blocks
@@ -170,7 +178,15 @@ def group_heading(status: str, n: int) -> str:
     return f"*{STATUS[status]}*" + (" (suppressed: not counted in health)" if status in SUPPRESSED else "") + f" · {n}"
 
 
-def finding_row(rec: dict, pid: str, fix_button: bool) -> list[dict]:
+def _pr_link(rec: dict) -> str:
+    return f" · <{rec['pr_url']}|Pull request>" if rec.get("pr_url") else ""
+
+
+def pr_button(hid: str) -> dict:
+    return {"type": "button", "text": {"type": "plain_text", "text": "Open pull request"}, "action_id": "dpdp_row_pr", "value": hid}
+
+
+def finding_row(rec: dict, pid: str, fix_button: bool, pr: bool = False) -> list[dict]:
     """One interactive row of /dpdp findings: three blocks. The id is plain text. Change Status is shown to everyone and refused for a
     non approver (same as the cards). Fix and verify only when `fix_button` (fix available, repo allows it, requester is an approver)."""
     hid = rec["human_id"]
@@ -183,8 +199,10 @@ def finding_row(rec: dict, pid: str, fix_button: bool) -> list[dict]:
         elements[1]["initial_option"] = _opt(hid, rec["status"])
     if fix_button and rec["status"] != "fixed":
         elements.append({"type": "button", "text": {"type": "plain_text", "text": "Fix and verify"}, "action_id": "dpdp_row_fix", "value": hid})
+    if pr and not rec.get("pr_url"):  # only after a verified fix, when the engine says a pull request is allowed (rec["pr_available"])
+        elements.append(pr_button(hid))
     return [_section(f"{emoji} *{label}* · {hid}\n*{esc(cut(rec['title'], 150))}*"),
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"`{esc(cut(_where(rec['location']), 200))}` · Status: *{STATUS.get(rec['status'], rec['status'])}*{suppressed}"}]},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"`{esc(cut(_where(rec['location']), 200))}` · Status: *{STATUS.get(rec['status'], rec['status'])}*{suppressed}{_pr_link(rec)}"}]},
             {"type": "actions", "block_id": f"row:{pid}:{hid}", "elements": elements}]
 
 
@@ -271,6 +289,16 @@ def recovery(repo: str, health: dict) -> tuple[str, list]:
     emoji, label = HEALTH.get(health["status"], HEALTH["unknown"])
     lines = [f":{emoji}: *{esc(repo)}: health recovered, now {label}*"] + [f"• {esc(cut(r, 200))}" for r in health["reasons"][:3]]
     return f"{repo}: health recovered, now {label}", [_section("\n".join(lines))]
+
+
+def pr_result(hid: str, out: dict) -> tuple[str, list]:
+    """The answer to Open pull request: the link, and what a person must still do. A reused pull request says so."""
+    head = f":white_check_mark: *{hid}: pull request {'already open' if out.get('reused') else 'opened'}*: <{out['pr_url']}|{esc(out['pr_url'])}>"
+    if out.get("branch"):
+        head += f" (branch `{esc(out['branch'])}`)"
+    lines = [head, "A person must review and merge it: nothing was merged for you. "
+                   f"{hid} stays Fixed here; only a later scan of the merged code resolves it. This is a readiness fix, not a compliance certificate."]
+    return f"{hid}: pull request opened", [_section("\n".join(lines))]
 
 
 def reason_modal(hid: str, status: str, meta: str) -> dict:

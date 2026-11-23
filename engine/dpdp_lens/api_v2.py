@@ -18,7 +18,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import audit, github_app, ingest, readiness, repo_scan
+from . import audit, github_app, ingest, pr, readiness, repo_scan
 from .models import ScanResult
 from .store import Store
 
@@ -53,6 +53,10 @@ class BaselineIn(BaseModel):
 
 class ReportLinkIn(BaseModel):
     scan_id: Optional[str] = None  # default: the latest complete scan
+    actor: str = Field("api", min_length=1, max_length=100)
+
+
+class PrIn(BaseModel):
     actor: str = Field("api", min_length=1, max_length=100)
 
 
@@ -469,7 +473,8 @@ def create_router(store: Store, core) -> APIRouter:
             except FixError as e:
                 audit.record(store, "fix_failed", actor, row["repo_id"], scan.scan_id, human_id, result=str(e.status), meta={"detail": e.detail})
                 raise HTTPException(e.status, e.detail)
-            meta = {"mode": used, "fallback_reason": reason, "rescan_passed": fixed.fix.rescan_passed, "tests_passed": fixed.fix.tests_passed}
+            meta = {"mode": used, "fallback_reason": reason, "rescan_passed": fixed.fix.rescan_passed, "tests_passed": fixed.fix.tests_passed,
+                    "commit": scan.commit}  # the commit the fix was verified on: a pull request is made from exactly that
             if fixed.status == "verified_fixed":
                 ingest.mark_fixed(store, human_id, actor, fixed, meta)
             else:
@@ -477,6 +482,46 @@ def create_router(store: Store, core) -> APIRouter:
         return {"finding": fixed, "mode": used, "fallback_reason": reason, "verification": vlog, "record": ingest.get_record(store, human_id)}
 
     core.fix_human = fix_human
+
+    # ---- pull request for a verified fix (block 13)
+
+    @router.post("/findings/{human_id}/pr", dependencies=guard)
+    def open_pr(human_id: str, body: PrIn = PrIn()):
+        """Push a branch with the verified fix and open a pull request. Never merges. Off unless DPDP_ALLOW_PR=1, only for a repo in
+        DPDP_FIX_REPOS that is connected through the GitHub App, only after a verified live fix."""
+        row = store.one("SELECT f.*, r.full_name, r.installation_id FROM findings f JOIN repos r ON r.id=f.repo_id WHERE f.human_id=?", (human_id,))
+        if row is None:
+            raise HTTPException(404, f"Unknown finding {human_id}")
+        if os.environ.get("DPDP_ALLOW_PR") != "1":
+            raise HTTPException(403, "pull requests are switched off on this engine: set DPDP_ALLOW_PR=1 to allow them")
+        try:
+            repo_scan.check_name(row["full_name"], "DPDP_FIX_REPOS")
+        except repo_scan.RepoError:
+            raise HTTPException(403, f"{row['full_name']} is not in DPDP_FIX_REPOS, so no pull request is opened for it")
+        app = github()
+        if row["installation_id"] is None or app is None:
+            raise HTTPException(403, f"{row['full_name']} is not connected through the GitHub App installation, so no pull request is opened for it")
+        last = json.loads(row["last_finding_json"])
+        fix = last.get("fix") or {}
+        if row["status"] != "fixed" or not fix.get("verified") or not fix.get("diff"):
+            raise HTTPException(409, f"the fix of {human_id} is not verified, so there is nothing to open a pull request for")
+        if row["pr_url"]:
+            return {"pr_url": row["pr_url"], "reused": True, "record": ingest.get_record(store, human_id)}
+        ev = store.one("SELECT meta_json FROM events WHERE type='fix_verified' AND human_id=? ORDER BY id DESC LIMIT 1", (human_id,))
+        meta = json.loads(ev["meta_json"]) if ev else {}
+        if meta.get("mode") != "live" or not meta.get("commit"):
+            raise HTTPException(409, "the verified fix was a cached replay (or has no commit recorded): run Fix and verify live first")
+        try:
+            out = pr.open_pull_request(app, row["installation_id"], row["full_name"], human_id, row["title"], row["severity"], last.get("clauses", []),
+                                       fix["diff"], meta["commit"])
+        except pr.PrError as e:
+            audit.record(store, "pr_failed", body.actor, row["repo_id"], None, human_id, result=e.kind, meta={"reason": str(e)[:300]})
+            raise HTTPException({"refused": 409, "exists": 409}.get(e.kind, 502), str(e))
+        with store.tx():
+            store.run("UPDATE findings SET pr_url=? WHERE human_id=?", (out["pr_url"], human_id))
+            audit.record(store, "pr_opened", body.actor, row["repo_id"], None, human_id, result=out["pr_url"],
+                         meta={"branch": out["branch"], "number": out["number"], "reused": out["reused"], "commit": meta["commit"]})
+        return {**out, "record": ingest.get_record(store, human_id)}
 
     # POST /findings/{human_id}/fix is served by the legacy route in api.py (same path, FastAPI matches the first one
     # registered). It calls require_token and core.fix_human for DPDP- ids.

@@ -10,13 +10,15 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 # 1 to 2 (block 05): repos.last_health (the status an alert was last decided on), outbox.repo_id and outbox.scan_id (scan_delta and health_changed rows)
 MIGRATIONS = {1: "ALTER TABLE repos ADD COLUMN last_health TEXT; ALTER TABLE outbox ADD COLUMN repo_id INTEGER; "
                  "ALTER TABLE outbox ADD COLUMN scan_id TEXT NOT NULL DEFAULT '';",
               # 2 to 3 (block 08): GitHub App installations, and which installation a repo was connected through (NULL: the env allowlist and GITHUB_TOKEN)
               2: "CREATE TABLE installations(installation_id INTEGER PRIMARY KEY, account_login TEXT NOT NULL, account_type TEXT NOT NULL, "
-                 "created_at TEXT NOT NULL); ALTER TABLE repos ADD COLUMN installation_id INTEGER;"}
+                 "created_at TEXT NOT NULL); ALTER TABLE repos ADD COLUMN installation_id INTEGER;",
+              # 3 to 4 (block 13): the url of the pull request opened for a verified fix
+              3: "ALTER TABLE findings ADD COLUMN pr_url TEXT NOT NULL DEFAULT '';"}
 
 SCHEMA = """
 CREATE TABLE repos(
@@ -35,7 +37,7 @@ CREATE TABLE findings(
   status TEXT NOT NULL CHECK (status IN ('open','in_progress','fixed','false_positive','wont_fix')),
   status_reason TEXT NOT NULL DEFAULT '', status_by TEXT NOT NULL DEFAULT '', status_at TEXT NOT NULL,
   first_seen_scan TEXT NOT NULL, last_seen_scan TEXT NOT NULL, last_finding_json TEXT NOT NULL,
-  slack_channel TEXT, slack_ts TEXT, UNIQUE(repo_id, fingerprint));
+  slack_channel TEXT, slack_ts TEXT, pr_url TEXT NOT NULL DEFAULT '', UNIQUE(repo_id, fingerprint));
 CREATE INDEX findings_repo_status ON findings(repo_id, status);
 CREATE TABLE scan_findings(scan_id TEXT NOT NULL REFERENCES scans(scan_id), human_id TEXT NOT NULL REFERENCES findings(human_id),
   PRIMARY KEY(scan_id, human_id));

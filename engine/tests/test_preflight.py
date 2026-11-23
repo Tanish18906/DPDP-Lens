@@ -62,7 +62,7 @@ def test_render_never_prints_a_secret_even_when_a_check_put_one_in_its_text():
 
 def test_good_environment_passes_every_env_check(tmp_path):
     env = {**GOOD, "DPDP_DB": str(tmp_path / "x.db")}
-    app_checks = ("check_app_vars", "check_app_key", "check_app_jwt")  # GOOD sets no GITHUB_APP_*: those SKIP so the old setup still passes
+    app_checks = ("check_app_vars", "check_app_key", "check_app_jwt", "check_pr_switch")  # GOOD sets no GITHUB_APP_*: those SKIP so the old setup still passes
     assert [(c.__name__, c(env).status) for c in pf.ENV_CHECKS] == [(c.__name__, "SKIP" if c.__name__ in app_checks else "PASS") for c in pf.ENV_CHECKS]
 
 

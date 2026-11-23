@@ -89,7 +89,7 @@ def make_engine_app():
     """Returns (app, state). `state` can be changed by a test: complete, scan_fails, fix_response, health, repos_slack."""
     st = SimpleNamespace(repos=[], findings={}, scans={}, outbox=[], complete=True, scan_fails=False, health=None, fix_calls=[], status_calls=[],
                          fix_response=None, fix_error=None, diff_response=None, diff_calls=0, watch_calls=[], baseline_calls=[], scan_errors=[],
-                         installs=None, gh_repos={}, connect_calls=[], report_calls=[], report_response=None)  # installs None: the engine has no GitHub App (503)
+                         installs=None, gh_repos={}, connect_calls=[], report_calls=[], report_response=None, pr_allowed=False, pr_calls=[], pr_error=None)  # installs None: the engine has no GitHub App (503)
     app = FastAPI()
 
     @app.exception_handler(HTTPException)
@@ -108,7 +108,8 @@ def make_engine_app():
         return {"human_id": f["human_id"], "repo": "acme/tutornest", "branch": "main", "fingerprint": f["human_id"].lower(), "check": f["check"],
                 "severity": f["severity"], "title": f["title"], "layer": f["layer"], "proof": f["proof"], "status": f["status"],
                 "status_reason": f["reason"], "status_by": f["by"], "status_at": "t", "first_seen_at": "t", "last_seen_at": "t",
-                "location": {"file": f["file"], "line": f["line"], "url": f.get("url", "")}, "fix_available": f["fix"], "slack": f["slack"]}
+                "location": {"file": f["file"], "line": f["line"], "url": f.get("url", "")}, "fix_available": f["fix"], "slack": f["slack"],
+                "pr_url": f.get("pr_url", ""), "pr_available": bool(st.pr_allowed and f["status"] == "fixed" and not f.get("pr_url"))}
 
     st.record = record
 
@@ -253,6 +254,16 @@ def make_engine_app():
         need(x_dpdp_token)
         st.baseline_calls.append(body)
         return {"baseline_scan_id": "S-001"}
+
+    @app.post("/findings/{hid}/pr")
+    def open_pr(hid: str, body: dict = Body(...), x_dpdp_token: str | None = Header(None)):
+        need(x_dpdp_token)
+        st.pr_calls.append((hid, body))
+        if st.pr_error:
+            raise HTTPException(*st.pr_error)
+        f = st.findings[hid]
+        f["pr_url"] = "https://github.com/acme/tutornest/pull/9"
+        return {"pr_url": f["pr_url"], "branch": f"dpdp-lens/fix-{hid}-abc1234", "reused": False, "number": 9, "base": "main", "record": record(f)}
 
     @app.post("/repos/{rid}/report-link")
     def report_link(rid: int, body: dict = Body(...), x_dpdp_token: str | None = Header(None)):

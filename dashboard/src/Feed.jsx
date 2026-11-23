@@ -183,6 +183,8 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState(null) // { ok, text }
   const [fixResult, setFixResult] = useState(null)
+  const [prBusy, setPrBusy] = useState(false)
+  const [prResult, setPrResult] = useState(null) // { ok, text, url? }
   const panel = useRef(null)
   const closeBtn = useRef(null)
   const [elapsed, setElapsed] = useState(0) // real seconds since Fix and verify was clicked: the engine reports no steps, so none are invented
@@ -256,6 +258,23 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
       setMessage({ ok: false, text: `Fix failed: ${e.message}` })
     } finally {
       setBusy('')
+    }
+  }
+
+  // Open pull request: the engine pushes a branch with the verified fix and opens a pull request. It never merges. The engine decides whether
+  // it is allowed (rec.pr_available) and refuses with a plain reason otherwise, which is shown as it is.
+  async function openPr() {
+    setPrBusy(true)
+    setPrResult(null)
+    try {
+      const out = await call(apiBase, `/findings/${encodeURIComponent(rec.human_id)}/pr`, { method: 'POST', body: { actor: ACTOR } })
+      setPrResult({ ok: true, url: out.pr_url, text: out.reused ? 'A pull request is already open for this fix.' : 'Pull request opened. A person must review and merge it.' })
+      detail.reload()
+      onChanged()
+    } catch (e) {
+      setPrResult({ ok: false, text: `The pull request was not created: ${e.message}` })
+    } finally {
+      setPrBusy(false)
     }
   }
 
@@ -433,6 +452,46 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
                 </p>
               )}
               {fixResult && <FixResult out={fixResult} />}
+            </section>
+          )}
+
+          {live && (rec.pr_available || rec.pr_url || prResult) && (
+            <section className="flex flex-col gap-2" aria-label="Pull request">
+              <Label>Pull request</Label>
+              {rec.pr_url && (
+                <p className="m-0 text-[15px] text-ink">
+                  <a href={rec.pr_url} target="_blank" rel="noopener noreferrer" className="text-accent underline break-all">{rec.pr_url}</a>
+                  <span className="text-muted"> · a person must review and merge it. This finding stays Fixed; a later scan of the merged code resolves it.</span>
+                </p>
+              )}
+              {!rec.pr_url && rec.pr_available && !TOKEN && (
+                <p role="status" className="m-0 text-[15px] text-high">
+                  Open pull request is not available here: this page has no engine token (VITE_DPDP_TOKEN).
+                </p>
+              )}
+              {!rec.pr_url && rec.pr_available && TOKEN && (
+                <>
+                  <p className="m-0 text-[14px] text-muted">
+                    Pushes a branch with the verified fix and opens a pull request in the repository. Nothing is merged.
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      disabled={prBusy}
+                      onClick={openPr}
+                      className="px-4 py-2 rounded-[6px] border border-line bg-surface hover:bg-paper disabled:opacity-60 text-ink text-[15px] font-medium cursor-pointer"
+                    >
+                      {prBusy ? 'Opening the pull request...' : 'Open pull request'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {prResult && (
+                <p role={prResult.ok ? 'status' : 'alert'} className={`m-0 text-[15px] ${prResult.ok ? 'text-accent' : 'text-critical'}`}>
+                  {prResult.text}
+                  {prResult.url && <> <a href={prResult.url} target="_blank" rel="noopener noreferrer" className="underline break-all">{prResult.url}</a></>}
+                </p>
+              )}
             </section>
           )}
 

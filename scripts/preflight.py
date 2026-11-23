@@ -337,8 +337,22 @@ def check_app_live(env, get=httpx.get):
     return Result("github app", "PASS", f"GET /app 200, slug {slug}")
 
 
+def check_pr_switch(env):
+    """DPDP_ALLOW_PR=1 lets an approver open a pull request with a verified fix (block 13). SKIP unless it is 1, so the old setup passes."""
+    if env.get("DPDP_ALLOW_PR") != "1":
+        return Result("pull requests", "SKIP", "DPDP_ALLOW_PR is not 1: no pull request can be opened (the default)")
+    problems = []
+    if not csv(env.get("DPDP_FIX_REPOS", "")):
+        problems.append("DPDP_FIX_REPOS is empty, so no repo qualifies")
+    if _app_unset(env) or not all(env.get(n) for n in APP_VARS):
+        problems.append("the GitHub App is not configured, and only a repo connected through it gets a pull request")
+    if problems:
+        return Result("pull requests", "FAIL", "; ".join(problems), "set DPDP_FIX_REPOS and the three GITHUB_APP_* values, or unset DPDP_ALLOW_PR")
+    return Result("pull requests", "PASS", "on, for repos in DPDP_FIX_REPOS connected through the GitHub App (the app needs Contents and Pull requests write: not checked here)")
+
+
 ENV_CHECKS = (check_vars, check_token_formats, check_slack_ids, check_vite_matches, check_allowlist, check_monitor, check_db,
-              check_app_vars, check_app_key, check_app_jwt)
+              check_app_vars, check_app_key, check_app_jwt, check_pr_switch)
 NETWORK_CHECKS = ((check_git, "github repo"), (check_slack, "slack bot token"), (check_app_live, "github app"))
 SERVICE_CHECKS = (check_engine, check_engine_auth, check_dashboard)
 
