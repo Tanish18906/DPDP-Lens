@@ -42,6 +42,16 @@ const EVENT_LABEL = {
   fix_failed: 'Fix failed'
 }
 
+// ?finding=DPDP-001 in the page URL is a link from Slack. The URL follows the drawer: set when it opens, removed when it closes.
+const urlFinding = () => new URLSearchParams(window.location.search).get('finding')?.trim() || null
+function setUrlFinding(id) {
+  const u = new URL(window.location.href)
+  if (id) u.searchParams.set('finding', id)
+  else u.searchParams.delete('finding')
+  window.history.replaceState(null, '', u)
+}
+const yesNo = (v) => (v === true ? 'passed' : v === false ? 'did not pass' : 'not run')
+
 const rankOf = (f) => SEVERITY[f.severity]?.rank ?? 99
 const bySeverity = (a, b) => rankOf(a) - rankOf(b) || a.human_id.localeCompare(b.human_id)
 
@@ -132,11 +142,40 @@ function SkeletonRows() {
 
 // ---- detail drawer
 
+// The engine's answer to a fix, shown exactly as it came: VERIFIED only when fix.verified is true AND the finding is verified_fixed.
+function FixResult({ out }) {
+  const fix = out.finding.fix
+  const verified = fix.verified === true && out.finding.status === 'verified_fixed'
+  const cached = out.mode === 'cached_golden'
+  return (
+    <div role="status" className="flex flex-col gap-1.5 text-[15px]">
+      <span className={`font-semibold ${verified ? 'text-accent' : 'text-critical'}`}>
+        {verified ? 'VERIFIED' : 'NOT VERIFIED'}
+        {cached && <> <Tag title={out.fallback_reason || 'Replay of a saved verified run'}>CACHED</Tag></>}
+      </span>
+      <span className="text-ink">
+        {verified
+          ? cached ? 'Cached verified patch (replay)' : 'Verified by a live sandbox run'
+          : 'The fix was not verified, so the finding stays open.'}
+        {out.fallback_reason && <span className="text-muted"> {out.fallback_reason}</span>}
+      </span>
+      <ul className="m-0 pl-5 text-muted">
+        <li>Re-scan of the fixed copy: {yesNo(fix.rescan_passed)}</li>
+        <li>The repo's own tests: {yesNo(fix.tests_passed)}</li>
+        {fix.score_before != null && fix.score_after != null && <li>Score {fix.score_before} to {fix.score_after}</li>}
+      </ul>
+      {verified && out.record?.status === 'fixed' && <span className="text-accent">Status is now Fixed.</span>}
+      {fix.diff && <pre className="m-0 p-3 border border-line rounded-[6px] bg-paper font-mono text-[13px] overflow-x-auto whitespace-pre">{fix.diff}</pre>}
+    </div>
+  )
+}
+
+
 function Drawer({ record, apiBase, live, onClose, onChanged }) {
   const detail = usePoll(() => call(apiBase, `/findings/${encodeURIComponent(record.human_id)}`), record.human_id, POLL_MS, live)
   const rec = detail.data || record
-  const finding = detail.data?.finding || record._finding || null
-  const events = detail.data?.events || []
+  const finding = detail.data?.finding || record.finding || record._finding || null
+  const events = detail.data?.events || record.events || []
   const canAct = live && Boolean(TOKEN)
   const [picked, setPicked] = useState(null) // the status chosen in the select, null while it follows the finding's own status
   const target = picked ?? rec.status
@@ -146,6 +185,13 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
   const [fixResult, setFixResult] = useState(null)
   const panel = useRef(null)
   const closeBtn = useRef(null)
+  const [elapsed, setElapsed] = useState(0) // real seconds since Fix and verify was clicked: the engine reports no steps, so none are invented
+  useEffect(() => {
+    if (busy !== 'fix') return undefined
+    const t0 = Date.now()
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [busy])
 
   useEffect(() => {
     const opener = document.activeElement
@@ -198,6 +244,7 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
 
   async function runFix() {
     setBusy('fix')
+    setElapsed(0)
     setMessage(null)
     setFixResult(null)
     try {
@@ -357,37 +404,35 @@ function Drawer({ record, apiBase, live, onClose, onChanged }) {
             </section>
           )}
 
-          {live && rec.fix_available && rec.status !== 'fixed' && TOKEN && (
+          {live && (rec.fix_available || fixResult) && (rec.status !== 'fixed' || fixResult) && (
             <section className="flex flex-col gap-2" aria-label="Fix and verify">
               <Label>Verified fix</Label>
               <p className="m-0 text-[14px] text-muted">
                 Patches a sandbox copy of a fresh checkout, re-scans it and runs the repo's tests. Only for repositories the engine may run code from.
               </p>
-              <div>
-                <button
-                  type="button"
-                  disabled={busy !== ''}
-                  onClick={runFix}
-                  className="px-4 py-2 rounded-[6px] border border-line bg-surface hover:bg-paper disabled:opacity-60 text-ink text-[15px] font-medium cursor-pointer"
-                >
-                  {busy === 'fix' ? 'Running the fix in a sandbox...' : 'Fix and verify'}
-                </button>
-              </div>
-              {fixResult && (
-                <div role="status" className="flex flex-col gap-1.5 text-[15px]">
-                  <span className={`font-semibold ${fixResult.finding.fix.verified ? 'text-accent' : 'text-critical'}`}>
-                    {fixResult.finding.fix.verified ? 'VERIFIED' : 'NOT VERIFIED'}
-                    {fixResult.mode === 'cached_golden' && <> <Tag title={fixResult.fallback_reason || 'Replay of a saved verified run'}>CACHED</Tag></>}
-                  </span>
-                  <span className="text-muted">
-                    Re-scan {fixResult.finding.fix.rescan_passed ? 'passed' : 'did not pass'}, tests {fixResult.finding.fix.tests_passed ? 'passed' : 'did not pass'}.
-                    {fixResult.fallback_reason && ` ${fixResult.fallback_reason}`}
-                  </span>
-                  {fixResult.finding.fix.diff && (
-                    <pre className="m-0 p-3 border border-line rounded-[6px] bg-paper font-mono text-[13px] overflow-x-auto whitespace-pre">{fixResult.finding.fix.diff}</pre>
-                  )}
+              {!TOKEN && (
+                <p role="status" className="m-0 text-[15px] text-high">
+                  Fix and verify is not available here: this page has no engine token (VITE_DPDP_TOKEN). Set it and restart the dashboard, or run the fix from Slack.
+                </p>
+              )}
+              {TOKEN && rec.status !== 'fixed' && (
+                <div>
+                  <button
+                    type="button"
+                    disabled={busy !== ''}
+                    onClick={runFix}
+                    className="px-4 py-2 rounded-[6px] border border-line bg-surface hover:bg-paper disabled:opacity-60 text-ink text-[15px] font-medium cursor-pointer"
+                  >
+                    {busy === 'fix' ? 'Running the fix in a sandbox...' : 'Fix and verify'}
+                  </button>
                 </div>
               )}
+              {busy === 'fix' && (
+                <p role="status" className="m-0 text-[15px] text-muted">
+                  Patching a copy, re-scanning it and running the tests. This can take up to 90 seconds. {elapsed} s so far.
+                </p>
+              )}
+              {fixResult && <FixResult out={fixResult} />}
             </section>
           )}
 
@@ -445,7 +490,42 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
   const [qInput, setQInput] = useState('')
   const [q, setQ] = useState('')
   const [opened, setOpened] = useState(null) // the record of the row that was clicked: it stays open after its status moves it out of this tab
+  const [deep, setDeep] = useState(() => (urlFinding() ? { id: urlFinding(), state: 'loading' } : null)) // a link from Slack: loading, missing or error
+  const [reportMsg, setReportMsg] = useState(null) // { ok, text, href? }
+  const [reportBusy, setReportBusy] = useState(false)
   const live = !sampleMode
+
+  const openRecord = (r) => {
+    setOpened(r)
+    setUrlFinding(r.human_id)
+  }
+  const closeDrawer = () => {
+    setOpened(null)
+    setUrlFinding(null)
+  }
+
+  // Open the finding named in the URL whatever tab or repository is chosen, and without waiting for the list: it is asked for by id.
+  useEffect(() => {
+    if (!deep || deep.state !== 'loading') return undefined
+    let dead = false
+    const find = async () => {
+      if (live) return call(apiBase, `/findings/${encodeURIComponent(deep.id)}`)
+      const hit = sampleRecords(sampleScan || {}).find((r) => r.human_id === deep.id)
+      if (!hit) throw Object.assign(new Error(`${deep.id} is not in the sample data`), { status: 404 })
+      return hit
+    }
+    find().then(
+      (rec) => {
+        if (dead) return
+        setOpened(rec)
+        setDeep(null)
+      },
+      (e) => {
+        if (!dead) setDeep({ id: deep.id, state: e.status === 404 ? 'missing' : 'error', message: e.message })
+      }
+    )
+    return () => { dead = true }
+  }, [deep, live, apiBase, sampleScan])
 
   useEffect(() => {
     const t = setTimeout(() => setQ(qInput.trim()), 250)
@@ -477,6 +557,30 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
   const everything = STATUS_TABS.reduce((n, [k]) => n + (counts[k] || 0), 0)
   const loading = live && findings.loading && !findings.data
 
+  // The browser cannot send the token header, so the engine makes a signed link (15 minutes) and the report opens from that.
+  async function openReport() {
+    const id = repoId || (repoList.length === 1 ? String(repoList[0].id) : '')
+    if (!id) return setReportMsg({ ok: false, text: 'Choose a repository first: the report is for one repository.' })
+    if (!TOKEN) return setReportMsg({ ok: false, text: 'This page has no engine token (VITE_DPDP_TOKEN), so it cannot ask the engine for a report link. Use /dpdp report in Slack.' })
+    const tab = window.open('', '_blank') // opened inside the click so a pop-up blocker lets it through
+    setReportBusy(true)
+    setReportMsg(null)
+    try {
+      const out = await call(apiBase, `/repos/${id}/report-link`, { method: 'POST', body: { actor: ACTOR } })
+      const href = apiBase + out.url
+      if (tab) {
+        tab.opener = null
+        tab.location.href = href
+      }
+      setReportMsg({ ok: true, text: `Report for scan ${out.scan_id} (the link works for 15 minutes).`, href: tab ? undefined : href })
+    } catch (e) {
+      tab?.close()
+      setReportMsg({ ok: false, text: `Could not make the report: ${e.message}` })
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
   function reloadAll() {
     findings.reload()
     repos.reload()
@@ -485,6 +589,22 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {deep && (
+        <div
+          role={deep.state === 'loading' ? 'status' : 'alert'}
+          className={`bg-surface border border-line border-l-4 rounded-[6px] px-4 py-2.5 text-[15px] flex flex-wrap items-center gap-3 ${deep.state === 'loading' ? 'border-l-accent text-ink' : 'border-l-high text-ink'}`}
+        >
+          {deep.state === 'loading' && <span>Opening {deep.id}...</span>}
+          {deep.state === 'missing' && <span><strong>Finding {deep.id} does not exist.</strong> It may belong to another engine or database, or the link is wrong. Pick a finding from the list below.</span>}
+          {deep.state === 'error' && <span><strong>Could not open {deep.id}:</strong> {deep.message}</span>}
+          {deep.state === 'error' && (
+            <button type="button" onClick={() => setDeep({ id: deep.id, state: 'loading' })} className="px-3 py-1 rounded-[6px] border border-line text-[15px] text-ink hover:bg-paper cursor-pointer">Try again</button>
+          )}
+          {deep.state !== 'loading' && (
+            <button type="button" onClick={() => { setDeep(null); setUrlFinding(null) }} className="px-3 py-1 rounded-[6px] border border-line text-[15px] text-ink hover:bg-paper cursor-pointer">Dismiss</button>
+          )}
+        </div>
+      )}
       {live && broken.map((r) => (
         <IncompleteBanner
           key={r.id}
@@ -522,7 +642,22 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
           placeholder="Search by ID, title or file"
           className="flex-1 min-w-[220px] max-w-[420px] px-3 py-2 rounded-[6px] border border-line bg-surface text-[15px] text-ink"
         />
+        <button
+          type="button"
+          disabled={!live || reportBusy}
+          onClick={openReport}
+          title="Open the DPDP readiness report of the chosen repository"
+          className="px-4 py-2 rounded-[6px] border border-line bg-surface hover:bg-paper disabled:opacity-60 text-ink text-[15px] font-medium cursor-pointer"
+        >
+          {reportBusy ? 'Making the report...' : 'Report'}
+        </button>
       </div>
+      {reportMsg && (
+        <p role={reportMsg.ok ? 'status' : 'alert'} className={`m-0 text-[15px] ${reportMsg.ok ? 'text-ink' : 'text-critical'}`}>
+          {reportMsg.text}
+          {reportMsg.href && <> <a href={reportMsg.href} target="_blank" rel="noopener noreferrer" className="text-accent underline">Open the report</a></>}
+        </p>
+      )}
 
       {live && inScope.length > 0 && (
         <ul aria-label="Repository health" className="m-0 p-0 list-none flex flex-col gap-1">
@@ -574,7 +709,7 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
               {!loading && items.map((r) => (
                 <tr
                   key={r.human_id}
-                  onClick={() => setOpened(r)}
+                  onClick={() => openRecord(r)}
                   className="border-b border-line last:border-0 hover:bg-paper cursor-pointer align-top"
                 >
                   <td className="px-4 py-3">
@@ -584,7 +719,7 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
                     </div>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); setOpened(r) }}
+                      onClick={(e) => { e.stopPropagation(); openRecord(r) }}
                       className="mt-1 p-0 bg-transparent border-0 text-left text-[16px] font-medium text-ink hover:underline underline-offset-4 cursor-pointer"
                     >
                       {r.title}
@@ -618,7 +753,7 @@ export default function Feed({ apiBase, sampleMode, sampleScan }) {
         </div>
       )}
 
-      {opened && <Drawer key={opened.human_id} record={opened} apiBase={apiBase} live={live} onClose={() => setOpened(null)} onChanged={reloadAll} />}
+      {opened && <Drawer key={opened.human_id} record={opened} apiBase={apiBase} live={live} onClose={closeDrawer} onChanged={reloadAll} />}
     </div>
   )
 }

@@ -17,7 +17,7 @@ features:
   slash_commands:
     - command: /dpdp
       description: DPDP readiness scans
-      usage_hint: connect | scan | status | findings | diff | baseline | watch | help
+      usage_hint: connect | scan | status | findings | report | diff | baseline | watch | help
       should_escape: false
 oauth_config:
   scopes:
@@ -55,6 +55,7 @@ settings:
 - `/dpdp connect` with no argument (approvers): connect through the GitHub App, see docs/github-app-setup.md. `/dpdp repos` (approvers) lists the shared repos. The bot posts "GitHub connected: <account>, <n> repositories shared" when the install finishes.
 - `/dpdp connect owner/repo [branch]`, `scan`, `status`, `diff`, `baseline` (approvers), `watch <minutes>|off` (approvers), `help`. Answers to commands are ephemeral. The scan summary and the finding cards are posted in the channel.
 - `/dpdp findings [open|all]` (default open) answers ephemerally with the findings of the channel's repo, critical first, one line each: severity, the id linked to `DASHBOARD_URL/?finding=<id>`, title, `file:line`, status. `open` lists Open and In Progress. `all` groups by status and adds Fixed and the suppressed ones (False Positive, Won't Fix), labelled "suppressed". At most 50 lines, then "and N more, see the dashboard". If the last scan was incomplete or failed, or health is Unknown, the first line says the list is not a clean result. An empty list is stated plainly. The scan summary adds "<n> findings still open: /dpdp findings" while any are open; unchanged findings get no new card.
+- `/dpdp report [owner/repo]` (approvers) answers ephemerally with a link to the DPDP readiness report and a one-line summary (open counts by severity, health, coverage). The link is signed, expires after 15 minutes and is bound to one repo and one scan, so anyone who sees the reply can open that one report until it expires: do not use it in a shared channel you do not trust. An incomplete scan or an Unknown health is said first. See docs/readiness-report.md.
 - One card per finding, posted once and then edited in place. Cards follow status changes made in Slack, in the dashboard or by a scan, through the engine outbox (polled every 2 seconds).
 - Fix and verify says "VERIFIED" only when the engine's answer has `fix.verified` true and the finding status `verified_fixed`. A cached replay is labelled "Cached verified patch (replay)".
 - An incomplete scan starts with "Scan incomplete: results are partial" and health reads Unknown. A scan that produced no result says "Scan failed". Neither is ever shown as green.

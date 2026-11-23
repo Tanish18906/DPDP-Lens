@@ -181,6 +181,20 @@ def repo_picker(repos: list[dict]) -> tuple[str, list]:
         {"type": "button", "action_id": "dpdp_repo_connect", "text": {"type": "plain_text", "text": "Connect"}, "style": "primary"}]}]
 
 
+def report_reply(repo: str, link: dict, engine_url: str) -> tuple[str, list]:
+    """/dpdp report: the signed link (valid 15 minutes, only this reply shows it) and a one-line summary. An incomplete scan or an
+    Unknown health is said first, so the line never reads as clean."""
+    s = link["summary"]
+    counts = ", ".join(f"{n} {k}" for k, n in s["open_by_severity"].items() if n) or "no open findings"
+    first = [f":warning: {esc(w)}" for w in s.get("warnings", [])[:2]]
+    emoji, label = HEALTH.get(s["health"], HEALTH["unknown"])
+    line = f"{counts} · :{emoji}: Health: *{label}* · {esc(s['coverage'])}"
+    url = engine_url.rstrip("/") + link["url"]
+    text = "\n".join([*first, f"<{url}|DPDP readiness report> for *{esc(repo)}* (scan {link['scan_id']}, link valid {link['expires_in'] // 60} minutes)", line,
+                      "_A readiness report from automated checks: not legal advice, not a compliance certificate._"])
+    return f"DPDP readiness report for {repo}", [_section(text)]
+
+
 def repo_list(repos: list[dict]) -> str:
     lines = [f"• {esc(r['full_name'])}" + (" (connected)" if r["connected"] else "") for r in repos[:40]]
     return f"*Repositories shared with the GitHub App ({len(repos)})*\n" + "\n".join(lines) + (f"\n…and {len(repos) - 40} more" if len(repos) > 40 else "")

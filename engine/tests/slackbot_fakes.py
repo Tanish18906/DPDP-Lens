@@ -75,7 +75,7 @@ def make_engine_app():
     """Returns (app, state). `state` can be changed by a test: complete, scan_fails, fix_response, health, repos_slack."""
     st = SimpleNamespace(repos=[], findings={}, scans={}, outbox=[], complete=True, scan_fails=False, health=None, fix_calls=[], status_calls=[],
                          fix_response=None, fix_error=None, diff_response=None, diff_calls=0, watch_calls=[], baseline_calls=[], scan_errors=[],
-                         installs=None, gh_repos={}, connect_calls=[])  # installs None: the engine has no GitHub App (503)
+                         installs=None, gh_repos={}, connect_calls=[], report_calls=[], report_response=None)  # installs None: the engine has no GitHub App (503)
     app = FastAPI()
 
     @app.exception_handler(HTTPException)
@@ -239,6 +239,14 @@ def make_engine_app():
         need(x_dpdp_token)
         st.baseline_calls.append(body)
         return {"baseline_scan_id": "S-001"}
+
+    @app.post("/repos/{rid}/report-link")
+    def report_link(rid: int, body: dict = Body(...), x_dpdp_token: str | None = Header(None)):
+        need(x_dpdp_token)
+        st.report_calls.append((rid, body))
+        return st.report_response or {"url": f"/repos/{rid}/report?scan_id=S-001&sig=PAYLOAD.MAC", "scan_id": "S-001", "expires_in": 900,
+                                      "summary": {"findings": 3, "open_by_severity": {"critical": 1, "high": 1, "medium": 1, "low": 0}, "health": "at_risk",
+                                                  "coverage": "static checks only (9 of 19)", "complete": True, "warnings": []}}
 
     @app.post("/repos/{rid}/watch")
     def watch(rid: int, body: dict = Body(...), x_dpdp_token: str | None = Header(None)):

@@ -5,6 +5,7 @@ import hmac
 import html
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import audit, github_app, ingest, repo_scan
+from . import audit, github_app, ingest, readiness, repo_scan
 from .models import ScanResult
 from .store import Store
 
@@ -48,6 +49,11 @@ class ScanIn(BaseModel):
 class BaselineIn(BaseModel):
     scan_id: Optional[str] = None
     actor: str = Actor
+
+
+class ReportLinkIn(BaseModel):
+    scan_id: Optional[str] = None  # default: the latest complete scan
+    actor: str = Field("api", min_length=1, max_length=100)
 
 
 class WatchIn(BaseModel):
@@ -264,6 +270,44 @@ def create_router(store: Store, core) -> APIRouter:
         return {"repo": repo["full_name"], "baseline_scan_id": base, "scan_id": scan["scan_id"], "complete": scan["status"] == "complete",
                 "new": sorted(now - before), "resolved": sorted(h for h in before - now if checks.get(h) in covered),
                 "persistent": sorted(now & before)}
+
+    # ---- readiness report (block 11)
+
+    def build_report(repo_id: int, scan_id: Optional[str]) -> dict:
+        try:
+            return readiness.build(store, repo_id, scan_id)
+        except ingest.StatusError as e:
+            raise _status_error(e)
+        except readiness.ReportError as e:
+            raise HTTPException(e.status, e.detail)
+
+    @router.get("/repos/{repo_id}/report")  # the token header OR a signed link: a browser cannot send the header
+    def repo_report(repo_id: int, scan_id: Optional[str] = None, format: Literal["html", "json"] = "html", sig: str = "",
+                    x_dpdp_token: Optional[str] = Header(None)):
+        if x_dpdp_token is not None:
+            require_token(x_dpdp_token)
+        elif not sig:
+            raise HTTPException(401, "send the X-DPDP-Token header, or open the signed link from POST /repos/{id}/report-link")
+        elif not (scan_id and readiness.check_link(os.environ.get("DPDP_API_TOKEN", ""), sig, repo_id, scan_id)):
+            raise HTTPException(403, "this report link is invalid, expired, or for another repo or scan")
+        report = build_report(repo_id, scan_id)
+        if format == "json":
+            return report
+        nonce = secrets.token_urlsafe(12)
+        return HTMLResponse(readiness.render(report, nonce), headers={
+            "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'",
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+    @router.post("/repos/{repo_id}/report-link", dependencies=guard)
+    def report_link(repo_id: int, body: ReportLinkIn = ReportLinkIn()):
+        report = build_report(repo_id, body.scan_id)  # also decides which scan "latest complete" means, so the link is bound to a real scan id
+        sid = report["scan"]["scan_id"]
+        sig = readiness.sign_link(os.environ["DPDP_API_TOKEN"], repo_id, sid)
+        audit.record(store, "report_link_created", body.actor, repo_id, sid)
+        return {"url": f"/repos/{repo_id}/report?scan_id={sid}&sig={sig}", "scan_id": sid, "expires_in": readiness.LINK_TTL,
+                "summary": {"findings": report["summary"]["findings"], "open_by_severity": report["summary"]["open_by_severity"],
+                            "health": report["health"]["status"], "coverage": readiness.coverage_line(report), "complete": report["complete"],
+                            "warnings": report["warnings"]}}
 
     @router.post("/repos/{repo_id}/baseline", dependencies=guard)
     def set_baseline(repo_id: int, body: BaselineIn):

@@ -367,7 +367,7 @@ function StatusBadge({ label, passed }) {
 
 export default function App() {
   const [scanData, setScanData] = useState(EMPTY_SCAN)
-  const [activeTab, setActiveTab] = useState('findings')
+  const [activeTab, setActiveTab] = useState(() => (new URLSearchParams(window.location.search).has('finding') ? 'feed' : 'findings')) // a Slack link (?finding=DPDP-001) opens the Feed
 
   // Real Engine & Mock Mode States
   const [sampleMode, setSampleMode] = useState(false) // only a click on "Use sample data" turns this on

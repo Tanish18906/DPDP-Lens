@@ -207,6 +207,44 @@ with sync_playwright() as p:
     page.locator("#feed-search").fill("")
     page.wait_for_timeout(900)
 
+    # ---- a link from Slack (?finding=<id>) and the Report button (block 11). Written, not yet run: it needs a run with the stack down.
+    probe = engine("GET", "/findings", params={"status": "false_positive", "limit": 1})["items"][0]["human_id"]  # not in the Open tab
+    dp = c.new_page(b, [])
+    dp.goto(f"{c.URL}/?finding={probe}")
+    dd = dp.get_by_role("dialog")
+    dd.wait_for(timeout=10000)
+    g.check("deep link: ?finding= opens the Feed on that finding's drawer, though it is not in the Open tab",
+            probe in dd.get_attribute("aria-label") and dp.get_by_role("heading", name="Feed").is_visible() and f"finding={probe}" in dp.url, dp.url)
+    dp.keyboard.press("Escape")
+    g.check("deep link: closing the drawer removes the id from the URL", dd.count() == 0 and "finding=" not in dp.url, dp.url)
+    rows(dp).first.get_by_role("button").first.click()
+    g.check("deep link: opening a row puts its id in the URL", re.search(r"finding=DPDP-\d{3}", dp.url) is not None, dp.url)
+    dp.close()
+    held_list = []
+    lp = c.new_page(b, [])
+    lp.route(re.compile(rf"{re.escape(c.ENGINE)}/findings\?limit=500.*"), lambda r: held_list.append(r))
+    lp.goto(f"{c.URL}/?finding={probe}")
+    lp.get_by_role("dialog").wait_for(timeout=10000)
+    g.check("deep link: the drawer opens while the list is still loading", lp.get_by_role("dialog").is_visible() and len(held_list) >= 1)
+    for r in held_list:
+        r.continue_()
+    lp.close()
+    mp = c.new_page(b, [])
+    mp.goto(f"{c.URL}/?finding=DPDP-999")
+    mp.get_by_text("Finding DPDP-999 does not exist.").wait_for(timeout=10000)
+    g.check("deep link: an unknown id says so, no drawer, the Feed still works", mp.get_by_role("dialog").count() == 0 and mp.get_by_role("heading", name="Feed").is_visible())
+    mp.close()
+    page.locator("#feed-repo").select_option(label="gate/ok")
+    with page.context.expect_page() as popup:
+        page.get_by_role("button", name="Report").click()
+    rep = popup.value
+    rep.get_by_role("heading", name="DPDP readiness report").wait_for(timeout=15000)
+    g.check("Report button: opens the readiness report of the chosen repo through a signed link",
+            "gate/ok" in rep.locator("body").inner_text() and "not a compliance certificate" in rep.locator("body").inner_text() and "sig=" in rep.url)
+    g.check("Report button: no raw Aadhaar, PAN or phone number in the report", not any(rx.search(rep.locator("body").inner_text()) for rx in PII))
+    rep.close()
+    page.locator("#feed-repo").select_option(label="All repositories")
+
     # ---- no raw personal data on the page, in the list or in any drawer opened above
     page.get_by_role("tab", name=re.compile("^Open")).click()
     pages_text = c.body(page)

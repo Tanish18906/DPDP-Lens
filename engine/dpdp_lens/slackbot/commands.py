@@ -14,6 +14,7 @@ HELP = ("*DPDP Lens* (readiness checks, not a compliance certificate)\n"
         "• `/dpdp scan [owner/repo]`: scan again\n"
         "• `/dpdp findings [open|all]`: the findings of this channel's repo, critical first (default open; all adds fixed and suppressed)\n"
         "• `/dpdp status`: health, last complete scan, counts\n"
+        "• `/dpdp report [owner/repo]`: a link to the DPDP readiness report, valid 15 minutes (approvers)\n"
         "• `/dpdp diff`: the latest scan against the baseline: new, resolved, persistent\n"
         "• `/dpdp baseline`: use the latest complete scan as the baseline (approvers)\n"
         "• `/dpdp watch <minutes>|off`: scheduled re-scan (approvers)")
@@ -117,6 +118,13 @@ def _findings(ctx, args, user, channel, reply):
     reply(*cards.findings_list(repo["full_name"], recs, mode, ctx.engine.health(repo["id"]), ctx.cfg.dashboard_url))
 
 
+def _report(ctx, args, user, channel, reply):
+    if not _need_approver(ctx, user, reply):
+        return
+    repo = _pick_repo(ctx, args, channel)
+    reply(*cards.report_reply(repo["full_name"], ctx.engine.report_link(repo["id"], user), ctx.cfg.engine_url))
+
+
 def _diff(ctx, args, user, channel, reply):
     repo = _pick_repo(ctx, args, channel)
     d = ctx.engine.diff(repo["id"])  # 404 with a clear text when the repo has no baseline: shown as the engine's answer
@@ -141,7 +149,7 @@ def _watch(ctx, args, user, channel, reply):
     reply(f"Scheduled scans of {repo['full_name']}: " + (f"every {out['watch_minutes']} minutes (a schedule, not real-time)" if out["watch_minutes"] else "off"))
 
 
-COMMANDS = {"connect": _connect, "repos": _repos, "scan": _scan, "status": _status, "findings": _findings, "diff": _diff, "baseline": _baseline, "watch": _watch}
+COMMANDS = {"connect": _connect, "repos": _repos, "scan": _scan, "status": _status, "findings": _findings, "report": _report, "diff": _diff, "baseline": _baseline, "watch": _watch}
 
 
 def run_command(ctx, text: str, user: str, channel: str, reply) -> None:

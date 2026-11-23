@@ -28,7 +28,7 @@ export async function call(apiBase, path, { method = 'GET', body } = {}) {
     } catch {
       /* the engine's own text is only there for JSON answers */
     }
-    throw new Error(detail || `The engine answered ${res.status}`)
+    throw Object.assign(new Error(detail || `The engine answered ${res.status}`), { status: res.status })  // status: a 404 reads differently from an outage
   }
   return res.json()
 }

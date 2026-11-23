@@ -65,6 +65,8 @@ class Engine:
     def fix(self, human_id, actor):
         return self._call("POST", f"/findings/{human_id}/fix", params={"mode": "live"}, body={"actor": actor}, write=True, timeout=90)
 
+    def report_link(self, repo_id, actor): return self._call("POST", f"/repos/{repo_id}/report-link", body={"actor": actor}, write=True)
+
     def baseline(self, repo_id, actor): return self._call("POST", f"/repos/{repo_id}/baseline", body={"actor": actor}, write=True)
 
     def watch(self, repo_id, minutes, actor):
