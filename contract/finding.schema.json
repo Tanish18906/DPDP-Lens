@@ -68,6 +68,15 @@
         },
         "location": {
           "$ref": "#/$defs/Location"
+        },
+        "detector": {
+          "default": "rule",
+          "enum": [
+            "rule",
+            "model"
+          ],
+          "title": "Detector",
+          "type": "string"
         }
       },
       "required": [
@@ -93,7 +102,9 @@
             "code",
             "api",
             "browser",
-            "notice"
+            "notice",
+            "config",
+            "frontend"
           ],
           "title": "Layer",
           "type": "string"
@@ -122,6 +133,16 @@
           },
           "title": "Clauses",
           "type": "array"
+        },
+        "severity_reason": {
+          "default": "",
+          "title": "Severity Reason",
+          "type": "string"
+        },
+        "recommendation": {
+          "default": "",
+          "title": "Recommendation",
+          "type": "string"
         },
         "evidence": {
           "$ref": "#/$defs/Evidence"

@@ -3,6 +3,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from ..recognizers import find_pii, is_name_column
 
@@ -72,6 +73,7 @@ def scan(db_path: str) -> list[Finding]:
         findings.append(Finding(
             id="", check="db_plaintext_pii", layer="db", severity="high",
             title="Aadhaar or PAN stored in plaintext columns",
+            severity_reason=reason("db_plaintext_pii", fields=", ".join(hits), table=table),
             explanation=f"Table {table} keeps Aadhaar or PAN numbers as readable text, with no encryption, masking or tokens. "
                         "This likely does not meet the safeguard expected for personal data at rest.",
             clauses=[],

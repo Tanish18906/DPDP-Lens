@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 Severity = Literal["critical", "high", "medium", "low"]
-Layer = Literal["db", "code", "api", "browser", "notice"]
+Layer = Literal["db", "code", "api", "browser", "notice", "config", "frontend"]
 
 # AGENTS.md section 4: score = 100 minus these weights, floor at 0.
 SEVERITY_WEIGHTS: dict[str, int] = {"critical": 20, "high": 10, "medium": 5, "low": 2}
@@ -28,6 +28,7 @@ class Evidence(BaseModel):
     summary: str
     masked_sample: str = ""  # masked value only, never raw PII
     location: Location = Field(default_factory=Location)
+    detector: Literal["rule", "model"] = "rule"  # "model": found through hints.semantic_hints, never above medium
 
 
 class Fix(BaseModel):
@@ -50,6 +51,8 @@ class Finding(BaseModel):
     title: str
     explanation: str
     clauses: list[Clause]
+    severity_reason: str = ""  # one sentence, built from scanner facts (checks.reason), never from an LLM
+    recommendation: str = ""  # static text per check id, filled by the runner from checks.py
     evidence: Evidence
     status: Literal["open", "verified_fixed"] = "open"
     fix: Fix = Field(default_factory=Fix)

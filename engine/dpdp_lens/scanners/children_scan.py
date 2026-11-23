@@ -3,6 +3,7 @@ If the app accepts it, flag it. The probe removes its own rows afterwards, so re
 import httpx
 
 from .. import config
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from ..recognizers import mask_email
 from .erasure_scan import PROBE_PASSWORD, _cleanup, _marker
@@ -22,6 +23,7 @@ def scan(target_url: str, db_path: str, transport=None) -> list[Finding]:
     return [Finding(
         id="", check="children_no_parental_consent", layer="api", severity="high",
         title="Under-18 signup accepted with no parental consent",
+        severity_reason=reason("children_no_parental_consent"),
         explanation="A signup for a 14 year old was accepted with no step to verify a parent or guardian. "
                     "The Act asks for verifiable consent of a parent before processing a child's data.",
         clauses=[],

@@ -2,6 +2,7 @@
 import httpx
 
 from .. import config
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from ..recognizers import find_pii, is_name_column
 
@@ -78,6 +79,7 @@ def scan(target_url: str, transport=None) -> list[Finding]:
         findings.append(Finding(
             id="", check="api_pii_exposure", layer="api", severity="critical",
             title="Public API endpoint exposes personal data",
+            severity_reason=reason("api_pii_exposure", n=n, fields=", ".join(fields)),
             explanation=f"GET {path} returns personal data to anyone, with no login. "
                         "This likely does not meet the access control expected for reasonable security safeguards.",
             clauses=[],

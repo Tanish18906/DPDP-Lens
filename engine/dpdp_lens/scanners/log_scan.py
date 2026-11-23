@@ -3,6 +3,7 @@ import ast
 import re
 from pathlib import Path
 
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 
 PII_TOKENS = {"email", "phone", "aadhaar", "pan", "dob", "password", "token"}
@@ -62,6 +63,7 @@ def scan(repo_path: str) -> list[Finding]:
             findings.append(Finding(
                 id="", check="log_pii", layer="code", severity="high",
                 title="Personal data written to logs",
+                severity_reason=reason("log_pii", fields=", ".join(names)),
                 explanation="A log call writes personal data in plain text, so anyone who can read the logs can read it. "
                             "This likely does not meet the safeguard expected for masking personal data.",
                 clauses=[],

@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright
 
 from .. import config
 from ..browser import launch
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from ..netutil import is_local
 
@@ -112,6 +113,7 @@ def _tracker_finding(frontend_url: str, requested: list[str]) -> list[Finding]:
     return [Finding(
         id="", check="tracker_before_consent", layer="browser", severity="high",
         title="Tracking script loads before any consent",
+        severity_reason=reason("tracker_before_consent", host=next(iter(seen)), category=next(iter(seen.values()))[0]),
         explanation="The signup page contacts an advertising or social tracker as soon as it opens, before the user has agreed to anything. "
                     "This likely does not meet the consent expected before tracking, and it matters more because the users are children.",
         clauses=[],
@@ -134,6 +136,7 @@ def _consent_finding(frontend_url: str, boxes: list[dict]) -> list[Finding]:
     return [Finding(
         id="", check="consent_bundled", layer="browser", severity="medium",
         title="Consent box is pre-ticked or bundled with marketing",
+        severity_reason=reason("consent_bundled"),
         explanation="The consent checkbox is already ticked, or one box covers both the terms and marketing messages. "
                     "This likely does not meet the requirement for free, specific and unambiguous consent given by a clear action.",
         clauses=[],

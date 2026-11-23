@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config
+from .checks import CHECKS
 from .models import Clause, ScanResult, compute_counts, compute_score
 from .scanners import api_scan, browser_scan, children_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
@@ -70,7 +71,8 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
         except Exception as e:
             log.warning("scanner_error: notice_drift failed: %s: %s", type(e).__name__, e)
     findings = [
-        f.model_copy(update={"id": f"F-{i:03d}", "clauses": [Clause(**c) for c in clauses.get(f.check, [])]})
+        f.model_copy(update={"id": f"F-{i:03d}", "clauses": [Clause(**c) for c in clauses.get(f.check, [])],
+                             "recommendation": CHECKS[f.check].recommendation if f.check in CHECKS else ""})
         for i, f in enumerate(findings, 1)]
     return ScanResult(
         scan_id=scan_id, target=target_url, scanned_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

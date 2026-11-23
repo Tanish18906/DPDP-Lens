@@ -10,6 +10,7 @@ import httpx
 from stdnum.verhoeff import calc_check_digit
 
 from .. import config
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from ..recognizers import mask_email
 from .db_scan import _q
@@ -85,6 +86,7 @@ def scan(target_url: str, db_path: str, transport=None) -> list[Finding]:
     return [Finding(
         id="", check="erasure_incomplete", layer="db", severity="high",
         title="Personal data is still stored after deletion",
+        severity_reason=reason("erasure_incomplete", tables=", ".join(tables)),
         explanation="After a delete request, the user's personal data is still in the database. "
                     "This likely does not meet the duty to erase data once the purpose is served or consent is withdrawn.",
         clauses=[],

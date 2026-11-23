@@ -81,14 +81,17 @@ Ports: target backend 8000, target frontend 5173, engine API 8100, dashboard 517
         {
           "id": "F-001",
           "check": "api_pii_exposure",
-          "layer": "db|code|api|browser|notice",
+          "layer": "db|code|api|browser|notice|config|frontend",
           "severity": "critical|high|medium|low",
           "title": "short title",
           "explanation": "plain English, 2 sentences",
+          "severity_reason": "one sentence, built from scan facts (optional, default empty)",
+          "recommendation": "static fix text per check id (optional, default empty)",
           "clauses": [{"ref": "Act s8(5)", "note": "reasonable security safeguards"},
                       {"ref": "Rule 6(1)(b)", "note": "access control"}],
           "evidence": {
             "kind": "http|db|code|network|dom",
+            "detector": "rule|model (optional, default rule)",
             "summary": "what was observed",
             "masked_sample": "masked value only",
             "location": {"file": "", "line": 0, "url": "", "table": "", "column": ""}

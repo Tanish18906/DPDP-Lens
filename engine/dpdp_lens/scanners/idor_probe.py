@@ -4,6 +4,7 @@ import re
 import httpx
 
 from .. import config
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 from .api_scan import pii_fields
 
@@ -42,6 +43,7 @@ def scan(target_url: str, users: dict | None = None, transport=None) -> list[Fin
             findings.append(Finding(
                 id="", check="api_idor", layer="api", severity="critical",
                 title="Any logged-in user can read other users' records",
+                severity_reason=reason("api_idor"),
                 explanation=f"GET {path} returns another user's record to a logged-in user without checking ownership. "
                             "This likely does not meet the access control expected for reasonable security safeguards.",
                 clauses=[],

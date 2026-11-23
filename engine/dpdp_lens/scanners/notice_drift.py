@@ -6,6 +6,7 @@ import httpx
 
 from .. import config
 from ..htmltext import list_items, visible_text
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location, NoticeDrift, ObservedField, UndeclaredDetail
 from . import api_scan, db_scan
 
@@ -61,6 +62,7 @@ def finding(drift: NoticeDrift, notice_url: str) -> Finding:
     return Finding(
         id="", check="notice_drift", layer="notice", severity="medium",
         title="Collected personal data is not listed in the privacy notice",
+        severity_reason=reason("notice_drift", n=len(drift.undeclared)),
         explanation="The app handles personal data that its public privacy notice does not list. "
                     "This likely does not meet the duty to itemise the personal data in the notice.",
         clauses=[],

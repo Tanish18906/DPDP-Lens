@@ -5,6 +5,7 @@ import httpx
 
 from .. import config
 from ..htmltext import visible_text
+from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location
 
 # Strict on purpose: a generic "contact us" line does not count as a DPO or grievance contact.
@@ -37,6 +38,7 @@ def scan(target_url: str, frontend_url: str | None = config.FRONTEND_URL, transp
     return [Finding(
         id="", check="missing_contact", layer="notice", severity="low",
         title="No DPO or grievance contact published",
+        severity_reason=reason("missing_contact"),
         explanation="The pages we checked do not give a Data Protection Officer or grievance contact. "
                     "This likely does not meet the duty to publish contact details and a grievance process.",
         clauses=[],

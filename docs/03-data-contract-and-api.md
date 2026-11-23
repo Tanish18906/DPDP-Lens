@@ -5,7 +5,7 @@ Source of truth in code: contract/finding.schema.json (generated from engine/dpd
 ## Scan result (summary)
 Top level fields: scan_id, target, scanned_at, score (0 to 100), counts {critical, high, medium, low}, findings[], notice_drift.
 
-Finding fields: id, check, layer (db, code, api, browser, notice), severity (critical, high, medium, low), title, explanation, clauses[{ref, note}], evidence{kind, summary, masked_sample, location{file,line,url,table,column}}, status (open, verified_fixed), fix{available, diff, verified, rescan_passed, tests_passed, score_before, score_after}.
+Finding fields: id, check, layer (db, code, api, browser, notice, config, frontend), severity (critical, high, medium, low), title, explanation, severity_reason, recommendation, clauses[{ref, note}], evidence{kind, summary, masked_sample, detector, location{file,line,url,table,column}}, status (open, verified_fixed), fix{available, diff, verified, rescan_passed, tests_passed, score_before, score_after}.
 
 notice_drift: declared[], observed[{field, where[]}], undeclared[].
 
@@ -19,6 +19,13 @@ Score = 100 minus weights over OPEN findings only: critical 20, high 10, medium 
 - Email: a***@domain.com
 - DOB: show year only
 Never store or return a raw value anywhere (JSON, logs, report).
+
+## Added in S1 (docs/15, additive, all have defaults so old JSON still validates)
+- Layers `config` and `frontend`. A client must show an unknown layer as a generic chip.
+- `Finding.severity_reason`: one sentence built from the scanner's facts (`checks.reason`), never from an LLM.
+- `Finding.recommendation`: static text per check id, filled by the runner from `engine/dpdp_lens/checks.py`.
+- `Evidence.detector`: `rule` (default) or `model`. A model detection never rates above medium (`hints.semantic_hints`, empty for now).
+- The check registry is `engine/dpdp_lens/checks.py`; `contract/clauses.json` holds the clauses. A test keeps both on the same ids.
 
 ## Check ids
 | check id | layer | severity | clauses | detection | fixable |
