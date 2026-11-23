@@ -7,7 +7,7 @@ Visuals: Real application captures showing Slack, Dashboard Feed, Terminal CI, a
 Rules:
 - Say "scheduled monitoring", never "real-time" or "continuous".
 - Never say "verified" unless the engine returned `verified: true`.
-- State clearly that connected-repo scans run static checks only (11 of 19 checks).
+- State clearly that connected-repo scans run static checks only (9 of 19 checks).
 - State clearly that fix verification shows a cached label if fallback is used.
 - No em dashes in the text.
 

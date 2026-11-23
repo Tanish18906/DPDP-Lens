@@ -6,7 +6,7 @@ Audience: Hackathon judges, technical leads, privacy engineers.
 Standing vocabulary rules:
 - Say "scheduled monitoring", never "real-time" or "continuous".
 - Never say "verified" unless the engine returned `verified: true`.
-- Say plainly that connected-repo scans are static only (11 of 19 checks).
+- Say plainly that connected-repo scans are static only (9 of 19 checks).
 - Say plainly that fix verification may display a cached label if sandbox execution falls back.
 - Always conclude: "Readiness report, not a compliance certificate."
 - No em dashes in script or slides.
@@ -70,7 +70,7 @@ Standing vocabulary rules:
 | Visual | Slack channel displaying finding summary and individual cards sorted by severity. |
 | Action | Scroll to finding `DPDP-014` (`log_pii`). Click **View Details**. |
 | What Happens | A thread reply opens containing: legal clauses (Act s8(5), Rule 6(1)(a)), file location (`backend/app/main.py:87`), masked sample (`a***@x.com`), and recommendation. |
-| What to Say | "The scan finishes with a transparent coverage report: static checks only, 11 of 19 checks run. Here is finding DPDP-014: personal data logged in plaintext. When we click View Details, we see the legal grounding. Section 8(5) for reasonable security safeguards, Rule 6(1)(a) for data masking. Notice the evidence: all samples are masked at the source. No raw PII ever enters Slack or logs." |
+| What to Say | "The scan finishes with a transparent coverage report: static checks only, 9 of 19 checks run. Here is finding DPDP-014: personal data logged in plaintext. When we click View Details, we see the legal grounding. Section 8(5) for reasonable security safeguards, Rule 6(1)(a) for data masking. Notice the evidence: all samples are masked at the source. No raw PII ever enters Slack or logs." |
 | Fallback | If the thread reply delays, show the card text directly or show the same finding in the Dashboard drawer at `http://localhost:5174/?finding=DPDP-014`. Fallback screenshot: `docs/fallback-shots/children-finding.png`. |
 
 ---
@@ -132,8 +132,8 @@ Standing vocabulary rules:
 
 ## 3. Quick Reference for Judge Questions
 
-1. "Why only 11 checks in the Slack demo?"
-   - Connected GitHub repositories run static analysis only. We never execute untrusted remote code. The remaining 8 dynamic checks (IDOR probe, unauthenticated API exposure, live DB plaintext checks, browser tracking, deletion verification, children verification) run when auditing a live running application instance.
+1. "Why only 9 checks in the Slack demo?"
+   - Connected GitHub repositories run static analysis only. We never execute untrusted remote code. The remaining 10 dynamic checks (IDOR probe, unauthenticated API exposure, live DB plaintext checks, browser tracking, deletion verification, children verification) run when auditing a live running application instance.
 2. "Is the audit trail blockchain?"
    - No. It is an append-only SQLite table where each record contains the SHA-256 hash of the prior record. It is tamper-evident, not tamper-proof. Anyone with raw file write access could rewrite the file, but silent tampering is detected.
 3. "Did you use an LLM for detection or fixes?"

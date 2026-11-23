@@ -48,7 +48,7 @@ Written by Tanish and Anmol. Updated 2026-11-24 for the EVOLVE release.
 The demo app TutorNest contains deliberately planted dummy secrets: `target-app/backend/.env` (V9), Dockerfile and compose file (V10, V12), and `SECRET_KEY` in `app/auth.py`. All values are synthetic and function nowhere. `backend/.env` is tracked via `.gitignore` exception specifically to test static scanners. The engine scanner masks all detected secrets (showing 2 characters plus `***`).
 
 ## 5. Out of scope and known limits
-- Connected repository scans are static only (11 of 19 checks). Dynamic runtime checks (IDOR, unauthenticated API PII exposure, live DB plaintext checks, browser tracking, deletion verification, child consent verification) require a running instance and are not executed against connected GitHub repos.
+- Connected repository scans are static only (9 of 19 checks). Dynamic runtime checks (IDOR, unauthenticated API PII exposure, live DB plaintext checks, browser tracking, deletion verification, child consent verification) require a running instance and are not executed against connected GitHub repos.
 - Fix sandbox execution requires local Python environment and runs target code with engine privileges (gated by `DPDP_FIX_REPOS`). It does not run inside an isolated Docker container or VM sandbox.
 - The audit hash chain is tamper-evident, not tamper-proof. Local database file modification can forge the chain.
 - `VITE_DPDP_TOKEN` in the browser bundle is visible to anyone with browser devtools access on localhost.

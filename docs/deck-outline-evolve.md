@@ -83,7 +83,7 @@ Rules: No em dashes. Keep 7 words per line or less where possible.
 ## Slide 7: Live Product Walkthrough (Screenshots Needed)
 - **Header**: Developer Front Door: Slack & Triage
 - **Screenshots Needed**:
-  - 1. **Slack Connect**: `/dpdp connect` output with transparent coverage badge: "static checks only (11 of 19)".
+  - 1. **Slack Connect**: `/dpdp connect` output with transparent coverage badge: "static checks only (9 of 19)".
   - 2. **Finding Card**: Interactive Block Kit card showing finding `DPDP-014` (`log_pii`), severity badge, and DPDP clause citation (Act s8(5), Rule 6(1)(a)).
   - 3. **Triage Reason Modal**: Modal requiring justification (1 to 300 chars, PII-checked) when marking False Positive or Won't Fix.
   - 4. **Approver Gate**: Ephemeral rejection ("Not allowed: only approvers can do this.") when non-authorized user clicks actions.
@@ -112,7 +112,7 @@ Rules: No em dashes. Keep 7 words per line or less where possible.
 ## Slide 10: Honest Limits and Safety Boundaries
 - **Header**: Security & Architectural Limits
 - **Clear Engineering Boundaries**:
-  - **Static Only for Connected Repos**: Connected GitHub repositories run static analysis (11 of 19 checks). Untrusted remote code is never executed during scans.
+  - **Static Only for Connected Repos**: Connected GitHub repositories run static analysis (9 of 19 checks). Untrusted remote code is never executed during scans.
   - **Fix Sandbox Scope**: Code execution during fix verification is strictly restricted to allowlisted `DPDP_FIX_REPOS`.
   - **Tamper-Evident, Not Tamper-Proof**: Audit hash chain detects modifications, but an attacker with direct SQLite write access can rewrite the local file.
   - **Client Token Scope**: `VITE_DPDP_TOKEN` is compiled into the browser bundle for demo purposes; engine binds strictly to localhost.
