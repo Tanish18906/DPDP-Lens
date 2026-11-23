@@ -1,6 +1,18 @@
 # DPDP Lens
 
-**Does your app do what your privacy notice says?** DPDP Lens is a cross-layer readiness auditor for India's Digital Personal Data Protection Act 2023 and DPDP Rules 2025. It scans a running app and its source across the database, backend code, config files, running API, browser and privacy notice, produces evidence-backed findings with file and line mapped to Act sections and Rules, then proves a fix: it patches a COPY of the app, re-runs the failed check, runs the app's tests, and shows the diff and the score change.
+**Does your app do what your privacy notice says?** DPDP Lens is a Slack-first readiness platform for India's Digital Personal Data Protection Act 2023 and DPDP Rules 2025, built on a deterministic scanner. It is a **readiness report, not a compliance certificate**.
+
+Five parts, as built:
+
+1. **Policy-as-code.** A versioned policy file (`engine/dpdp_lens/policies/default.yaml`) decides block, warn or info for each check, and an optional `.dpdp-lens.yml` in the scanned repo adjusts it.
+2. **CI/CD with SARIF.** `python -m dpdp_lens ci` scans a checkout, judges it by the policy, writes SARIF 2.1.0, a JSON result and a Markdown summary, and exits 0, 1 or 2. A GitHub Actions workflow is in `docs/ci-example/`.
+3. **Scheduled monitoring.** The engine re-scans a connected repository every N minutes you choose (`/dpdp watch`). It runs on the schedule you set and nothing is watched between two scans. A failed or incomplete scan turns the repository to Unknown, never green.
+4. **Tamper-evident audit trail.** Every status change, scan and fix is an append-only event that holds the hash of the one before. It is tamper-evident, not tamper-proof.
+5. **Controlled self-healing with human approval.** Fix and verify patches a temp copy of the code, re-scans it and runs the repository's tests. In Slack only listed approvers can run it, and only for repositories in `DPDP_FIX_REPOS`.
+
+**Detection is deterministic**: regular expressions, checksums (Verhoeff for Aadhaar), Python `ast`, config parsing and a headless browser. There is no machine learning and no LLM in detection, policy, fingerprints or status logic.
+
+Repositories connected from Slack are scanned **static only: 9 of the 19 checks** (the ones that read files). The other 10 need a running app and run against the demo app TutorNest.
 
 Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Protection (DPDP) Compliance Auditor). Everything runs on localhost against our own synthetic demo app.
 
@@ -9,6 +21,8 @@ Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Pr
 The main DPDP duties apply from **13 May 2027**. Under the Act's Schedule, failing to keep reasonable security safeguards (s8(5)) can cost up to Rs 250 crore, and most startups have no privacy team. Existing tools (dcomply, Privado, Indian consent SaaS) each cover part of the problem. Our edge is cross-layer proof plus verified fixes, not "nobody scans code".
 
 ## What it does
+
+DPDP Lens scans a running app and its source across the database, backend code, config files, running API, browser and privacy notice, produces evidence-backed findings with file and line mapped to Act sections and Rules, then proves a fix: it patches a COPY of the app, re-runs the failed check, runs the app's tests, and shows the diff and the score change.
 
 - **Cross-layer, one report.** Database, backend code, config files (`.env`, Dockerfile, compose), front end source, running API, browser and the privacy notice are scanned together. Each finding has masked evidence, a file and line where there is one, the Act section or Rule it relates to, a severity with a one sentence reason, and a recommended fix.
 - **Verified fix.** Fixes are applied to a temp copy of the app, never the original. A fix counts as `verified` only when the re-scan no longer finds the issue AND the app's tests pass. The status is computed, never set by hand.
@@ -23,14 +37,34 @@ Verified fixes exist for seven of the nineteen checks (everything except plainte
                                        |--> scanners: db, code, config, frontend, api, browser, notice, consent
                                        '--> fix sandbox: temp copy of the app, patch, re-scan, pytest
 
+    Slack (Socket Mode) <--> bot process (python -m dpdp_lens.slackbot) --HTTP + X-DPDP-Token--> Engine API
+    GitHub (allowlisted repos) --shallow clone--> static scan --> SQLite store (findings, audit chain, outbox)
+    GitHub Actions: python -m dpdp_lens ci --> same checks --> policy --> SARIF, summary, exit code
+
 The only interface between engine and dashboard is the scan JSON (`contract/finding.schema.json`, example in `contract/sample-scan.json`).
 
-## Quick start (localhost only)
+## 5 minute quickstart (Slack demo, localhost only)
+
+Needs Python 3.12, Node 20 or newer, git and a Slack app (set it up once with [docs/slack-bot.md](docs/slack-bot.md)).
+
+    python3 -m venv .venv && source .venv/bin/activate
+    pip install -e "engine[slack]" pyjwt pytest jsonschema
+    (cd dashboard && npm install)
+    cp scripts/demo_env.example scripts/demo_env     # fill in every value; the real file is git-ignored
+    scripts/demo_up.sh                               # preflight, then engine :8100, dashboard :5174 and the Slack bot
+    # open http://localhost:5174, then in Slack: /dpdp connect Tanish18906/acme-tutornest
+    scripts/demo_down.sh
+
+`demo_up.sh` runs `scripts/preflight.py` before and after it starts anything: one PASS, WARN or FAIL line per check with a one-line fix, and it never prints a secret. `scripts/demo_reset.sh` deletes the findings database and saved scans for a clean start (only after you type `yes`). What each preflight line means and what to do when it fails: [docs/demo-runbook.md](docs/demo-runbook.md). More: [docs/slack-bot.md](docs/slack-bot.md) (Slack setup), [docs/ACCURACY.md](docs/ACCURACY.md) (measured precision and recall), [docs/threat-model.md](docs/threat-model.md) (threat model).
+
+`playwright install chromium` is only needed for the browser scan, the PDF report and the gates (or have Google Chrome installed, the browser scan falls back to it).
+
+## Local demo without Slack (scan and fix on TutorNest)
 
 One-time setup (Python 3.12, Node 20 or newer):
 
     python3 -m venv .venv && source .venv/bin/activate
-    pip install fastapi "uvicorn[standard]" httpx python-stdnum pydantic pyjwt pytest jsonschema playwright pyyaml rich prompt_toolkit
+    pip install -e "engine[slack]" pyjwt pytest jsonschema
     playwright install chromium    # or have Google Chrome installed, the browser scan falls back to it
     (cd target-app/frontend && npm install)
     (cd dashboard && npm install)    # npm may rewrite package-lock.json (npm version differences), do not commit that
@@ -79,6 +113,10 @@ Tests:
 | `consent_no_withdrawal` | api | medium | Act s6(4), Act s6(6) | No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing. | no |
 
 Score = 100 minus weights (critical 10, high 5, medium 2, low 1), floor 0, open findings only. The weights live in one place, `SEVERITY_WEIGHTS` in `engine/dpdp_lens/models.py`.
+
+## Scanner accuracy
+
+`cd engine && python -m dpdp_lens eval` measures the static scanners and the personal data recognizers against a labelled corpus in `engine/tests/accuracy/` (one small app per case, marked pos or neg, with hard negatives such as placeholder secrets, numbers that look like an Aadhaar or a phone number, test files and comments) and prints precision and recall per check. `--md` prints the table for docs/ACCURACY.md, `--json` the full report. A test fails when any number drops below its floor. On the current corpus: precision 97%, recall 100%, and the static scan of TutorNest finds all 11 expected findings with none extra. The corpus is small and written by us, so these numbers describe it, not code in general; live checks (API, database, browser) are not in it. [docs/ACCURACY.md](docs/ACCURACY.md) has the table, every miss and the history of each change.
 
 ## CS-01 coverage map
 
@@ -167,12 +205,20 @@ Example (real output of a scan of TutorNest, shortened):
 
 The `scan` command has two more flags: `--pretty` prints the grouped list instead of the JSON (`--out` still writes the JSON), and `--fail-on critical|high|medium|low|none` (default `none`) exits 1 when an open finding is at or above that severity, for CI. Text from a finding can come from the scanned app, so the shell strips escape and control characters from it before printing.
 
-## CI use (SARIF)
+## CI use (policy and SARIF)
 
-    cd engine && python -m dpdp_lens scan --target http://localhost:8000 \
-      --repo ../target-app/backend --db ../target-app/backend/demo.db --out scan.json --sarif scan.sarif
+Install the engine from a checkout with `pip install -e "<checkout>/engine"`. A plain `pip install git+...#subdirectory=engine` does not work: the policy file and `contract/clauses.json` sit outside the installed package.
 
-`scan.sarif` is SARIF 2.1.0: one rule per check, one result per open finding, severity mapped to error (critical, high), warning (medium) and note (low), clauses in the rule help text. The engine also serves it at `GET /scan/{scan_id}/sarif`. Only masked text is included. Not tested: validation against the official SARIF JSON schema and an upload to GitHub code scanning, because we worked offline.
+    cd engine && python -m dpdp_lens ci --repo-dir .. --sarif out.sarif --json out.json --summary out.md
+    python -m dpdp_lens ci --repo-dir <checkout> --write-baseline      # once: accepts today's findings
+    python -m dpdp_lens ci --repo-dir <checkout> --new-only            # pull requests: only new findings fail
+    python -m dpdp_lens scan --static --repo <backend>                 # the file-reading checks only, no app, no database
+
+`ci` runs the static checks and judges them with `engine/dpdp_lens/policies/default.yaml` (critical and high block, medium warn, low info). Exit 0 = pass or warn, 1 = blocking findings, 2 = the scan was incomplete or the config, policy or baseline is invalid (never a pass). An optional `.dpdp-lens.yml` in the scanned repo sets `policy`, `block_on`, `warn_on`, `categories`, `new_only`, `baseline` and `suppress` (see `docs/ci-example/dpdp-lens.config.yml`).
+
+Copy `docs/ci-example/dpdp-lens.yml` to `.github/workflows/` of the repo to scan. It uploads SARIF (code scanning annotations need a public repo or GitHub Code Security, and GitHub shows them in a pull request only on lines the pull request changed), writes a step summary, keeps the JSON and SARIF as an artifact, and posts to Slack if the secret `SLACK_WEBHOOK_URL` is set and the decision is not pass. SARIF lists only findings that have a repo file; live API, database and browser findings stay in the JSON.
+
+A live scan can also write SARIF (`scan ... --out scan.json --sarif scan.sarif`, or `GET /scan/{scan_id}/sarif`): one rule per check, one result per open finding that has a file, severity mapped to error (critical, high), warning (medium) and note (low), clauses in the rule help text, masked text only. The SARIF output is validated against the official 2.1.0 schema in the tests. An upload to GitHub code scanning and the Slack webhook step have not been tried against GitHub or Slack.
 
 ## Finding store and repo API
 
@@ -199,7 +245,7 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 | `POST /findings/{id}/fix?mode=live\|cached` | Fix and verify a stored finding (same loop as before, on a fresh checkout of the scanned commit). The stored scan is never edited. |
 | `GET /outbox?after=N`, `GET /audit/events`, `GET /audit/verify` | Change feed for the Slack bot (rows `{id, kind, human_id, repo_id, scan_id}`), audit events, hash chain check. |
 
-Scheduled monitoring (never "real-time" or "continuous": nothing is watched between two scans). `POST /repos/{id}/watch {minutes}` makes the engine re-scan that repo every N minutes (1 to 10080). The schedule is stored in SQLite, so a restart keeps it, and a window missed while the engine was down runs once. One scan runs at a time. A failed clone, a crash or an incomplete scan is stored as such and the repo turns "unknown"; so does a repo with no complete scan in twice its interval ("stale"). `GET /repos/{id}/health` shows `failed_streak` and `last_error`. The monitor adds two outbox kinds, written in the same transaction as the change that caused them: `scan_delta` (a scheduled scan found a new or reopened critical or high finding) and `health_changed` (health moved into or out of at_risk or unknown, so an unchanged state alerts once, not on every scan). Manual scans never queue these two kinds.
+Scheduled monitoring (nothing is watched between two scans). `POST /repos/{id}/watch {minutes}` makes the engine re-scan that repo every N minutes (1 to 10080). The schedule is stored in SQLite, so a restart keeps it, and a window missed while the engine was down runs once. One scan runs at a time. A failed clone, a crash or an incomplete scan is stored as such and the repo turns "unknown"; so does a repo with no complete scan in twice its interval ("stale"). `GET /repos/{id}/health` shows `failed_streak` and `last_error`. The monitor adds two outbox kinds, written in the same transaction as the change that caused them: `scan_delta` (a scheduled scan found a new or reopened critical or high finding) and `health_changed` (health moved into or out of at_risk or unknown, so an unchanged state alerts once, not on every scan). Manual scans never queue these two kinds.
 
 ### Feed (dashboard)
 
@@ -207,7 +253,7 @@ The dashboard's **Feed** view lists the findings of every connected repository (
 
 To change a status or run a fix from the page, give the dashboard the engine's token when you start it: `VITE_DPDP_TOKEN=<same value as DPDP_API_TOKEN> npm run dev`. **Demo only:** a `VITE_` variable is bundled into the page, so it is not a secret. This is acceptable because the engine and the dashboard bind to localhost. Without it the Feed is read only and says so.
 
-Health is "unknown" whenever the latest scan is incomplete or failed, never green. Until the policy file lands (a later block), "blocking" means critical or high severity.
+Health is "unknown" whenever the latest scan is incomplete or failed, never green. For health, "blocking" means a critical or high finding (`BLOCKING` in `engine/dpdp_lens/ingest.py`); health does not read the policy file, `ci` does.
 
 ## Slack bot
 
@@ -233,16 +279,20 @@ Limits:
 - The outbox poller starts at the end of the outbox, so status changes made while the bot was down are not replayed to Slack (the next change refreshes the card).
 - Tokens come from the environment only and are removed from every log line and every error shown in Slack. Cards and replies hold masked evidence only.
 
-## What it does NOT do
+## Limits (what it does NOT do)
 
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
-- A scanner that fails, times out or hits a limit is reported in `scan_errors` and sets `complete: false`; the score of such a scan is not a clean result. A file over 1 MB is skipped and recorded (the scanner still returns findings from its other files, but its checks are then not counted as run in `coverage`); more than 5000 files stops that scanner. Lockfiles, `*.min.js`, `*.map` and build folders are skipped silently. The dashboard banner for this comes later.
+- A scanner that fails, times out or hits a limit is reported in `scan_errors` and sets `complete: false`; the score of such a scan is not a clean result. A file over 1 MB is skipped and recorded (the scanner still returns findings from its other files, but its checks are then not counted as run in `coverage`); more than 5000 files stops that scanner. Lockfiles, `*.min.js`, `*.map` and build folders are skipped silently. The Feed and the Findings view of the dashboard show a red banner for it.
 - When two findings in one scan share a fingerprint, the second gets an occurrence number, so fixing the first can make the second look new.
 - Localhost and private-IP targets only. Scan only apps you own.
 - A small subset of DPDP duties is checked. Not detected yet: the `age` field in notice drift. JavaScript and TypeScript source is scanned for vendor token shapes only (AWS, GitHub, Slack, Stripe), not for secrets by key name. Its log calls are read by a tokenizer, not a parser, so a regex literal with a quote in it can confuse it. Consent kept outside the scanned source cannot be seen.
 - Only a FastAPI + SQLite target is tested. Finished scans and fix results are saved as JSON in `.dpdp-state/` (git-ignored, `DPDP_STATE_DIR` overrides) and reloaded when the engine restarts. A scan that is still running when the engine stops is lost.
-- No authentication on the legacy scan routes (`POST /scan`, fix, report). The repo, finding and audit routes below need the `X-DPDP-Token` header for every change. See [docs/threat-model.md](docs/threat-model.md).
+- No authentication on the legacy scan routes (`POST /scan`, fix, report). The repo, finding and audit routes above need the `X-DPDP-Token` header for every change. See [docs/threat-model.md](docs/threat-model.md).
 - Connected repos: only repos in `DPDP_ALLOWED_REPOS` can be connected (empty means none), and they get the static checks only (9 of 19, no live probes). Only repos in `DPDP_FIX_REPOS` get a live fix, because the fix runs that repo's own `seed.py`, app and tests.
+- Live Fix and verify can show a CACHED label: when the checkout or the sandbox fails, the engine replays a saved verified result for that fix and says so. A replay is not proof for the current state of the repo.
+- `VITE_DPDP_TOKEN` is bundled into the dashboard page. It is for the localhost demo only, not a secret.
+- The accuracy numbers are on our own small corpus.
+- The two GitHub workflows (`.github/workflows/dpdp-lens.yml` for this repo and the example for another repo) have not run on GitHub: `gh run list` shows no run. The example installs the engine from the `evolve` branch of this repo (`DPDP_LENS_REF`) until it is pinned to a commit.
 - The audit log is tamper-evident, not tamper-proof: every event holds the hash of the one before, so an edited or deleted event is detected by `GET /audit/verify`, but anyone who can write the database file can rewrite the whole chain or cut events off the end.
 
 ## Safe use
@@ -251,7 +301,9 @@ Use only on your own apps. Use synthetic data. Treat reports as sensitive. Never
 
 ## AI tools used
 
-Claude Code with Claude models (engine, scanners, docs, dashboard wiring) and Antigravity (target app, dashboard scaffold, target app tests). All code was written during the hackathon. Both team members can explain every file.
+Claude Code with Claude models: planning briefs and coding (engine, scanners, docs, dashboard, the Slack bot and CI work). Antigravity: target app, dashboard scaffold and target app tests, as recorded in `AGENTS.md`, `GEMINI.md` and `docs/14-git-rules.md`. TODO (Tanish): confirm whether Antigravity was also used for docs, and the exact tool list for the submission form.
+
+Dates, from `git log`: the first commit is "Initial commit" on 22 Nov 2026 22:23 IST, and every commit is dated 22 to 24 Nov 2026. The first scanner commits (`api_scan`, `db_scan`, `log_scan`) are dated 23 Nov 2026. The log does not record when hacking began, so TODO (Tanish): confirm that the first commit is after the event start. Both team members can explain every file.
 
 ## Contract schema
 
@@ -277,6 +329,7 @@ Claude Code with Claude models (engine, scanners, docs, dashboard wiring) and An
 | prompt_toolkit | BSD-3-Clause |
 | Playwright for Python | Apache-2.0 |
 | slack-bolt, slack-sdk (Slack bot, optional extra `slack`) | MIT |
+| SARIF 2.1.0 JSON schema from the OASIS SARIF Technical Committee (https://github.com/oasis-tcs/sarif-spec), vendored in `engine/tests/fixtures/` for the tests | see that repo's LICENSE.md |
 | React, React DOM | MIT |
 | Vite, `@vitejs/plugin-react` | MIT |
 | Tailwind CSS, `@tailwindcss/vite` | MIT |
