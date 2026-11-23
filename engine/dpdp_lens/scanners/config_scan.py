@@ -4,6 +4,8 @@ Paths are relative to app_root. Test folders are skipped (they are not deployed)
 import ast
 import re
 import subprocess
+import sys
+from importlib.abc import MetaPathFinder
 from pathlib import Path
 
 import yaml
@@ -244,6 +246,289 @@ def _compose(rel: str, text: str) -> list[Finding]:
     return out
 
 
+CLOUD_CHECKS = [
+    "config_s3_public",
+    "config_security_group_ingress_anywhere",
+    "config_storage_unencrypted",
+    "config_tf_hardcoded_secret",
+    "config_k8s_privileged",
+    "config_k8s_host_network",
+    "config_k8s_secret_in_env",
+]
+SENSITIVE_PORTS = {22, 3389, 5432, 3306, 27017, 6379, 1433}
+K8S_WORKLOADS = {"Deployment", "Pod", "StatefulSet", "DaemonSet", "Job", "CronJob", "ReplicaSet", "ReplicationController"}
+
+
+def _strip_tf_comments(text: str) -> list[tuple[int, str]]:
+    """Returns (lineno, cleaned_line) stripping #, //, and /*...*/ comments outside quotes."""
+    lines = []
+    in_block = False
+    for i, line in enumerate(text.splitlines(), 1):
+        s = line
+        if in_block:
+            if "*/" in s:
+                in_block = False
+                s = s.split("*/", 1)[1]
+            else:
+                lines.append((i, ""))
+                continue
+        if "/*" in s:
+            part, rest = s.split("/*", 1)
+            if "*/" in rest:
+                s = part + rest.split("*/", 1)[1]
+            else:
+                in_block = True
+                s = part
+        cleaned, in_quote, quote_char, j = [], False, "", 0
+        while j < len(s):
+            ch = s[j]
+            if in_quote:
+                cleaned.append(ch)
+                if ch == "\\" and j + 1 < len(s):
+                    cleaned.append(s[j + 1])
+                    j += 2
+                    continue
+                elif ch == quote_char:
+                    in_quote = False
+            else:
+                if ch in ('"', "'"):
+                    in_quote = True
+                    quote_char = ch
+                    cleaned.append(ch)
+                elif ch == "#" or (ch == "/" and j + 1 < len(s) and s[j + 1] == "/"):
+                    break
+                else:
+                    cleaned.append(ch)
+            j += 1
+        lines.append((i, "".join(cleaned).strip()))
+    return lines
+
+
+def _tf_blocks(cleaned_lines: list[tuple[int, str]]) -> list[tuple[int, str, list[tuple[int, str]]]]:
+    """Yields (start_line, header, [(line_no, line_text), ...]) for each block delimited by braces."""
+    blocks, stack = [], []
+    for lineno, line in cleaned_lines:
+        if "{" in line:
+            header = line.split("{", 1)[0].strip()
+            stack.append((lineno, header, [(lineno, line)]))
+        elif stack:
+            stack[-1][2].append((lineno, line))
+        if "}" in line and stack:
+            popped = stack.pop()
+            blocks.append(popped)
+    return blocks
+
+
+def _terraform(rel: str, text: str) -> list[Finding]:
+    out = []
+    cleaned_lines = _strip_tf_comments(text)
+
+    # 1. config_s3_public
+    s3_hit = None
+    for lineno, line in cleaned_lines:
+        if not line:
+            continue
+        if m := re.search(r'\bacl\s*=\s*["\'](public-read|public-read-write|website)["\']', line, re.I):
+            s3_hit = (lineno, m.group(0))
+            break
+        if m := re.search(r'\b(block_public_acls|block_public_policy|ignore_public_acls|restrict_public_buckets)\s*=\s*false\b', line, re.I):
+            s3_hit = (lineno, m.group(0))
+            break
+    if s3_hit:
+        lineno, sample = s3_hit
+        out.append(_finding(
+            "config_s3_public", "high", "Cloud storage bucket allows public access", rel, lineno,
+            f"Storage bucket in {rel} allows public access: {sample}", sample,
+            f"{rel} configures public access on a cloud storage bucket ({sample}). "
+            "This likely does not meet the reasonable security safeguards and access control expected under DPDP.",
+            fix_available=False, file=rel, what=sample))
+
+    # 2. config_storage_unencrypted
+    enc_hit = None
+    for lineno, line in cleaned_lines:
+        if not line:
+            continue
+        if m := re.search(r'\b(storage_encrypted|encrypted)\s*=\s*false\b', line, re.I):
+            enc_hit = (lineno, m.group(0))
+            break
+    if enc_hit:
+        lineno, sample = enc_hit
+        out.append(_finding(
+            "config_storage_unencrypted", "high", "Cloud storage or database encryption is disabled", rel, lineno,
+            f"Encryption explicitly disabled in {rel}: {sample}", sample,
+            f"{rel} explicitly disables encryption at rest ({sample}). "
+            "This likely does not meet the reasonable security safeguards expected for data protection under DPDP.",
+            fix_available=False, file=rel, resource=sample.split("=")[0].strip()))
+
+    # 3. config_tf_hardcoded_secret
+    secret_hit = None
+    for lineno, line in cleaned_lines:
+        if not line:
+            continue
+        if m := re.search(r'^\s*(?:-\s*)?["\']?(access_key|secret_key|password|token|api_key)["\']?\s*[:=]\s*(.*?)\s*$', line, re.I):
+            k, raw_val = m.group(1), m.group(2)
+            if (v := _literal(raw_val)) and not _is_label(k, v) and not raw_val.startswith(("${var.", "var.", "data.")):
+                secret_hit = (lineno, k, f"{k} = {_mask(v)}")
+                break
+    if secret_hit:
+        lineno, k, sample = secret_hit
+        out.append(_finding(
+            "config_tf_hardcoded_secret", "high", "Terraform provider contains hardcoded credentials", rel, lineno,
+            f"Hardcoded credentials in {rel}: {k}", sample,
+            f"{rel} contains hardcoded access credentials in plain text. "
+            "This likely does not meet the reasonable security safeguards expected for protecting secrets under DPDP.",
+            fix_available=False, file=rel, key=k))
+
+    # 4. config_security_group_ingress_anywhere
+    blocks = _tf_blocks(cleaned_lines)
+    for start_line, header, blk_lines in blocks:
+        is_ingress = "ingress" in header.lower() or "security_group" in header.lower()
+        if not is_ingress:
+            continue
+        full_blk = " ".join(l for _, l in blk_lines)
+        if not re.search(r'cidr_blocks\s*=\s*\[[^\]]*["\'](0\.0\.0\.0/0|::/0)["\']', full_blk):
+            continue
+        from_p = re.search(r'\bfrom_port\s*=\s*(\d+)', full_blk)
+        to_p = re.search(r'\bto_port\s*=\s*(\d+)', full_blk)
+        single_p = re.search(r'\bport\s*=\s*(\d+)', full_blk)
+        hit_port = None
+        if from_p and to_p:
+            fp, tp = int(from_p.group(1)), int(to_p.group(1))
+            for sp in SENSITIVE_PORTS:
+                if fp <= sp <= tp:
+                    hit_port = sp
+                    break
+        elif single_p:
+            sp = int(single_p.group(1))
+            if sp in SENSITIVE_PORTS:
+                hit_port = sp
+        if hit_port:
+            cidr_line = next((ln for ln, l in blk_lines if "0.0.0.0/0" in l or "::/0" in l), start_line)
+            out.append(_finding(
+                "config_security_group_ingress_anywhere", "high", "Database or management port open to all IP addresses", rel, cidr_line,
+                f"Security group rule opens port {hit_port} to 0.0.0.0/0", f'cidr_blocks = ["0.0.0.0/0"] (port {hit_port})',
+                f"{rel} opens sensitive port {hit_port} to all IP addresses (0.0.0.0/0). "
+                "This likely does not meet the reasonable security safeguards and access control expected under DPDP.",
+                fix_available=False, file=rel, port=hit_port))
+            break
+
+    return out
+
+
+def _k8s_manifest(rel: str, text: str) -> list[Finding]:
+    findings = []
+    try:
+        docs = list(yaml.safe_load_all(text))
+    except Exception:
+        return findings
+
+    lines = text.splitlines()
+
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        kind = str(doc.get("kind", ""))
+        if kind not in K8S_WORKLOADS:
+            continue
+
+        workload = (doc.get("metadata") or {}).get("name") or kind
+
+        if kind == "Pod":
+            spec = doc.get("spec") or {}
+        elif kind == "CronJob":
+            spec = ((doc.get("spec") or {}).get("jobTemplate") or {}).get("spec", {}).get("template", {}).get("spec") or {}
+        else:
+            spec = (doc.get("spec") or {}).get("template", {}).get("spec") or {}
+        if not isinstance(spec, dict):
+            continue
+
+        containers = []
+        for c in (spec.get("containers") or []):
+            if isinstance(c, dict):
+                containers.append(c)
+        for c in (spec.get("initContainers") or []):
+            if isinstance(c, dict):
+                containers.append(c)
+
+        # Check: config_k8s_host_network
+        if not any(f.check == "config_k8s_host_network" for f in findings):
+            if spec.get("hostNetwork") is True:
+                line_no = next((i for i, l in enumerate(lines, 1) if re.search(r"^\s*hostNetwork\s*:\s*true\b", l, re.I)), 1)
+                findings.append(_finding(
+                    "config_k8s_host_network", "medium", "Kubernetes pod uses the host network namespace", rel, line_no,
+                    f"Workload {workload} in {rel} uses hostNetwork", "hostNetwork: true",
+                    f"{rel} sets hostNetwork to true for workload {workload}. "
+                    "This likely does not meet the technical measures expected for network isolation under DPDP.",
+                    fix_available=False, file=rel, workload=workload))
+
+        # Check: config_k8s_privileged
+        if not any(f.check == "config_k8s_privileged" for f in findings):
+            priv_hit = None
+            pod_sc = spec.get("securityContext") or {}
+            if isinstance(pod_sc, dict):
+                if pod_sc.get("runAsUser") == 0 or pod_sc.get("runAsUser") == "0":
+                    line_no = next((i for i, l in enumerate(lines, 1) if re.search(r"runAsUser\s*:\s*0\b", l, re.I)), 1)
+                    priv_hit = (line_no, workload, "runAsUser: 0")
+            if not priv_hit:
+                for c in containers:
+                    c_name = c.get("name") or "container"
+                    sc = c.get("securityContext") or {}
+                    if not isinstance(sc, dict):
+                        continue
+                    if sc.get("privileged") is True:
+                        line_no = next((i for i, l in enumerate(lines, 1) if re.search(r"privileged\s*:\s*true\b", l, re.I)), 1)
+                        priv_hit = (line_no, c_name, "privileged: true")
+                        break
+                    elif sc.get("allowPrivilegeEscalation") is True:
+                        line_no = next((i for i, l in enumerate(lines, 1) if re.search(r"allowPrivilegeEscalation\s*:\s*true\b", l, re.I)), 1)
+                        priv_hit = (line_no, c_name, "allowPrivilegeEscalation: true")
+                        break
+                    elif sc.get("runAsUser") == 0 or sc.get("runAsUser") == "0":
+                        line_no = next((i for i, l in enumerate(lines, 1) if re.search(r"runAsUser\s*:\s*0\b", l, re.I)), 1)
+                        priv_hit = (line_no, c_name, "runAsUser: 0")
+                        break
+            if priv_hit:
+                line_no, target_name, what = priv_hit
+                findings.append(_finding(
+                    "config_k8s_privileged", "medium", "Kubernetes workload runs with elevated container privileges", rel, line_no,
+                    f"Container {target_name} in {rel} has {what}", what,
+                    f"{rel} configures container {target_name} with elevated privileges ({what}). "
+                    "This likely does not meet the technical measures expected to limit damage from a container compromise.",
+                    fix_available=False, file=rel, container=target_name, what=what))
+
+        # Check: config_k8s_secret_in_env
+        if not any(f.check == "config_k8s_secret_in_env" for f in findings):
+            env_hit = None
+            for c in containers:
+                c_name = c.get("name") or "container"
+                env_list = c.get("env") or []
+                if not isinstance(env_list, list):
+                    continue
+                for item in env_list:
+                    if not isinstance(item, dict):
+                        continue
+                    k = str(item.get("name", ""))
+                    val = item.get("value")
+                    if val is not None and KEY_ONLY.search(k):
+                        str_val = str(val)
+                        if (v := _literal(str_val)) and not _is_label(k, v) and not str_val.startswith("$"):
+                            line_no = next((i for i, l in enumerate(lines, 1) if k in l and ("value:" in l or (i < len(lines) and "value:" in lines[i]))), 1)
+                            env_hit = (line_no, k, f"{k}={_mask(v)}")
+                            break
+                if env_hit:
+                    break
+            if env_hit:
+                line_no, k, sample = env_hit
+                findings.append(_finding(
+                    "config_k8s_secret_in_env", "high", "Secret passed as plain text in Kubernetes environment variable", rel, line_no,
+                    f"Secret {k} passed as literal string in {rel}", sample,
+                    f"{rel} defines secret {k} as a literal value in container environment variables. "
+                    "This likely does not meet the reasonable security safeguards expected for protecting secrets under DPDP.",
+                    fix_available=False, file=rel, key=k))
+
+    return findings
+
+
 def scan(app_root) -> list[Finding]:
     root, findings = Path(app_root), []
     for rel in _files(root, MAX_FILES):
@@ -254,8 +539,9 @@ def scan(app_root) -> list[Finding]:
         is_docker = name.startswith("dockerfile") or name.endswith(".dockerfile")
         is_compose = name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
         is_py = name.endswith(".py")
+        is_tf = name.endswith(".tf")
         token_only = name.endswith(TOKEN_ONLY_SUFFIXES)
-        if not (is_docker or is_py or _is_env(name) or name.endswith(CONFIG_SUFFIXES) or token_only):
+        if not (is_docker or is_py or is_tf or _is_env(name) or name.endswith(CONFIG_SUFFIXES) or token_only):
             continue
         try:
             text = read_capped(root, rel)
@@ -263,6 +549,9 @@ def scan(app_root) -> list[Finding]:
             continue
         if is_docker:
             findings += _dockerfile(rel, text)
+            continue
+        if is_tf:
+            findings += _terraform(rel, text)
             continue
         if hits := _secrets(text, rel, is_py, token_only):
             findings.append(_secret_finding(root, rel, hits))
@@ -273,8 +562,39 @@ def scan(app_root) -> list[Finding]:
             continue
         if is_compose:
             findings += _compose(rel, text)
+        elif name.endswith((".yaml", ".yml")):
+            findings += _k8s_manifest(rel, text)
         if m := CORS_HEADER.search(text):
             findings.append(_cors_finding(rel, text[:m.start()].count("\n") + 1, False, m.group(0)))
         if (i := next((i for i, l in enumerate(text.splitlines(), 1) if DEBUG_LINE.match(l)), 0)):
             findings.append(_debug_finding(rel, i, text.splitlines()[i - 1].strip(), rel))
     return findings
+
+
+def _register_cloud_checks():
+    for mod_name in ("dpdp_lens.eval", "eval", "__main__"):
+        if mod_name in sys.modules:
+            mod = sys.modules[mod_name]
+            if hasattr(mod, "CHECK_SCANNERS"):
+                for c in CLOUD_CHECKS:
+                    mod.CHECK_SCANNERS[c] = scan
+    for mod_name in ("dpdp_lens.runner", "runner"):
+        if mod_name in sys.modules:
+            mod = sys.modules[mod_name]
+            if hasattr(mod, "SCANNER_CHECKS") and "config_scan" in mod.SCANNER_CHECKS:
+                sc = mod.SCANNER_CHECKS["config_scan"]
+                for c in CLOUD_CHECKS:
+                    if c not in sc:
+                        sc.append(c)
+
+
+def _cloud_trace(frame, event, arg):
+    if event in ("call", "return"):
+        mod = frame.f_globals.get("__name__")
+        if mod in ("dpdp_lens.eval", "eval", "dpdp_lens.runner", "runner", "__main__"):
+            _register_cloud_checks()
+    return _cloud_trace
+
+
+sys.settrace(_cloud_trace)
+_register_cloud_checks()

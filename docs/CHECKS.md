@@ -5,7 +5,7 @@ Clauses come from `contract/clauses.json`, checked against the DPDP Act 2023 and
 
 Score = 100 minus open finding weights (critical 10, high 5, medium 2, low 1), floor 0.
 
-## Checks (19)
+## Checks (26)
 
 Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in live data, `static` is read from files.
 
@@ -27,6 +27,13 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 | `config_cors_wildcard` | config | medium | Act s8(5), Rule 6(1)(b) | allow_origins holds "*", or the Access-Control-Allow-Origin header is *. | Allow only the exact front end origins you need. Never combine a wildcard with credentials. | static | no |
 | `config_debug_enabled` | config | medium | Act s8(5), Rule 6(1)(g) | DEBUG is true in an env file, debug=True is in app code, or a container command uses reload. | Turn debug off outside local development. | static | no |
 | `config_db_exposed` | config | high | Act s8(5), Rule 6(1)(b) | A compose file publishes a database port without binding it to 127.0.0.1. | Do not publish the database port. Keep it on the internal network or bind to 127.0.0.1, and use strong credentials. | static | no |
+| `config_s3_public` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A storage bucket or ACL grants public read access to stored files. | Disable public access on the storage bucket and enforce private bucket policies. | static | no |
+| `config_security_group_ingress_anywhere` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A security group or firewall rule allows inbound traffic from 0.0.0.0/0 on a database or administration port. | Restrict ingress rules to specific IP ranges or internal VPC subnets. Never expose database or SSH ports to the public internet. | static | no |
+| `config_storage_unencrypted` | config | high | Act s8(5), Rule 6(1)(a) | A database, volume, or storage resource has encryption explicitly disabled. | Enable encryption at rest with customer-managed or cloud-provider keys to protect stored personal data. | static | no |
+| `config_tf_hardcoded_secret` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A Terraform provider or resource block holds a hardcoded access key or secret. | Remove hardcoded credentials from Terraform files and use environment variables, IAM roles, or a secrets manager. | static | no |
+| `config_k8s_privileged` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest sets privileged true, runAsUser 0, or allowPrivilegeEscalation true. | Drop elevated container privileges, disallow privilege escalation, and run workloads as a non-root UID. | static | no |
+| `config_k8s_host_network` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest configures hostNetwork true, exposing node network traffic. | Disable hostNetwork and rely on Kubernetes service networking or ingress controllers. | static | no |
+| `config_k8s_secret_in_env` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A Kubernetes container env entry sets a secret value as a literal string instead of referencing a Secret. | Store secrets in Kubernetes Secret objects and reference them using secretKeyRef. | static | no |
 | `fe_pii_in_storage` | frontend | medium | Act s8(5), Rule 6(1)(a) | localStorage or sessionStorage setItem is called with a key or value that names personal data. | Do not keep personal data in browser storage. Keep it on the server and use short lived session tokens. | static | no |
 | `consent_not_recorded` | code | medium | Act s6(10), Act s6(1) | No consent table, column or model field exists in the schema or the backend source. | Record each consent (who, what, when, which notice version) so you can prove it later. | static | no |
 | `consent_no_withdrawal` | api | medium | Act s6(4), Act s6(6) | No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing. | Add a way to withdraw consent that is as easy as giving it, and stop processing when it is used. | observed | no |

@@ -1,6 +1,6 @@
 # Fix Coverage
 
-Automated and verified fix coverage across all 19 DPDP Lens checks.
+Automated and verified fix coverage across all 26 DPDP Lens checks.
 
 Clauses map to the Digital Personal Data Protection Act 2023 and the DPDP Rules 2025.
 Fixes are deterministic and idempotent (no LLM, no ML).

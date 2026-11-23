@@ -67,6 +67,38 @@
     {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
     {"ref": "Rule 6(1)(b)", "note": "access control"}
   ],
+  "config_s3_public": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_security_group_ingress_anywhere": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_storage_unencrypted": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
+  ],
+  "config_tf_hardcoded_secret": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_k8s_privileged": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_k8s_host_network": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_k8s_secret_in_env": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
   "fe_pii_in_storage": [
     {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
     {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
