@@ -2,7 +2,7 @@
   "golden_id": "V3",
   "check": "log_pii",
   "source": "live",
-  "saved_at": "2026-11-23T15:12:36+00:00",
+  "saved_at": "2026-11-23T18:30:41+00:00",
   "diff": "--- a/app/main.py\n+++ b/app/main.py\n@@ -83,8 +83,7 @@\n     if existing:\n         raise HTTPException(status_code=400, detail=\"Email already registered\")\n \n-    # PLANTED V3\n-    logger.info(\"signup email=%s aadhaar=%s\", req.email, req.aadhaar)\n+    # PLANTED V3 (fixed: no personal data in the log, only the user id, see below)\n \n     student_data = {\n         \"name\": req.name,\n@@ -99,6 +98,7 @@\n         \"created_at\": datetime.now(timezone.utc).isoformat()\n     }\n     student_id = db.insert_student(student_data)\n+    logger.info(\"signup ok user_id=%s\", student_id)\n     return {\n         \"id\": student_id,\n         \"name\": req.name,\n",
   "verified": true,
   "rescan_passed": true,

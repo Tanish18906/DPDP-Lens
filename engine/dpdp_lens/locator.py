@@ -13,14 +13,39 @@ NONE = ("", 0)
 METHODS = {"get", "post", "put", "delete", "patch"}
 
 
-def _files(root):
-    """Relative POSIX paths under root, sorted, with the skip rules of docs/15 D6 applied while walking."""
+MAX_FILES = 5000
+MAX_BYTES = 1_000_000
+
+
+class Capped(Exception):
+    """A scan limit was hit. The runner records it as a ScanError of kind "capped": the scan is not complete."""
+
+
+def _files(root, limit=None):
+    """Relative POSIX paths under root, sorted, with the skip rules of docs/15 D6 applied while walking.
+    Symlinks that resolve outside root are skipped. limit: raise Capped when more files than this are found."""
     root = Path(root)
-    for here, dirs, names in os.walk(root):
+    real, seen = root.resolve(), 0
+    for here, dirs, names in os.walk(root):  # os.walk does not follow symlinked folders
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
         for n in sorted(names):
-            if n not in SKIP_FILES and not n.endswith(SKIP_SUFFIXES):
-                yield (Path(here) / n).relative_to(root).as_posix()
+            if n in SKIP_FILES or n.endswith(SKIP_SUFFIXES):
+                continue
+            path = Path(here) / n
+            if path.is_symlink() and not path.resolve().is_relative_to(real):
+                continue
+            seen += 1
+            if limit and seen > limit:
+                raise Capped(f"more than {limit} files under the scan folder")
+            yield path.relative_to(root).as_posix()
+
+
+def read_capped(root, rel) -> str:
+    """Text of a scanned file. Raises Capped above MAX_BYTES, so a file is never half read and called clean."""
+    path = Path(root) / rel
+    if path.stat().st_size > MAX_BYTES:
+        raise Capped(f"{rel} is larger than {MAX_BYTES} bytes")
+    return path.read_text()
 
 
 def _lines(root, rel):

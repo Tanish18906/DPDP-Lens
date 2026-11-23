@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .. import hints
 from ..checks import reason
-from ..locator import _files
+from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
 
 SUFFIXES = (".html", ".jsx", ".tsx", ".js")
@@ -56,10 +56,10 @@ def _call_end(text: str, start: int) -> int:
 
 
 def _source_files(root: Path):
-    for rel in _files(root):
+    for rel in _files(root, MAX_FILES):
         if rel.startswith("frontend/") and rel.endswith(SUFFIXES):
             try:
-                yield rel, (root / rel).read_text()
+                yield rel, read_capped(root, rel)
             except (OSError, UnicodeDecodeError):
                 continue
 

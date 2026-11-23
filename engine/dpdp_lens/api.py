@@ -202,46 +202,12 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(404, f"Unknown scan {scan_id}")
         if not isinstance(scan, ScanResult):
             raise HTTPException(409, f"Scan {scan_id} is not finished")
-        finding = next((f for f in scan.findings if f.id == finding_id), None)
-        if finding is None:
-            raise HTTPException(404, f"Unknown finding {finding_id} in scan {scan_id}")
-        template = NOTICE_ALIGN if finding.check == "notice_drift" else TEMPLATES.get(finding.check)
-        if not finding.fix.available or template is None:
-            raise HTTPException(400, f"No automated fix for {finding.check}")
-        if finding.status == "verified_fixed":
-            raise HTTPException(409, f"{finding_id} is already fixed")
-
         with fix_lock:
-            reason, vlog = None, None  # vlog: the live run's verification log, never set for a cached result
-            if mode == "cached":
-                golden = load_golden(template.golden_id, golden_dir)
-                if golden is None:
-                    raise HTTPException(404, f"No cached golden result for {template.golden_id}")
-                fix, used = _golden_fix(golden, scan.score), "cached_golden"
-            else:
-                try:
-                    extra = {"drift": scan.notice_drift} if finding.check == "notice_drift" else {}
-                    run = fix_fn(finding, *inputs[scan_id], score_before=scan.score, golden_dir=golden_dir, **extra)
-                    fix, used, vlog = run.fix, "live", run.log or None
-                except PatchError as e:
-                    raise HTTPException(422, f"The patch does not apply: {e}")
-                except Exception as e:  # sandbox, timeout or other trouble: the live run could not finish
-                    reason = f"{type(e).__name__}: {e}"
-                    golden = load_golden(template.golden_id, golden_dir)
-                    if golden is None:
-                        raise HTTPException(502, f"Live fix failed ({reason}) and no cached golden result exists")
-                    fix, used = _golden_fix(golden, scan.score), "cached_golden"
-
-            status = "verified_fixed" if fix.verified else "open"
-            if fix.verified or fix.score_after is None:
-                # Score the stored scan (open findings only). Each fix is verified on its own copy of the original app,
-                # so a re-scan alone would not include fixes verified earlier. A cached replay has no score of its own.
-                fix = fix.model_copy(update={"score_after": compute_score(
-                    [f.model_copy(update={"status": status}) if f.id == finding_id else f for f in scan.findings])})
-            fixed = finding.model_copy(update={"status": status, "fix": fix})
-            findings = [fixed if f.id == finding_id else f for f in scan.findings]
-            updated = scan.model_copy(update={
-                "findings": findings, "score": compute_score(findings), "counts": compute_counts(findings)})
+            try:
+                fixed, updated, used, reason, vlog = apply_fix(
+                    scan, finding_id, *inputs[scan_id], mode=mode, fix_fn=fix_fn, golden_dir=golden_dir)
+            except FixError as e:
+                raise HTTPException(e.status, e.detail)
             scans[scan_id] = updated
             fix_modes.setdefault(scan_id, {})[finding_id] = {"mode": used, "fallback_reason": reason}
             save(scan_id)
@@ -249,6 +215,60 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
                 "mode": used, "fallback_reason": reason, "verification": vlog}
 
     return app
+
+
+class FixError(Exception):
+    """A fix that cannot run. `status` is the HTTP status the API answers with, the shell only prints `detail`."""
+
+    def __init__(self, status: int, detail: str):
+        super().__init__(detail)
+        self.status, self.detail = status, detail
+
+
+def apply_fix(scan: ScanResult, finding_id: str, repo_path, db_path, *, mode="live", fix_fn=verify_fix,
+              golden_dir=GOLDEN_DIR):
+    """Fix one finding of a finished scan. Returns (fixed finding, updated scan, "live"|"cached_golden", fallback
+    reason, verification log). Raises FixError. Shared by POST /findings/{id}/fix and the shell."""
+    finding = next((f for f in scan.findings if f.id == finding_id), None)
+    if finding is None:
+        raise FixError(404, f"Unknown finding {finding_id} in scan {scan.scan_id}")
+    template = NOTICE_ALIGN if finding.check == "notice_drift" else TEMPLATES.get(finding.check)
+    if not finding.fix.available or template is None:
+        raise FixError(400, f"No automated fix for {finding.check}")
+    if finding.status == "verified_fixed":
+        raise FixError(409, f"{finding_id} is already fixed")
+
+    reason, vlog = None, None  # vlog: the live run's verification log, never set for a cached result
+    if mode == "cached":
+        golden = load_golden(template.golden_id, golden_dir)
+        if golden is None:
+            raise FixError(404, f"No cached golden result for {template.golden_id}")
+        fix, used = _golden_fix(golden, scan.score), "cached_golden"
+    else:
+        try:
+            extra = {"drift": scan.notice_drift} if finding.check == "notice_drift" else {}
+            run = fix_fn(finding, repo_path, db_path, score_before=scan.score, golden_dir=golden_dir, **extra)
+            fix, used, vlog = run.fix, "live", run.log or None
+        except PatchError as e:
+            raise FixError(422, f"The patch does not apply: {e}")
+        except Exception as e:  # sandbox, timeout or other trouble: the live run could not finish
+            reason = f"{type(e).__name__}: {e}"
+            golden = load_golden(template.golden_id, golden_dir)
+            if golden is None:
+                raise FixError(502, f"Live fix failed ({reason}) and no cached golden result exists")
+            fix, used = _golden_fix(golden, scan.score), "cached_golden"
+
+    status = "verified_fixed" if fix.verified else "open"
+    if fix.verified or fix.score_after is None:
+        # Score the stored scan (open findings only). Each fix is verified on its own copy of the original app,
+        # so a re-scan alone would not include fixes verified earlier. A cached replay has no score of its own.
+        fix = fix.model_copy(update={"score_after": compute_score(
+            [f.model_copy(update={"status": status}) if f.id == finding_id else f for f in scan.findings])})
+    fixed = finding.model_copy(update={"status": status, "fix": fix})
+    findings = [fixed if f.id == finding_id else f for f in scan.findings]
+    updated = scan.model_copy(update={
+        "findings": findings, "score": compute_score(findings), "counts": compute_counts(findings)})
+    return fixed, updated, used, reason, vlog
 
 
 def _golden_fix(golden: dict, score_before: int) -> Fix:

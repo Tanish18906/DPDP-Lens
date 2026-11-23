@@ -44,6 +44,45 @@
       "title": "Counts",
       "type": "object"
     },
+    "Coverage": {
+      "properties": {
+        "mode": {
+          "default": "full",
+          "enum": [
+            "full",
+            "static"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "checks_run": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Run",
+          "type": "array"
+        },
+        "checks_skipped": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks Skipped",
+          "type": "array"
+        },
+        "scanners_failed": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Scanners Failed",
+          "type": "array"
+        }
+      },
+      "title": "Coverage",
+      "type": "object"
+    },
     "Evidence": {
       "properties": {
         "kind": {
@@ -142,6 +181,21 @@
         "recommendation": {
           "default": "",
           "title": "Recommendation",
+          "type": "string"
+        },
+        "fingerprint": {
+          "default": "",
+          "title": "Fingerprint",
+          "type": "string"
+        },
+        "proof": {
+          "default": "static",
+          "enum": [
+            "probed",
+            "observed",
+            "static"
+          ],
+          "title": "Proof",
           "type": "string"
         },
         "evidence": {
@@ -375,6 +429,34 @@
       "title": "ObservedField",
       "type": "object"
     },
+    "ScanError": {
+      "properties": {
+        "scanner": {
+          "title": "Scanner",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "failed",
+            "timeout",
+            "capped"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scanner",
+        "kind",
+        "message"
+      ],
+      "title": "ScanError",
+      "type": "object"
+    },
     "UndeclaredDetail": {
       "properties": {
         "field": {
@@ -446,6 +528,55 @@
         }
       ],
       "default": null
+    },
+    "scan_errors": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ScanError"
+      },
+      "title": "Scan Errors",
+      "type": "array"
+    },
+    "coverage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Coverage"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "complete": {
+      "default": true,
+      "title": "Complete",
+      "type": "boolean"
+    },
+    "policy_version": {
+      "default": "",
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "scanner_version": {
+      "default": "",
+      "title": "Scanner Version",
+      "type": "string"
+    },
+    "repo": {
+      "default": "",
+      "title": "Repo",
+      "type": "string"
+    },
+    "branch": {
+      "default": "",
+      "title": "Branch",
+      "type": "string"
+    },
+    "commit": {
+      "default": "",
+      "title": "Commit",
+      "type": "string"
     }
   },
   "required": [

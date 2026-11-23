@@ -4,11 +4,11 @@ import re
 from pathlib import Path
 
 from ..checks import reason
+from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
 
 PII_TOKENS = {"email", "phone", "aadhaar", "pan", "dob", "password", "token"}
 LEVELS = {"debug", "info", "warning", "warn", "error", "critical", "exception", "log"}
-SKIP_DIRS = {"__pycache__", ".venv", "venv", "node_modules", ".git"}
 _LOGGER_NAME = re.compile(r"(^|_)(logger|logging|log)$", re.I)
 
 
@@ -45,13 +45,13 @@ def _pii_names(call: ast.Call) -> list[str]:
 def scan(repo_path: str) -> list[Finding]:
     repo = Path(repo_path)
     findings = []
-    for path in sorted(repo.rglob("*.py")):
-        if SKIP_DIRS & set(path.relative_to(repo).parts):
+    for rel in _files(repo, MAX_FILES):  # skips .git, node_modules, .venv, dist, build, __pycache__ and outside symlinks
+        if not rel.endswith(".py"):
             continue
         try:
-            src = path.read_text()
+            src = read_capped(repo, rel)
             tree = ast.parse(src)
-        except (SyntaxError, UnicodeDecodeError, ValueError):
+        except (SyntaxError, UnicodeDecodeError, ValueError, OSError):
             continue
         calls = sorted((n for n in ast.walk(tree) if isinstance(n, ast.Call) and _is_log_call(n)),
                        key=lambda n: n.lineno)
@@ -70,6 +70,6 @@ def scan(repo_path: str) -> list[Finding]:
                 evidence=Evidence(
                     kind="code", summary=f"Log call includes {', '.join(names)}",
                     masked_sample=code,
-                    location=Location(file=path.relative_to(repo).as_posix(), line=call.lineno)),
+                    location=Location(file=rel, line=call.lineno)),
                 fix=Fix(available=True)))
     return findings

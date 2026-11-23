@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 Severity = Literal["critical", "high", "medium", "low"]
 Layer = Literal["db", "code", "api", "browser", "notice", "config", "frontend"]
+Proof = Literal["probed", "observed", "static"]  # probed: behaviour confirmed by a live request. Never say "exploit proof".
 
 # AGENTS.md section 4: score = 100 minus these weights, floor at 0.
 SEVERITY_WEIGHTS: dict[str, int] = {"critical": 10, "high": 5, "medium": 2, "low": 1}
@@ -53,6 +54,8 @@ class Finding(BaseModel):
     clauses: list[Clause]
     severity_reason: str = ""  # one sentence, built from scanner facts (checks.reason), never from an LLM
     recommendation: str = ""  # static text per check id, filled by the runner from checks.py
+    fingerprint: str = ""  # stable id of the problem across scans (fingerprint.py), filled by the runner
+    proof: Proof = "static"  # how the finding was confirmed, filled by the runner from checks.py
     evidence: Evidence
     status: Literal["open", "verified_fixed"] = "open"
     fix: Fix = Field(default_factory=Fix)
@@ -84,6 +87,19 @@ class Counts(BaseModel):
     low: int = 0
 
 
+class ScanError(BaseModel):
+    scanner: str
+    kind: Literal["failed", "timeout", "capped"]
+    message: str  # no raw PII
+
+
+class Coverage(BaseModel):
+    mode: Literal["full", "static"] = "full"
+    checks_run: list[str] = []
+    checks_skipped: list[str] = []  # not attempted, e.g. the live checks of a static scan
+    scanners_failed: list[str] = []  # attempted and failed: their checks are neither run nor skipped
+
+
 class ScanResult(BaseModel):
     scan_id: str
     target: str
@@ -92,6 +108,14 @@ class ScanResult(BaseModel):
     counts: Counts
     findings: list[Finding]
     notice_drift: Optional[NoticeDrift] = None
+    scan_errors: list[ScanError] = []
+    coverage: Optional[Coverage] = None
+    complete: bool = True  # False when a scanner failed, timed out or hit a cap: the score is then not a clean result
+    policy_version: str = ""
+    scanner_version: str = ""
+    repo: str = ""
+    branch: str = ""
+    commit: str = ""
 
 
 def compute_score(findings: list[Finding]) -> int:

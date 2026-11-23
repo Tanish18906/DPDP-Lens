@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 from ..checks import reason
-from ..locator import _files
+from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
 
 KEY = r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key|access[_-]?key|jwt)"
@@ -25,7 +25,6 @@ DB_IMAGES = {"postgres", "mysql", "mariadb", "mongo", "mongodb", "redis", "mssql
 DB_PORTS = {"5432", "3306", "27017", "6379", "1433"}
 DEFAULT_PASSWORDS = {"", "admin", "password", "root", "postgres", "123456", "secret", "changeme", "test", "mysql"}
 SAFE_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
-MAX_BYTES = 1_000_000
 
 
 def _literal(raw: str) -> str:
@@ -207,7 +206,7 @@ def _compose(rel: str, text: str) -> list[Finding]:
 
 def scan(app_root) -> list[Finding]:
     root, findings = Path(app_root), []
-    for rel in _files(root):
+    for rel in _files(root, MAX_FILES):
         p = Path(rel)
         name = p.name.lower()
         if "tests" in p.parts or "test" in p.parts or name.startswith("test_") or name == "conftest.py":
@@ -218,9 +217,7 @@ def scan(app_root) -> list[Finding]:
         if not (is_docker or is_py or _is_env(name) or name.endswith(CONFIG_SUFFIXES)):
             continue
         try:
-            if (root / rel).stat().st_size > MAX_BYTES:
-                continue
-            text = (root / rel).read_text()
+            text = read_capped(root, rel)
         except (OSError, UnicodeDecodeError):
             continue
         if is_docker:

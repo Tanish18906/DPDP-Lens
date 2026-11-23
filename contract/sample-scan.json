@@ -4,6 +4,14 @@
   "scanned_at": "2026-11-23T08:00:00+05:30",
   "score": 73,
   "counts": {"critical": 1, "high": 3, "medium": 1, "low": 0},
+  "scan_errors": [],
+  "coverage": {"mode": "full", "checks_run": ["api_pii_exposure", "log_pii", "db_plaintext_pii", "tracker_before_consent", "consent_bundled"], "checks_skipped": [], "scanners_failed": []},
+  "complete": true,
+  "policy_version": "",
+  "scanner_version": "0.1.0",
+  "repo": "",
+  "branch": "",
+  "commit": "",
   "findings": [
     {
       "id": "F-001",
@@ -14,6 +22,8 @@
       "explanation": "GET /api/students answers 200 with no login and returns name, phone, dob, aadhaar and parent_pan for every student. Anyone on the network can read all personal data.",
       "severity_reason": "Critical: no login needed, 15 records returned with name, phone, dob, aadhaar, parent_pan.",
       "recommendation": "Require authentication and authorisation on this route and return only the fields the caller needs.",
+      "fingerprint": "eeb69b95a7dae702",
+      "proof": "observed",
       "clauses": [
         {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
         {"ref": "Rule 6(1)(b)", "note": "access control"}
@@ -44,6 +54,8 @@
       "explanation": "The signup handler passes email and aadhaar into logger.info. Anyone with log access can read them, and logs are rarely access controlled.",
       "severity_reason": "High: email, aadhaar written to a log in plain text.",
       "recommendation": "Log an internal id instead of personal data, and mask any value that must be logged.",
+      "fingerprint": "59850c8151a599d5",
+      "proof": "static",
       "clauses": [
         {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
         {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
@@ -74,6 +86,8 @@
       "explanation": "students.aadhaar holds 12-digit numbers that pass the Verhoeff check, stored as plain text. A copy of the database file exposes every number.",
       "severity_reason": "High: aadhaar stored unencrypted in students.",
       "recommendation": "Encrypt Aadhaar and PAN at rest, or store a token or masked form, and limit who can read the columns.",
+      "fingerprint": "4278751759967f67",
+      "proof": "observed",
       "clauses": [
         {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
         {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
@@ -96,6 +110,8 @@
       "explanation": "The signup page requests connect.facebook.net as soon as it opens, with no click from the user. This is a marketing tracker on a page where children may sign up.",
       "severity_reason": "High: connect.facebook.net (Advertising) is contacted before any consent click.",
       "recommendation": "Do not load third party trackers until the user gives clear consent. Load them only from the consent handler.",
+      "fingerprint": "9b41c756b8361a29",
+      "proof": "observed",
       "clauses": [
         {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},
         {"ref": "Act s9(3)", "note": "no tracking, behavioural monitoring or targeted ads aimed at children"}
@@ -126,6 +142,8 @@
       "explanation": "The signup consent checkbox is ticked by default and covers the terms and conditions. The notice does not itemise the personal data collected.",
       "severity_reason": "Medium: consent is pre ticked and bundled with the terms.",
       "recommendation": "Use a separate, unticked consent box for each purpose and itemise the data and purposes in the notice.",
+      "fingerprint": "c759f4a8a343af8e",
+      "proof": "observed",
       "clauses": [
         {"ref": "Act s5", "note": "notice"},
         {"ref": "Act s6(1)", "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"},

@@ -59,7 +59,7 @@ def as_dicts() -> list[dict]:
     clauses = _clauses()
     return [{"id": c.id, "layer": c.layer, "severity": c.severity, "title": c.title,
              "clauses": [x["ref"] for x in clauses[c.id]], "detection": c.detection,
-             "recommendation": c.recommendation, "verified_fix": c.fixable} for c in CHECKS.values()]
+             "recommendation": c.recommendation, "verified_fix": c.fixable, "proof": c.proof} for c in CHECKS.values()]
 
 
 def to_json() -> str:
@@ -72,7 +72,7 @@ def to_markdown() -> str:
     w = ", ".join(f"{k} {v}" for k, v in SEVERITY_WEIGHTS.items())
     rows = "\n".join(
         f"| `{d['id']}` | {d['layer']} | {d['severity']} | {', '.join(d['clauses'])} | {d['detection']} | {d['recommendation']} | "
-        f"{'yes' if d['verified_fix'] else 'no'} |" for d in as_dicts())
+        f"{d['proof']} | {'yes' if d['verified_fix'] else 'no'} |" for d in as_dicts())
     lines = lambda items: "\n".join(f"- {i}" for i in items)  # noqa: E731
     return f"""# Checks and rules
 
@@ -83,8 +83,10 @@ Score = 100 minus open finding weights ({w}), floor 0.
 
 ## Checks ({len(CHECKS)})
 
-| Check id | Layer | Severity | Clauses | What it detects | Recommended fix | Verified fix |
-|----------|-------|----------|---------|-----------------|-----------------|--------------|
+Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in live data, `static` is read from files.
+
+| Check id | Layer | Severity | Clauses | What it detects | Recommended fix | Proof | Verified fix |
+|----------|-------|----------|---------|-----------------|-----------------|-------|--------------|
 {rows}
 
 ## Rules we wrote

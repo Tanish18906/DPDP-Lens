@@ -10,7 +10,7 @@ import httpx
 
 from .. import config
 from ..checks import reason
-from ..locator import _files
+from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
 
 CONSENT = re.compile(r"consent", re.I)
@@ -45,12 +45,12 @@ def _in_create_table(text: str) -> bool:
 def has_consent_record(app_root) -> tuple[bool, int]:
     """(found, number of schema and source files read). Tests and the front end are not read."""
     root, read = Path(app_root), 0
-    for rel in _files(root):
+    for rel in _files(root, MAX_FILES):
         p = Path(rel)
         if not rel.endswith((".py", ".sql")) or rel.startswith("frontend/") or "tests" in p.parts or p.name.startswith("test_") or p.name == "conftest.py":
             continue
         try:
-            text = (root / rel).read_text()
+            text = read_capped(root, rel)
         except (OSError, UnicodeDecodeError):
             continue
         read += 1
@@ -73,6 +73,7 @@ def _finding(check, layer, kind, title, summary, sample, explanation, **facts) -
 
 
 def scan(target_url: str, app_root) -> list[Finding]:
+    """Without a target_url (static mode) only consent_not_recorded runs: consent_no_withdrawal needs the live OpenAPI spec."""
     out = []
     found, read = has_consent_record(app_root)
     if not found:
@@ -81,6 +82,8 @@ def scan(target_url: str, app_root) -> list[Finding]:
             f"No consent table, column or model field was found in {read} schema and source files", "",
             "We found no place where a consent is stored, so the app may not be able to show who agreed to what and when. "
             "This likely does not meet the duty to be able to prove notice and consent."))
+    if not target_url:
+        return out
     r = httpx.get(f"{target_url.rstrip('/')}/openapi.json", timeout=config.HTTP_TIMEOUT)
     r.raise_for_status()  # without the spec the check cannot say anything, so the runner logs a scanner error
     paths = sorted(r.json().get("paths", {}))

@@ -13,17 +13,18 @@ class Check:
     recommendation: str  # static text, one to two sentences
     reason: str  # template for severity_reason, filled by reason() from facts the scanner already has
     fixable: bool  # True when the engine has a verified fix template
+    proof: str = "static"  # "probed": a live request confirmed the behaviour. "observed": seen in live data. "static": read from files
 
 
 _CHECKS = [
     Check("api_pii_exposure", "api", "critical", "Public API endpoint exposes personal data",
           "A GET route answers without a login and returns personal data.",
           "Require authentication and authorisation on this route and return only the fields the caller needs.",
-          "Critical: no login needed, {n} records returned with {fields}.", True),
+          "Critical: no login needed, {n} records returned with {fields}.", True, "observed"),
     Check("api_idor", "api", "critical", "Any logged-in user can read other users' records",
           "A logged-in user can read another user's record by changing the id in the route.",
           "Check on the server that the logged in user owns the record, or is an admin, before returning it.",
-          "Critical: a logged in user read another user's record.", True),
+          "Critical: a logged in user read another user's record.", True, "probed"),
     Check("log_pii", "code", "high", "Personal data written to logs",
           "A logging call in the source includes personal data fields.",
           "Log an internal id instead of personal data, and mask any value that must be logged.",
@@ -31,31 +32,31 @@ _CHECKS = [
     Check("db_plaintext_pii", "db", "high", "Aadhaar or PAN stored in plaintext columns",
           "A table column holds Aadhaar or PAN values as readable text.",
           "Encrypt Aadhaar and PAN at rest, or store a token or masked form, and limit who can read the columns.",
-          "High: {fields} stored unencrypted in {table}.", False),
+          "High: {fields} stored unencrypted in {table}.", False, "observed"),
     Check("tracker_before_consent", "browser", "high", "Tracking script loads before any consent",
           "The signup page requests a known tracker host before any click.",
           "Do not load third party trackers until the user gives clear consent. Load them only from the consent handler.",
-          "High: {host} ({category}) is contacted before any consent click.", True),
+          "High: {host} ({category}) is contacted before any consent click.", True, "observed"),
     Check("consent_bundled", "browser", "medium", "Consent box is pre-ticked or bundled with marketing",
           "The consent checkbox is pre ticked, or one box covers terms and marketing.",
           "Use a separate, unticked consent box for each purpose and itemise the data and purposes in the notice.",
-          "Medium: consent is pre ticked and bundled with the terms.", True),
+          "Medium: consent is pre ticked and bundled with the terms.", True, "observed"),
     Check("erasure_incomplete", "db", "high", "Personal data is still stored after deletion",
           "After a delete request, a synthetic user's data is still in the database.",
           "On deletion, remove personal data from every table and backup copy, except logs you must keep by law.",
-          "High: personal data remains in {tables} after delete.", True),
+          "High: personal data remains in {tables} after delete.", True, "probed"),
     Check("children_no_parental_consent", "api", "high", "Under-18 signup accepted with no parental consent",
           "A signup for a 14 year old is accepted with no parent data.",
           "Require verifiable parental consent before accepting an under 18 signup.",
-          "High: a 14 year old signup was accepted with no parental step.", True),
+          "High: a 14 year old signup was accepted with no parental step.", True, "probed"),
     Check("missing_contact", "notice", "low", "No DPO or grievance contact published",
           "No page lists a data protection officer or grievance contact with an email or phone.",
           "Publish a contact for a data protection officer or other person, and the grievance process, on the site and in the notice.",
-          "Low: no data protection contact or grievance process was found.", False),
+          "Low: no data protection contact or grievance process was found.", False, "observed"),
     Check("notice_drift", "notice", "medium", "Collected personal data is not listed in the privacy notice",
           "The app handles personal data fields that the public notice does not list.",
           "Update the notice to list every personal data field collected and why, or stop collecting the extra fields.",
-          "Medium: {n} collected fields are not in the notice.", False),
+          "Medium: {n} collected fields are not in the notice.", False, "observed"),
     Check("config_secret_committed", "config", "high", "Secret value written in a file in the repository",
           "A key named like a secret, password, token or API key has a literal value in a config file or source.",
           "Remove the secret from the repository, rotate it, and load secrets from the environment or a secret manager.",
@@ -91,7 +92,7 @@ _CHECKS = [
     Check("consent_no_withdrawal", "api", "medium", "No consent withdrawal route found",
           "No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing.",
           "Add a way to withdraw consent that is as easy as giving it, and stop processing when it is used.",
-          "Medium: none of the {n} API routes is about consent or withdrawal.", False),
+          "Medium: none of the {n} API routes is about consent or withdrawal.", False, "observed"),
 ]
 
 CHECKS: dict[str, Check] = {c.id: c for c in _CHECKS}

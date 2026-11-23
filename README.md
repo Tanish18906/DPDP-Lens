@@ -30,7 +30,7 @@ The only interface between engine and dashboard is the scan JSON (`contract/find
 One-time setup (Python 3.12, Node 20 or newer):
 
     python3 -m venv .venv && source .venv/bin/activate
-    pip install fastapi "uvicorn[standard]" httpx python-stdnum pydantic pyjwt pytest jsonschema playwright pyyaml
+    pip install fastapi "uvicorn[standard]" httpx python-stdnum pydantic pyjwt pytest jsonschema playwright pyyaml rich prompt_toolkit
     playwright install chromium    # or have Google Chrome installed, the browser scan falls back to it
     (cd target-app/frontend && npm install)
     (cd dashboard && npm install)    # npm may rewrite package-lock.json (npm version differences), do not commit that
@@ -135,6 +135,38 @@ One more finding is real and has no `PLANTED` marker: `app/auth.py` has a hard-c
 
 `./scripts/make_sample_report.sh` scans TutorNest and writes `reports/tutornest-scan.json`, `reports/tutornest-report.html` and `reports/tutornest.sarif`, then checks them for raw personal data and for the planted secret values. Only masked values are in the files.
 
+## Interactive shell (CLI)
+
+    cd engine && python -m dpdp_lens        # no arguments opens the shell
+
+Inline output, no full screen: `●` for an action, `⎿` for its results, a spinner with elapsed seconds while a step runs, a `/` command menu (arrow keys, Tab), a bottom bar with target, last scan id, score and open findings. Piped or in CI it prints the same lines with no colour and no spinner.
+
+| Command | What it does |
+|---------|--------------|
+| `/scan [--target URL] [--repo PATH] [--db PATH]` | scan, defaults are the TutorNest demo values (printed first) |
+| `/findings`, `/show F-001` | grouped list (critical first), one finding in full |
+| `/fix F-001 [--cached]` | verified fix on a copy, coloured diff, score change. Cached mode is always labelled |
+| `/report [path]` | HTML report, default `reports/last-scan.html` |
+| `/checks`, `/status`, `/help`, `/clear`, `/exit` | |
+
+Example (real output of a scan of TutorNest, shortened):
+
+    ❯ /scan
+    ● Scan  http://localhost:8000
+      ⎿ API        found 1
+      ⎿ DATABASE   found 1
+      ⎿ CONFIG     found 8
+    Score 13/100 · 2 critical · 10 high · 8 medium · 1 low
+    ❯ /fix F-001
+    ● Fix F-001  (runs on a copy, your code is not touched)
+      ⎿ Patched   app/main.py
+      ⎿ Re-scan   passed
+      ⎿ Tests     passed
+      ⎿ Verified  ✓  2.0s
+    Score 13 → 23 (+10)
+
+The `scan` command has two more flags: `--pretty` prints the grouped list instead of the JSON (`--out` still writes the JSON), and `--fail-on critical|high|medium|low|none` (default `none`) exits 1 when an open finding is at or above that severity, for CI. Text from a finding can come from the scanned app, so the shell strips escape and control characters from it before printing.
+
 ## CI use (SARIF)
 
     cd engine && python -m dpdp_lens scan --target http://localhost:8000 \
@@ -145,6 +177,7 @@ One more finding is real and has no `PLANTED` marker: `app/auth.py` has a hard-c
 ## What it does NOT do
 
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
+- A scanner that fails, times out or hits a limit (5000 files, 1 MB per file) is reported in `scan_errors`, sets `complete: false` and its checks are not counted as run (`coverage`). The score of such a scan is not a clean result. The dashboard banner for this comes later.
 - Localhost and private-IP targets only. Scan only apps you own.
 - A small subset of DPDP duties is checked. Not detected yet: the `age` field in notice drift. JavaScript and TypeScript source is not scanned for secrets, and consent kept outside the scanned source cannot be seen.
 - Only a FastAPI + SQLite target is tested. Finished scans and fix results are saved as JSON in `.dpdp-state/` (git-ignored, `DPDP_STATE_DIR` overrides) and reloaded when the engine restarts. A scan that is still running when the engine stops is lost.
@@ -178,6 +211,8 @@ Claude Code with Claude models (engine, scanners, docs, dashboard wiring) and An
 | PyYAML | MIT |
 | jsonschema | MIT |
 | pytest | MIT |
+| rich | MIT |
+| prompt_toolkit | BSD-3-Clause |
 | Playwright for Python | Apache-2.0 |
 | React, React DOM | MIT |
 | Vite, `@vitejs/plugin-react` | MIT |
