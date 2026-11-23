@@ -8,8 +8,10 @@ from .. import hints
 from ..checks import reason
 from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
+from .log_scan import js_code_view
 
 SUFFIXES = (".html", ".jsx", ".tsx", ".js")
+JS_SUFFIXES = (".jsx", ".tsx", ".js", ".ts", ".mjs", ".cjs")
 # (drift field, lower case identifier pattern). parent_pan comes before pan.
 FIELD_HINTS = [
     ("parent_pan", r"parent[_-]?pan"), ("aadhaar", r"aadhaa?r"), ("pan", r"(?:^|[_-])pan$|permanent"),
@@ -88,6 +90,8 @@ def observe(app_root) -> list[tuple[str, str]]:
 def scan(app_root) -> list[Finding]:
     root, out = Path(app_root), []
     for rel, text in _source_files(root):
+        if rel.endswith(JS_SUFFIXES):
+            text = js_code_view(text, keep_strings=True)  # a call in a comment is not a call (same length, same line numbers)
         for m in STORAGE.finditer(text):
             call = text[m.start():_call_end(text, m.end())]
             fields = list(dict.fromkeys(f for w in WORD.findall(call[m.end() - m.start():]) if (f := classify(w))))

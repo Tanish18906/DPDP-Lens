@@ -61,3 +61,15 @@ def test_target_app_signup_form_and_planted_v13():
     src = (TARGET_APP / "frontend/src/App.jsx").read_text().splitlines()
     assert "localStorage.setItem" in src[found[0].evidence.location.line - 1]
     assert "tu***" not in found[0].model_dump_json()  # code only, no stored value
+
+
+# ---- block 06 job 2, item A: a storage call in a comment is not a call
+def test_storage_calls_in_comments_are_not_findings(tmp_path):
+    root = write(tmp_path, {"frontend/src/a.js": '// localStorage.setItem("email", e);\n/* sessionStorage.setItem("aadhaar", a) */\nconst a = 1;\n'})
+    assert scan(root) == []
+
+
+def test_a_real_call_after_a_comment_is_still_found_with_the_right_line(tmp_path):
+    root = write(tmp_path, {"frontend/src/a.jsx": '// note\nconst x = "// not a comment";\nlocalStorage.setItem("dob", d); // saved\n'})
+    (f,) = scan(root)
+    assert f.evidence.location.line == 3 and "dob" in f.evidence.masked_sample and "saved" not in f.evidence.masked_sample

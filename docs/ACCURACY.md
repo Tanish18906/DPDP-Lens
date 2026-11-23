@@ -20,21 +20,20 @@ describe it, not code in general.
 | config_env_in_image | 3 | 0 | 0 | 4 | 100% | 100% |
 | config_secret_committed | 13 | 1 | 1 | 16 | 93% | 93% |
 | consent_not_recorded | 3 | 0 | 0 | 4 | 100% | 100% |
-| fe_pii_in_storage | 3 | 1 | 1 | 4 | 75% | 75% |
+| fe_pii_in_storage | 3 | 0 | 1 | 5 | 100% | 75% |
 | log_pii | 8 | 2 | 0 | 13 | 80% | 100% |
 | pii_aadhaar | 4 | 0 | 0 | 0 | 100% | 100% |
 | pii_dob | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_email | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_pan | 4 | 0 | 0 | 0 | 100% | 100% |
 | pii_phone | 5 | 0 | 0 | 0 | 100% | 100% |
-| OVERALL (corpus) | 60 | 4 | 2 | 54 | 94% | 97% |
+| OVERALL (corpus) | 60 | 3 | 2 | 55 | 95% | 97% |
 | TutorNest static ground truth | 11 | 0 | 0 | - | 100% | 100% |
 
 ## Misses (every false positive and false negative)
 
 - `FP config_secret_committed/neg_py_field_name_constant`
 - `FN config_secret_committed/pos_json_token`
-- `FP fe_pii_in_storage/neg_commented_out`
 - `FN fe_pii_in_storage/pos_ts_email_object`
 - `FP log_pii/neg_py_email_count`
 - `FP log_pii/neg_py_test_file`
@@ -43,12 +42,13 @@ describe it, not code in general.
 
 Each row is a measured run of `python -m dpdp_lens.eval` on the corpus, after the change named in the first column. "Corpus" is the micro-average over all file and recognizer cases. TutorNest is the static ground-truth row (11 expected findings).
 
-| Step | Corpus precision | Corpus recall | config_secret_committed (P / R) | log_pii (P / R) | pii_phone (P / R) | TutorNest (found / extra) |
-|------|------------------|---------------|-------------------------------|-----------------|-------------------|---------------------------|
-| Baseline (block 06 step 1, before any change) | 84% | 81% | 67% / 57% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |
-| 1. Vendor token shapes (AWS, GitHub, Slack, Stripe) and a longer placeholder list in `config_scan` | 90% | 90% | 93% / 93% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |
-| 2. `log_pii` for JavaScript and TypeScript (tokenizer that ignores comments and string text) | 90% | 97% | 93% / 93% | 80% / 100% | 60% / 100% | 11 of 11 / 0 |
-| Corpus extended by 8 recognizer cases (grouped and dashed numbers, decimals, invoice and build numbers, a UUID), no code change | 87% | 94% | 93% / 93% | 80% / 100% | 38% / 60% | 11 of 11 / 0 |
-| 4. `recognizers.py`: phone numbers written 5 + 5, no decimals, no identifier words (build, order, invoice, id...) before the number | 94% | 97% | 93% / 93% | 80% / 100% | 100% / 100% | 11 of 11 / 0 |
+| Step | Corpus precision | Corpus recall | config_secret_committed (P / R) | log_pii (P / R) | pii_phone (P / R) | fe_pii_in_storage (P / R) | TutorNest (found / extra) |
+|------|------------------|---------------|-------------------------------|-----------------|-------------------|---------------------------|---------------------------|
+| Baseline (block 06 step 1, before any change) | 84% | 81% | 67% / 57% | 67% / 50% | 60% / 100% | 75% / 75% | 11 of 11 / 0 |
+| 1. Vendor token shapes (AWS, GitHub, Slack, Stripe) and a longer placeholder list in `config_scan` | 90% | 90% | 93% / 93% | 67% / 50% | 60% / 100% | 75% / 75% | 11 of 11 / 0 |
+| 2. `log_pii` for JavaScript and TypeScript (tokenizer that ignores comments and string text) | 90% | 97% | 93% / 93% | 80% / 100% | 60% / 100% | 75% / 75% | 11 of 11 / 0 |
+| Corpus extended by 8 recognizer cases (grouped and dashed numbers, decimals, invoice and build numbers, a UUID), no code change | 87% | 94% | 93% / 93% | 80% / 100% | 38% / 60% | 75% / 75% | 11 of 11 / 0 |
+| 4. `recognizers.py`: phone numbers written 5 + 5, no decimals, no identifier words (build, order, invoice, id...) before the number | 94% | 97% | 93% / 93% | 80% / 100% | 100% / 100% | 75% / 75% | 11 of 11 / 0 |
+| A. `frontend_scan`: a `localStorage` call inside a comment is not a finding | 95% | 97% | 93% / 93% | 80% / 100% | 100% / 100% | 100% / 75% | 11 of 11 / 0 |
 
 Item 4 notes. Three of the brief's four points were already in `recognizers.py` before this block and have tests and corpus cases that pass at baseline: the PAN fourth letter must be a holder type (P C H F A T B L J G) and the digits cannot be 0000, an Aadhaar starts with 2 to 9 and must pass the Verhoeff check, and a 10 digit number inside a longer digit run is not a phone number. The measured gap was the phone recognizer (decimals, invoice and build numbers beside the word "mobile", numbers written 5 + 5), which is what changed. The corpus was extended first (row above) so the before number is on the same corpus as the after number. Floors in `tests/accuracy/floors.json` were regenerated after that extension, because the corpus changed, not the code.

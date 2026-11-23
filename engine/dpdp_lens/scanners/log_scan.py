@@ -56,8 +56,8 @@ def _blank(c: str) -> str:
     return c if c == "\n" else " "
 
 
-def _js_code(src: str, i: int, out: list, in_expr: bool) -> int:
-    """Copy code into out, blanking comments and string text. In a template ${...} expression, stop after its closing brace."""
+def _js_code(src: str, i: int, out: list, in_expr: bool, keep: bool = False) -> int:
+    """Copy code into out, blanking comments and (unless keep) string text. In a template ${...} expression, stop after its closing brace."""
     depth, n = 0, len(src)
     while i < n:
         c = src[i]
@@ -71,10 +71,11 @@ def _js_code(src: str, i: int, out: list, in_expr: bool) -> int:
             while j < n and src[j] != c and src[j] != "\n":
                 j += 2 if src[j] == "\\" else 1
             end = min(j + 1, n)
-            out[i + 1:end - 1] = [_blank(x) for x in src[i + 1:end - 1]]
+            if not keep:
+                out[i + 1:end - 1] = [_blank(x) for x in src[i + 1:end - 1]]
             i = end
         elif c == "`":
-            i = _js_template(src, i + 1, out)
+            i = _js_template(src, i + 1, out, keep)
         elif c == "{":
             depth, i = depth + 1, i + 1
         elif c == "}" and in_expr and depth == 0:
@@ -84,26 +85,29 @@ def _js_code(src: str, i: int, out: list, in_expr: bool) -> int:
     return i
 
 
-def _js_template(src: str, i: int, out: list) -> int:
+def _js_template(src: str, i: int, out: list, keep: bool = False) -> int:
     n = len(src)
     while i < n:
         if src[i] == "\\":
-            out[i:i + 2] = [_blank(x) for x in src[i:i + 2]]
+            if not keep:
+                out[i:i + 2] = [_blank(x) for x in src[i:i + 2]]
             i += 2
         elif src[i] == "`":
             return i + 1
         elif src.startswith("${", i):
-            i = _js_code(src, i + 2, out, True)
+            i = _js_code(src, i + 2, out, True, keep)
         else:
-            out[i] = _blank(src[i])
+            if not keep:
+                out[i] = _blank(src[i])
             i += 1
     return i
 
 
-def js_code_view(src: str) -> str:
-    """The source with comments and the text of strings blanked (same length and line breaks). Template ${...} code is kept."""
+def js_code_view(src: str, keep_strings: bool = False) -> str:
+    """The source with comments and the text of strings blanked (same length and line breaks). Template ${...} code is kept.
+    keep_strings: only the comments are blanked."""
     out = list(src)
-    _js_code(src, 0, out, False)
+    _js_code(src, 0, out, False, keep_strings)
     return "".join(out)
 
 
