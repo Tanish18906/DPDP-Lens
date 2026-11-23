@@ -73,3 +73,11 @@ def test_a_real_call_after_a_comment_is_still_found_with_the_right_line(tmp_path
     root = write(tmp_path, {"frontend/src/a.jsx": '// note\nconst x = "// not a comment";\nlocalStorage.setItem("dob", d); // saved\n'})
     (f,) = scan(root)
     assert f.evidence.location.line == 3 and "dob" in f.evidence.masked_sample and "saved" not in f.evidence.masked_sample
+
+
+# ---- block 06 job 2, item B: plain TypeScript files
+def test_typescript_files_are_front_end_source_too(tmp_path):
+    root = write(tmp_path, {"frontend/src/store.ts": 'export const save = (v: string) => localStorage.setItem("aadhaar", v);\n',
+                            "frontend/src/types.d.ts": "export type A = string;\n"})
+    (f,) = scan(root)
+    assert f.evidence.location.file == "frontend/src/store.ts" and "aadhaar" in f.evidence.summary

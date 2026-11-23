@@ -10,7 +10,7 @@ from ..locator import MAX_FILES, _files, read_capped
 from ..models import Evidence, Finding, Fix, Location
 from .log_scan import js_code_view
 
-SUFFIXES = (".html", ".jsx", ".tsx", ".js")
+SUFFIXES = (".html", ".jsx", ".tsx", ".ts", ".js")
 JS_SUFFIXES = (".jsx", ".tsx", ".js", ".ts", ".mjs", ".cjs")
 # (drift field, lower case identifier pattern). parent_pan comes before pan.
 FIELD_HINTS = [
