@@ -24,8 +24,11 @@ FAKE_AADHAAR = "23456789012" + verhoeff.calc_check_digit("23456789012")  # synth
 
 
 class Reply(list):
+    blocks = None
+
     def __call__(self, text, blocks=None):
         self.append(text)
+        self.blocks = blocks
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +81,9 @@ def test_real_engine_connect_cards_status_outbox_fix_and_audit(real):
     before = len(slack.of("post"))
     commands.run_command(ctx, "scan", APPROVER, CHANNEL, reply)
     assert len(slack.of("post")) == before + 2 and reply == []
+    commands.run_command(ctx, "diff", APPROVER, CHANNEL, reply)  # the real /repos/{id}/diff: the second scan against the baseline S-001
+    assert reply == ["acme/tutornest: scan S-002 against baseline S-001"] and f"New 0 · Resolved 0 · Persistent {total}" in json.dumps(reply.blocks, ensure_ascii=False)
+    reply.clear()
 
     # status change by an approver, with the actor in the audit trail
     log = next(i for i in found["items"] if i["check"] == "log_pii")

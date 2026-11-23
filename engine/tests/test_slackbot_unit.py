@@ -213,15 +213,57 @@ def test_commands_only_work_in_allowed_channels_and_unknown_gets_help():
     assert "/dpdp connect" in connect(ctx, text="bogus").text
 
 
+DIFF = {"repo": "acme/tutornest", "baseline_scan_id": "S-001", "scan_id": "S-003", "complete": True,
+        "new": ["DPDP-009"], "resolved": ["DPDP-002", "DPDP-004"], "persistent": ["DPDP-001"]}
+
+
+def test_diff_uses_the_engine_baseline_route_and_lists_ids_with_dashboard_links():
+    ctx, slack, st = make_ctx()
+    connect(ctx)
+    st.diff_response = DIFF
+    r = Reply()
+    commands.run_command(ctx, "diff", OTHER, CHANNEL, r)
+    body = json.dumps(r.sent[0][1], ensure_ascii=False)
+    assert "New 1 · Resolved 2 · Persistent 1" in body and "scan S-003 against baseline S-001" in body
+    assert "New: <http://dash.test/?finding=DPDP-009|DPDP-009>" in body and "Resolved: <http://dash.test/?finding=DPDP-002|DPDP-002>, " in body
+    assert "Scan incomplete" not in body
+
+
+def test_diff_of_an_incomplete_scan_starts_with_the_partial_warning_and_shows_the_errors():
+    ctx, slack, st = make_ctx()
+    connect(ctx)
+    st.scan_errors = [{"scanner": "log_scan", "kind": "timeout", "message": "took too long"}]
+    st.scans["S-001"]["complete"] = False
+    st.diff_response = {**DIFF, "scan_id": "S-001", "complete": False, "new": [], "resolved": []}
+    r = Reply()
+    commands.run_command(ctx, "diff", OTHER, CHANNEL, r)
+    assert r.sent[0][0] == "*Scan incomplete: results are partial*" and r.sent[0][1][0]["text"]["text"].startswith("*Scan incomplete: results are partial*")
+    assert "log_scan timeout: took too long" in json.dumps(r.sent[0][1])
+
+
+def test_diff_without_a_baseline_shows_the_engine_answer():
+    ctx, slack, st = make_ctx()
+    connect(ctx)
+    r = Reply()
+    commands.run_command(ctx, "diff", OTHER, CHANNEL, r)
+    assert "has no baseline yet" in r.text and r.text.startswith("The engine said:")
+
+
+def test_diff_caps_a_long_id_list():
+    text, blocks = cards.diff("acme/x", {**DIFF, "new": [f"DPDP-{i:03d}" for i in range(1, 21)]}, "http://d")
+    assert "and 5 more" in json.dumps(blocks) and "DPDP-016" not in json.dumps(blocks)
+
+
 def test_status_diff_baseline_watch():
     ctx, slack, st = make_ctx()
     connect(ctx)
     r = Reply()
     commands.run_command(ctx, "status", OTHER, CHANNEL, r)
     assert "Health: *At risk*" in r.text and "static checks only (11 of 19)" in r.text and "Open 3" in r.text
+    st.diff_response = DIFF
     r = Reply()
     commands.run_command(ctx, "diff", OTHER, CHANNEL, r)
-    assert "S-001" in r.text
+    assert st.diff_calls == 1 and "against baseline S-001" in r.text
     for sub in ("baseline", "watch 15", "watch off"):  # approvers only
         r = Reply()
         commands.run_command(ctx, sub, OTHER, CHANNEL, r)

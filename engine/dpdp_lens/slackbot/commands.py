@@ -11,7 +11,7 @@ HELP = ("*DPDP Lens* (readiness checks, not a compliance certificate)\n"
         "• `/dpdp connect owner/repo [branch]`: connect a repo and run a static scan\n"
         "• `/dpdp scan [owner/repo]`: scan again\n"
         "• `/dpdp status`: health, last complete scan, counts\n"
-        "• `/dpdp diff`: what the latest scan added, resolved and kept\n"
+        "• `/dpdp diff`: the latest scan against the baseline: new, resolved, persistent\n"
         "• `/dpdp baseline`: use the latest complete scan as the baseline (approvers)\n"
         "• `/dpdp watch <minutes>|off`: scheduled re-scan (approvers)")
 
@@ -65,15 +65,9 @@ def _status(ctx, args, user, channel, reply):
 
 
 def _diff(ctx, args, user, channel, reply):
-    # The engine has no baseline-diff route: this shows the latest scan against the one before it, and the engine's own baseline line.
     repo = _pick_repo(ctx, args, channel)
-    scans = ctx.engine.history(repo["id"])
-    if not scans:
-        return reply("No scan yet. Run `/dpdp scan`.")
-    d = ctx.engine.delta(scans[0]["scan_id"])
-    text, blocks = cards.summary(repo["full_name"], d, [] if d["complete"] else flow.scan_errors(ctx, d["scan_id"])[0])
-    baseline = repo.get("baseline_scan_id")
-    reply(text + (f" (baseline {baseline})" if baseline else ""), blocks)
+    d = ctx.engine.diff(repo["id"])  # 404 with a clear text when the repo has no baseline: shown as the engine's answer
+    reply(*cards.diff(repo["full_name"], d, ctx.cfg.dashboard_url, [] if d["complete"] else flow.scan_errors(ctx, d["scan_id"])[0]))
 
 
 def _baseline(ctx, args, user, channel, reply):

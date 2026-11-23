@@ -74,7 +74,7 @@ TEMPLATES = [  # what a static scan of TutorNest looks like, trimmed. Everything
 def make_engine_app():
     """Returns (app, state). `state` can be changed by a test: complete, scan_fails, fix_response, health, repos_slack."""
     st = SimpleNamespace(repos=[], findings={}, scans={}, outbox=[], complete=True, scan_fails=False, health=None, fix_calls=[], status_calls=[],
-                         fix_response=None, fix_error=None, watch_calls=[], baseline_calls=[], scan_errors=[])
+                         fix_response=None, fix_error=None, diff_response=None, diff_calls=0, watch_calls=[], baseline_calls=[], scan_errors=[])
     app = FastAPI()
 
     @app.exception_handler(HTTPException)
@@ -156,6 +156,13 @@ def make_engine_app():
     @app.get("/repos/{rid}/history")
     def history(rid: int, limit: int = 20):
         return [{"scan_id": sid, "status": "complete"} for sid in list(st.scans)[-limit:][::-1]]
+
+    @app.get("/repos/{rid}/diff")
+    def diff(rid: int):
+        st.diff_calls += 1
+        if st.diff_response is None:
+            raise HTTPException(404, "acme/tutornest has no baseline yet: the first complete scan sets one, or POST /repos/1/baseline")
+        return st.diff_response
 
     @app.get("/findings/{hid}")
     def get_finding(hid: str):

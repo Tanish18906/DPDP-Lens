@@ -181,6 +181,27 @@ def create_router(store: Store, core) -> APIRouter:
                         "findings": m.get("findings", 0), "new": m.get("new", 0), "resolved": m.get("resolved", 0)})
         return out
 
+    @router.get("/repos/{repo_id}/diff")
+    def repo_diff(repo_id: int, scan_id: Optional[str] = None):
+        """A scan (default: the latest) against the repo's baseline, as human ids. `resolved` only holds findings whose check the
+        scan covered, the same rule ingest uses, so an incomplete, failed or static scan never reports what it could not look at
+        as resolved. Read `complete` before trusting the lists."""
+        repo = need_repo(repo_id)
+        base = repo["baseline_scan_id"]
+        if base is None:
+            raise HTTPException(404, f"{repo['full_name']} has no baseline yet: the first complete scan sets one, or POST /repos/{repo_id}/baseline")
+        sql = "SELECT * FROM scans WHERE repo_id=?"
+        scan = store.one(sql + " AND scan_id=?", (repo_id, scan_id)) if scan_id else store.one(sql + " ORDER BY rowid DESC LIMIT 1", (repo_id,))
+        if scan is None:
+            raise HTTPException(404, f"no scan {scan_id} for {repo['full_name']}" if scan_id else f"{repo['full_name']} has no scan yet")
+        ids = lambda sid: {r["human_id"] for r in store.all("SELECT human_id FROM scan_findings WHERE scan_id=?", (sid,))}  # noqa: E731
+        before, now = ids(base), ids(scan["scan_id"])
+        covered = set(json.loads(scan["coverage_json"] or "{}").get("checks_run", []))
+        checks = {r["human_id"]: r["check_id"] for r in store.all("SELECT human_id, check_id FROM findings WHERE repo_id=?", (repo_id,))}
+        return {"repo": repo["full_name"], "baseline_scan_id": base, "scan_id": scan["scan_id"], "complete": scan["status"] == "complete",
+                "new": sorted(now - before), "resolved": sorted(h for h in before - now if checks.get(h) in covered),
+                "persistent": sorted(now & before)}
+
     @router.post("/repos/{repo_id}/baseline", dependencies=guard)
     def set_baseline(repo_id: int, body: BaselineIn):
         need_repo(repo_id)

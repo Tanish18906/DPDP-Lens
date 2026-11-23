@@ -35,7 +35,7 @@ class Engine:
     # reads
     def repos(self): return self._call("GET", "/repos")
     def health(self, repo_id): return self._call("GET", f"/repos/{repo_id}/health")
-    def history(self, repo_id, limit=1): return self._call("GET", f"/repos/{repo_id}/history", params={"limit": limit})
+    def diff(self, repo_id): return self._call("GET", f"/repos/{repo_id}/diff")  # the latest scan against the baseline
     def delta(self, scan_id): return self._call("GET", f"/scans/{scan_id}/delta")
     def scan_result(self, scan_id): return self._call("GET", f"/scan/{scan_id}")  # 200 while running or done, 500 when the scan failed
     def finding(self, human_id): return self._call("GET", f"/findings/{human_id}")

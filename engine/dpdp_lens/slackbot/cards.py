@@ -94,6 +94,17 @@ def summary(repo: str, delta: dict, errors: list[str] = ()) -> tuple[str, list]:
     return lines[0] if not complete else f"{repo}: scan {delta['scan_id']} complete, health {label}", [_section("\n".join(lines))]
 
 
+def diff(repo: str, d: dict, dashboard_url: str, errors: list[str] = ()) -> tuple[str, list]:
+    """/dpdp diff: the latest scan against the baseline. An incomplete scan says so first and its Resolved list is only what it could check."""
+    link = lambda ids: ", ".join(f"<{dashboard_url.rstrip('/')}/?finding={h}|{h}>" for h in ids[:15]) + (f" and {len(ids) - 15} more" if len(ids) > 15 else "")  # noqa: E731
+    lines = [] if d["complete"] else ["*Scan incomplete: results are partial*"]
+    lines.append(f"*{esc(repo)}* · scan {d['scan_id']} against baseline {d['baseline_scan_id']}")
+    lines.append(f"New {len(d['new'])} · Resolved {len(d['resolved'])} · Persistent {len(d['persistent'])}")
+    lines += [f"{label}: {link(d[key])}" for label, key in (("New", "new"), ("Resolved", "resolved")) if d[key]]
+    lines += [f"• Scan error: {esc(cut(e, 200))}" for e in list(errors)[:3]]
+    return lines[0] if not d["complete"] else f"{repo}: scan {d['scan_id']} against baseline {d['baseline_scan_id']}", [_section("\n".join(lines))]
+
+
 def failed(repo: str, scan_id: str, why: str) -> tuple[str, list]:
     text = f"*Scan failed: no results for {esc(repo)} ({scan_id})*\n:grey_question: Health: *Unknown*. This is not a pass.\n{esc(cut(why, 300))}"
     return f"Scan failed for {repo}", [_section(text)]

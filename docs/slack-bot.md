@@ -56,7 +56,7 @@ settings:
 - One card per finding, posted once and then edited in place. Cards follow status changes made in Slack, in the dashboard or by a scan, through the engine outbox (polled every 2 seconds).
 - Fix and verify says "VERIFIED" only when the engine's answer has `fix.verified` true and the finding status `verified_fixed`. A cached replay is labelled "Cached verified patch (replay)".
 - An incomplete scan starts with "Scan incomplete: results are partial" and health reads Unknown. A scan that produced no result says "Scan failed". Neither is ever shown as green.
-- `/dpdp diff` shows the latest scan against the one before it. The engine has no route that diffs against the baseline yet, so the baseline id is only named.
+- `/dpdp diff` shows the latest scan against the baseline (`GET /repos/{id}/diff`): new, resolved and persistent finding ids. Resolved only counts checks the scan actually ran, and an incomplete scan says so first.
 - The bot keeps two things in memory only: the outbox position (it starts at the end of the outbox, so changes made while the bot was down are not replayed) and which repos already got a health alert (after a restart a repo that is still bad can get one more alert).
 
 ## Manual checklist for the real workspace
