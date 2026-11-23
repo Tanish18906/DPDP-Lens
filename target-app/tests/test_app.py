@@ -16,14 +16,28 @@ def get_client():
     except Exception:
         pass
     
-    # Fallback to FastAPI TestClient if server is not running externally
-    import sys
-    backend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
-    if backend_path not in sys.path:
-        sys.path.insert(0, backend_path)
-    from app.main import app
+    # No server running: use the app in process (see _in_process_app).
     from fastapi.testclient import TestClient
-    return TestClient(app)
+    return TestClient(_in_process_app())
+
+_in_process = {}
+
+def _in_process_app():
+    """The app on a freshly seeded temp database, made once per run. The tests then need no demo.db (it is git-ignored, so a
+    clone does not have one) and never write to it."""
+    if "app" not in _in_process:
+        import atexit, shutil, sys, tempfile
+        backend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend")
+        if backend_path not in sys.path:
+            sys.path.insert(0, backend_path)
+        tmp = tempfile.mkdtemp(prefix="tutornest-test-")
+        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+        os.environ["TUTORNEST_DB"] = os.path.join(tmp, "test.db")  # read by app.db.get_db_path, also by seed.seed()
+        import seed
+        seed.seed()
+        from app.main import app
+        _in_process["app"] = app
+    return _in_process["app"]
 
 def make_synthetic_aadhaar():
     base = f"8{int(time.time()*1000)%10000000000:010d}"
