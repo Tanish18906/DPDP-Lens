@@ -11,7 +11,7 @@ from . import config
 from .checks import CHECKS
 from .locator import find_column, find_route, find_text
 from .models import Clause, Finding, ScanResult, compute_counts, compute_score
-from .scanners import api_scan, browser_scan, children_scan, config_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
+from .scanners import api_scan, browser_scan, children_scan, config_scan, contact_scan, frontend_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
 log = logging.getLogger("dpdp_lens")
 CLAUSES = Path(__file__).resolve().parents[2] / "contract" / "clauses.json"
@@ -32,6 +32,7 @@ SCANNERS = [
 # Run after notice_drift, so the ids F-001 to F-010 of the first ten findings do not move (docs/15 D5). Full scans only.
 LATE_SCANNERS = [
     ("config_scan", lambda target, repo, db, frontend: config_scan.scan(app_root_of(repo))),  # static, reads files only
+    ("frontend_scan", lambda target, repo, db, frontend: frontend_scan.scan(app_root_of(repo))),  # static, reads the front end source
 ]
 
 
@@ -121,7 +122,7 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
     if scanners is None:  # the full scan also compares the privacy notice with what the app handles
         progress and progress("notice_drift", len(todo), total)
         try:
-            drift = _run(notice_drift.build, (target_url, str(db_path)), timeout)
+            drift = _run(notice_drift.build, (target_url, str(db_path), app_root_of(repo_path)), timeout)
             if drift.undeclared:
                 findings.append(notice_drift.finding(drift, f"{target_url.rstrip('/')}/notice"))
         except ScannerTimeout:

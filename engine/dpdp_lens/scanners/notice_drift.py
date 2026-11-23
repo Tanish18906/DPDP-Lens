@@ -8,7 +8,7 @@ from .. import config
 from ..htmltext import list_items, visible_text
 from ..checks import reason
 from ..models import Evidence, Finding, Fix, Location, NoticeDrift, ObservedField, UndeclaredDetail
-from . import api_scan, db_scan
+from . import api_scan, db_scan, frontend_scan
 
 ORDER = ["name", "email", "phone", "dob", "aadhaar", "pan", "parent_pan"]  # fixed order keeps scans deterministic
 KEYWORDS = {
@@ -43,13 +43,23 @@ def observed_fields(target_url: str, db_path: str) -> list[ObservedField]:
     return [ObservedField(field=f, where=list(dict.fromkeys(where[f]))) for f in ORDER if f in where]
 
 
-def build(target_url: str, db_path: str) -> NoticeDrift:
+def with_frontend(observed: list[ObservedField], app_root) -> list[ObservedField]:
+    """Adds where the signup form source collects each field (frontend:<file>:<line>) after the db and api places."""
+    where = {o.field: list(o.where) for o in observed}
+    for field, place in frontend_scan.observe(app_root):
+        where.setdefault(field, []).append(place)
+    return [ObservedField(field=f, where=list(dict.fromkeys(where[f]))) for f in ORDER if f in where]
+
+
+def build(target_url: str, db_path: str, app_root=None) -> NoticeDrift:
     try:
         notice = httpx.get(f"{target_url.rstrip('/')}/notice", timeout=config.HTTP_TIMEOUT).raise_for_status().text
     except httpx.HTTPError as e:
         raise RuntimeError(f"could not read the privacy notice: {e}") from e
     declared = declared_fields(notice)
     observed = observed_fields(target_url, db_path)
+    if app_root:
+        observed = with_frontend(observed, app_root)
     undeclared = [o for o in observed if o.field not in declared]
     return NoticeDrift(
         declared=declared, observed=observed, undeclared=[o.field for o in undeclared],

@@ -80,6 +80,10 @@ _CHECKS = [
           "A compose file publishes a database port without binding it to 127.0.0.1.",
           "Do not publish the database port. Keep it on the internal network or bind to 127.0.0.1, and use strong credentials.",
           "High: {service} database port {port} is published on all interfaces{creds}.", False),
+    Check("fe_pii_in_storage", "frontend", "medium", "Personal data kept in browser storage",
+          "localStorage or sessionStorage setItem is called with a key or value that names personal data.",
+          "Do not keep personal data in browser storage. Keep it on the server and use short lived session tokens.",
+          "Medium: {fields} are kept in {storage}.", False),
 ]
 
 CHECKS: dict[str, Check] = {c.id: c for c in _CHECKS}

@@ -66,5 +66,9 @@
   "config_db_exposed": [
     {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
     {"ref": "Rule 6(1)(b)", "note": "access control"}
+  ],
+  "fe_pii_in_storage": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(a)", "note": "encryption, obfuscation, masking or virtual tokens"}
   ]
 }

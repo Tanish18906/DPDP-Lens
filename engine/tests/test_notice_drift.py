@@ -106,7 +106,7 @@ def test_runner_fills_the_block_and_appends_the_finding_last(target, target_db):
 
 
 def test_no_finding_when_everything_is_declared(monkeypatch, target, target_db):
-    monkeypatch.setattr(notice_drift, "build", lambda t, d: NoticeDrift(
+    monkeypatch.setattr(notice_drift, "build", lambda t, d, root=None: NoticeDrift(
         declared=["email"], observed=[ObservedField(field="email", where=["db:students.email"])], undeclared=[]))
     r = runner.run_scan(target, str(BACKEND), str(target_db))
     assert "notice_drift" not in [f.check for f in r.findings] and r.notice_drift.declared == ["email"]
@@ -127,6 +127,14 @@ def test_undeclared_detail_on_the_real_target(target, target_db):
     assert [d.field for d in drift.undeclared_detail] == drift.undeclared == ["dob", "aadhaar", "parent_pan"]
     assert all(d.needs_review and d.review_note == notice_drift.REVIEW_NOTE for d in drift.undeclared_detail)
     assert drift.undeclared_detail[1].where == ["db:students.aadhaar", "api:/api/students"]
+
+
+def test_frontend_places_are_added_after_db_and_api_and_undeclared_does_not_change(target, target_db):
+    drift = notice_drift.build(target, str(target_db), BACKEND.parent)
+    assert drift.undeclared == ["dob", "aadhaar", "parent_pan"]
+    where = {o.field: o.where for o in drift.observed}
+    assert where["aadhaar"][:2] == ["db:students.aadhaar", "api:/api/students"] and where["aadhaar"][2].startswith("frontend:frontend/src/App.jsx:")
+    assert [o.field for o in drift.observed] == ["name", "email", "phone", "dob", "aadhaar", "parent_pan"]
 
 
 def test_undeclared_detail_review_only_for_sensitive_fields(monkeypatch):

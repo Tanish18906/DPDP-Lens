@@ -40,6 +40,13 @@ export default function App() {
 
       const data = await res.json()
       if (res.ok) {
+        // PLANTED V13: synthetic, planted for the scanner demo. Personal data kept in browser storage.
+        try {
+          const { name, dob, aadhaar } = formData
+          localStorage.setItem('tutornest_student', JSON.stringify({ name, dob, aadhaar }))
+        } catch {
+          /* storage may be blocked, signup must still work */
+        }
         setStatus({
           type: 'success',
           message: `Account created for ${data.name}! Student ID: ${data.id}`
