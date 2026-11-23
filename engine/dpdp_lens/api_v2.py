@@ -76,6 +76,7 @@ def create_router(store: Store, core) -> APIRouter:
     guard = [Depends(require_token)]
     running: set = set()  # repo ids with a scan in progress: one at a time per repo
     running_lock = threading.Lock()
+    scan_slot = threading.Lock()  # one clone and scan at a time, whoever asked (API call or monitor)
 
     def repo_out(row) -> dict:
         h = ingest.health(store, row["id"])
@@ -125,12 +126,13 @@ def create_router(store: Store, core) -> APIRouter:
         """Clone, scan, store, ingest. Any failure is stored as a failed scan, so health turns unknown."""
         started = audit.now()
         try:
-            audit.record(store, "scan_started", actor, repo["id"], scan_id, meta={"mode": mode, "trigger": trigger})
-            with repo_scan.checkout(repo["full_name"], repo["branch"] or None, os.environ.get("GITHUB_TOKEN")) as path:
-                result = repo_scan.scan_checkout(path, scan_id, mode, repo["full_name"], repo["branch"])
-            core.scans[scan_id] = result
-            core.save(scan_id)
-            ingest.ingest_scan(store, repo["id"], result, trigger, actor, started)
+            with scan_slot:
+                audit.record(store, "scan_started", actor, repo["id"], scan_id, meta={"mode": mode, "trigger": trigger})
+                with repo_scan.checkout(repo["full_name"], repo["branch"] or None, os.environ.get("GITHUB_TOKEN")) as path:
+                    result = repo_scan.scan_checkout(path, scan_id, mode, repo["full_name"], repo["branch"])
+                core.scans[scan_id] = result
+                core.save(scan_id)
+                ingest.ingest_scan(store, repo["id"], result, trigger, actor, started)
         except Exception as e:  # clone, scan or storage failed: nothing is shown as healthy
             message = audit.redact(f"{type(e).__name__}: {e}")[:300]
             core.scans[scan_id] = {"status": "error", "detail": message}
@@ -141,6 +143,19 @@ def create_router(store: Store, core) -> APIRouter:
         finally:
             with running_lock:
                 running.discard(repo["id"])
+
+    def scan_repo_now(repo, trigger: str = "schedule", actor: str = "monitor", mode: str = "static"):
+        """Run one scan to the end in the calling thread (the monitor's). Returns the scan id, or None when a scan of this
+        repo is already running, so the monitor tries again at its next tick."""
+        with running_lock:
+            if repo["id"] in running:
+                return None
+            running.add(repo["id"])
+        scan_id = core.new_scan_id((f"repo:{repo['full_name']}", ""))
+        run_repo_scan(repo, scan_id, trigger, actor, mode)
+        return scan_id
+
+    core.scan_repo_now = scan_repo_now
 
     @router.get("/scans/{scan_id}/delta")
     def scan_delta(scan_id: str):
@@ -290,7 +305,8 @@ def create_router(store: Store, core) -> APIRouter:
 
     @router.get("/outbox")
     def get_outbox(after: int = 0):
-        return [{"id": r["id"], "kind": r["kind"], "human_id": r["human_id"]}
+        # status_changed rows have a human_id. scan_delta and health_changed rows have repo_id and scan_id instead.
+        return [{"id": r["id"], "kind": r["kind"], "human_id": r["human_id"], "repo_id": r["repo_id"], "scan_id": r["scan_id"]}
                 for r in store.all("SELECT * FROM outbox WHERE id>? ORDER BY id LIMIT 500", (after,))]
 
     @router.get("/audit/events")

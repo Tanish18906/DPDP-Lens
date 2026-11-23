@@ -29,6 +29,7 @@ if [ "$up" -eq 0 ]; then
   LOG="$(mktemp -d -t dpdp-lens-gates.XXXXXX)/demo.log"
   echo "Starting the demo stack (log: $LOG)..."
   export DPDP_STATE_DIR="$(mktemp -d -t dpdp-lens-state.XXXXXX)"  # gate scans must not pile up in the repo
+  export DPDP_MONITOR=0  # no background scheduler in the gates
   "$ROOT/run_demo.sh" >"$LOG" 2>&1 &
   DEMO_PID=$!
   for _ in $(seq 1 120); do

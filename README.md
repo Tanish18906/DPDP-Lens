@@ -184,6 +184,7 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 | `DPDP_ALLOWED_REPOS` | Comma separated `owner/name` list that may be connected and scanned. Empty: none. |
 | `DPDP_FIX_REPOS` | Comma separated list whose code may be run by a live fix. Empty: none. |
 | `DPDP_DB` | Path of the SQLite file. |
+| `DPDP_MONITOR` | `0` turns the scheduled re-scan thread off. Any other value (or unset) leaves it on. It only runs inside the real engine server, never in tests or in `scripts/run_gates.sh`. |
 | `DPDP_STATE_DIR` | Folder of saved scans (exists already). |
 | `GITHUB_TOKEN` | Optional, for private repos. Read from the environment only, given to git through `GIT_ASKPASS`, never in a URL, argument, log or event. |
 
@@ -195,7 +196,9 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 | `POST /repos/{id}/baseline`, `POST /repos/{id}/watch` | Set the baseline explicitly (a scan never replaces it), set the re-scan interval. |
 | `GET /findings`, `GET /findings/{id}`, `PATCH /findings/{id}/status`, `PUT /findings/{id}/slack` | List with filters, detail with events, change status, link a Slack message. |
 | `POST /findings/{id}/fix?mode=live\|cached` | Fix and verify a stored finding (same loop as before, on a fresh checkout of the scanned commit). The stored scan is never edited. |
-| `GET /outbox?after=N`, `GET /audit/events`, `GET /audit/verify` | Change feed for the Slack bot, audit events, hash chain check. |
+| `GET /outbox?after=N`, `GET /audit/events`, `GET /audit/verify` | Change feed for the Slack bot (rows `{id, kind, human_id, repo_id, scan_id}`), audit events, hash chain check. |
+
+Scheduled monitoring (never "real-time" or "continuous": nothing is watched between two scans). `POST /repos/{id}/watch {minutes}` makes the engine re-scan that repo every N minutes (1 to 10080). The schedule is stored in SQLite, so a restart keeps it, and a window missed while the engine was down runs once. One scan runs at a time. A failed clone, a crash or an incomplete scan is stored as such and the repo turns "unknown"; so does a repo with no complete scan in twice its interval ("stale"). `GET /repos/{id}/health` shows `failed_streak` and `last_error`. The monitor adds two outbox kinds, written in the same transaction as the change that caused them: `scan_delta` (a scheduled scan found a new or reopened critical or high finding) and `health_changed` (health moved into or out of at_risk or unknown, so an unchanged state alerts once, not on every scan). Manual scans never queue these two kinds.
 
 Health is "unknown" whenever the latest scan is incomplete or failed, never green. Until the policy file lands (a later block), "blocking" means critical or high severity.
 

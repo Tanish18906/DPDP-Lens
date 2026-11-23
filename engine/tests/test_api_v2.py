@@ -103,7 +103,7 @@ def test_full_flow_connect_scan_ingest_patch_list_audit(api):
     assert r.status_code == 200 and r.json()["status"] == "false_positive" and r.json()["status_by"] == "U2"
     detail = api.get(f"/findings/{one['human_id']}").json()
     assert [e["type"] for e in detail["events"]] == ["finding_created", "status_changed"] and detail["finding"]["check"] == "log_pii"
-    assert {"kind": "status_changed", "human_id": one["human_id"]} in [{k: v for k, v in o.items() if k != "id"} for o in api.get("/outbox").json()]
+    assert any(o["kind"] == "status_changed" and o["human_id"] == one["human_id"] for o in api.get("/outbox").json())
     assert api.get("/outbox", params={"after": 10**6}).json() == []
 
     assert api.get("/audit/verify").json() == {"ok": True, "checked": len(api.get("/audit/events", params={"limit": 1000}).json()), "first_bad": None}
@@ -274,3 +274,42 @@ def test_live_fix_falls_back_to_the_cached_result_when_the_checkout_fails(api, m
     assert r.json()["mode"] == "cached_golden" and "RepoError" in r.json()["fallback_reason"]
     assert r.json()["record"]["status"] == "fixed"
     assert json.loads(api.get("/audit/events", params={"type": "fix_verified"}).text)[0]["meta"]["mode"] == "cached_golden"
+
+
+# ---- monitor on the real scan path (block 05)
+
+def due_now(api, repo_id, minutes=1):
+    api.post(f"/repos/{repo_id}/watch", json={"minutes": minutes, "actor": "U1"}, headers=TOKEN)
+    core = api.app.state.core
+    core.store.run("UPDATE repos SET next_run_at='2000-01-01T00:00:00+00:00' WHERE id=?", (repo_id,))
+    return core
+
+
+def test_the_monitor_scans_a_real_repo_and_queues_scan_delta_and_health_changed(api):
+    from dpdp_lens.monitor import Monitor
+    rid = connect(api)
+    core = due_now(api, rid)
+    m = Monitor(core.store, core.scan_repo_now)
+    assert m.tick() == [rid]
+    outbox = api.get("/outbox").json()
+    assert [o["kind"] for o in outbox if o["kind"] != "status_changed"] == ["scan_delta", "health_changed"]
+    delta = next(o for o in outbox if o["kind"] == "scan_delta")
+    assert (delta["repo_id"], delta["scan_id"], delta["human_id"]) == (rid, "S-001", "")
+    assert api.get("/scan/S-001").json()["coverage"]["mode"] == "static"
+    assert api.get(f"/repos/{rid}/history").json()[0]["trigger"] == "schedule"
+    assert m.tick() == []  # next_run_at moved, nothing is due
+
+
+def test_a_broken_remote_makes_the_repo_unknown_with_one_alert_and_a_visible_error(api):
+    from dpdp_lens.monitor import Monitor
+    rid = connect(api, "acme/missing")
+    core = due_now(api, rid)
+    m = Monitor(core.store, core.scan_repo_now)
+    m.tick()
+    core.store.run("UPDATE repos SET next_run_at='2000-01-01T00:00:00+00:00'")
+    m.tick()
+    h = api.get(f"/repos/{rid}/health").json()
+    assert h["status"] == "unknown" and h["failed_streak"] == 2 and "RepoError" in h["last_error"]
+    assert "the last 2 scans failed or were incomplete" in h["reasons"]
+    assert [o["kind"] for o in api.get("/outbox").json()] == ["health_changed"]  # once, not once per failed scan
+    assert api.get("/repos").json()[0]["health"] == "unknown"

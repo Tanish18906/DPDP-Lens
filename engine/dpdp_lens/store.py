@@ -10,12 +10,15 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+# 1 to 2 (block 05): repos.last_health (the status an alert was last decided on), outbox.repo_id and outbox.scan_id (scan_delta and health_changed rows)
+MIGRATIONS = {1: "ALTER TABLE repos ADD COLUMN last_health TEXT; ALTER TABLE outbox ADD COLUMN repo_id INTEGER; "
+                 "ALTER TABLE outbox ADD COLUMN scan_id TEXT NOT NULL DEFAULT '';"}
 
 SCHEMA = """
 CREATE TABLE repos(
   id INTEGER PRIMARY KEY, full_name TEXT NOT NULL UNIQUE, branch TEXT NOT NULL DEFAULT '', slack_channel TEXT NOT NULL DEFAULT '',
-  watch_minutes INTEGER, next_run_at TEXT, baseline_scan_id TEXT, created_at TEXT NOT NULL);
+  watch_minutes INTEGER, next_run_at TEXT, baseline_scan_id TEXT, created_at TEXT NOT NULL, last_health TEXT);
 CREATE TABLE scans(
   scan_id TEXT PRIMARY KEY, repo_id INTEGER NOT NULL REFERENCES repos(id), trigger_kind TEXT NOT NULL, commit_sha TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('complete','incomplete','failed')), mode TEXT NOT NULL DEFAULT '',
@@ -37,7 +40,8 @@ CREATE TABLE events(
   prev_hash TEXT NOT NULL, hash TEXT NOT NULL);
 CREATE INDEX events_repo ON events(repo_id);
 CREATE INDEX events_human ON events(human_id);
-CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, human_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, human_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  repo_id INTEGER, scan_id TEXT NOT NULL DEFAULT '');
 """
 
 
@@ -62,6 +66,9 @@ class Store:
             if version > SCHEMA_VERSION:
                 db.close()
                 raise RuntimeError(f"{self.path} was written by a newer engine (schema {version}, this one knows {SCHEMA_VERSION})")
+            if 0 < version < SCHEMA_VERSION:  # an older file: apply each step, one transaction per step
+                for v in range(version, SCHEMA_VERSION):
+                    db.executescript(f"BEGIN;{MIGRATIONS[v]}PRAGMA user_version={v + 1};COMMIT;")
             if version == 0:
                 db.executescript(f"BEGIN;{SCHEMA}PRAGMA user_version={SCHEMA_VERSION};COMMIT;")
                 if not memory:

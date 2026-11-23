@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from .api_v2 import create_router, require_token
+from .monitor import attach_monitor
 from .fixer.notice_align import NOTICE_ALIGN
 from .fixer.templates import TEMPLATES, PatchError
 from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
@@ -236,7 +237,8 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
                 "mode": used, "fallback_reason": reason, "verification": vlog}
 
-    core = SimpleNamespace(scans=scans, inputs=inputs, save=save, new_scan_id=new_scan_id, fix_lock=fix_lock, fix_fn=fix_fn, golden_dir=golden_dir)
+    core = SimpleNamespace(scans=scans, inputs=inputs, save=save, new_scan_id=new_scan_id, fix_lock=fix_lock, fix_fn=fix_fn, golden_dir=golden_dir, store=store)
+    app.state.core = core
     if store is not None:
         app.include_router(create_router(store, core))
     return app
@@ -304,3 +306,4 @@ def _golden_fix(golden: dict, score_before: int) -> Fix:
 
 
 app = create_app(state_dir=default_state_dir(), store=Store(default_db_path()))
+attach_monitor(app)  # starts when the server starts, never under pytest, never when DPDP_MONITOR=0
