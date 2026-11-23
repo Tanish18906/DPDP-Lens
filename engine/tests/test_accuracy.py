@@ -70,3 +70,13 @@ def test_register_adds_an_eval_command_that_prints_the_same_table(capsys):
     args = parser.parse_args(["eval", "--md"])
     assert args.func(args) == 0
     assert capsys.readouterr().out.startswith("# Scanner accuracy")
+
+
+def test_no_corpus_file_is_git_ignored():
+    """A case file that .gitignore swallows (node_modules/, .env) is missing in every fresh clone and the numbers differ there."""
+    import subprocess
+    files = [str(p) for p in acc.CORPUS.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    r = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"], input="\n".join(files), capture_output=True, text=True, cwd=ROOT)
+    if r.returncode == 128:
+        pytest.skip("not a git checkout")
+    assert r.stdout.strip() == "", r.stdout

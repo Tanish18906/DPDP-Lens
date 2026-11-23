@@ -4,7 +4,7 @@
 
 The corpus is engine/tests/accuracy/:
   cases/<check id>/<pos|neg>_<name>/<files>   one small app per case. `pos` means the check must fire, `neg` that it must not.
-                                              A file name starting DOT_ is written with a "." (DOT_env becomes .env). {{aws}},
+                                              A file name starting DOT_ is written with a "." (DOT_env becomes .env), and a folder NODE_MODULES as node_modules (git ignores the real names). {{aws}},
                                               {{ghp}}, {{ghpat}}, {{slack}}, {{stripe}} become fake tokens built here at run time, so no
                                               token-shaped string is committed.
   recognizers.json                            text snippets for find_pii and the personal data types they must (not) report.
@@ -88,10 +88,15 @@ class Tally:
                 "misses": self.misses}
 
 
+def _real_name(part: str) -> str:
+    """DOT_env is written as .env, and NODE_MODULES as node_modules: git ignores both real names, so the corpus cannot hold them."""
+    return "node_modules" if part == "NODE_MODULES" else "." + part[4:] if part.startswith("DOT_") else part
+
+
 def materialise(case: Path, dest: Path, subs: dict[str, str]):
     for f in sorted(p for p in case.rglob("*") if p.is_file()):
         rel = f.relative_to(case)
-        out = dest / Path(*[("." + part[4:]) if part.startswith("DOT_") else part for part in rel.parts])
+        out = dest / Path(*[_real_name(part) for part in rel.parts])
         out.parent.mkdir(parents=True, exist_ok=True)
         text = f.read_text()
         for key, value in subs.items():
