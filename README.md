@@ -45,7 +45,7 @@ The only interface between engine and dashboard is the scan JSON (`contract/find
 
 ## 5 minute quickstart (Slack demo, localhost only)
 
-Needs Python 3.12, Node 20 or newer, git and a Slack app (set it up once with [docs/slack-bot.md](docs/slack-bot.md)).
+Needs Python 3.12 or newer (checked on 3.12 and 3.14), Node 20 or newer (checked on 22), git and a Slack app (set it up once with [docs/slack-bot.md](docs/slack-bot.md)).
 
     python3 -m venv .venv && source .venv/bin/activate
     pip install -e "engine[slack]" pyjwt pytest jsonschema
@@ -57,11 +57,11 @@ Needs Python 3.12, Node 20 or newer, git and a Slack app (set it up once with [d
 
 `demo_up.sh` runs `scripts/preflight.py` before and after it starts anything: one PASS, WARN or FAIL line per check with a one-line fix, and it never prints a secret. `scripts/demo_reset.sh` deletes the findings database and saved scans for a clean start (only after you type `yes`). What each preflight line means and what to do when it fails: [docs/demo-runbook.md](docs/demo-runbook.md). More: [docs/slack-bot.md](docs/slack-bot.md) (Slack setup), [docs/ACCURACY.md](docs/ACCURACY.md) (measured precision and recall), [docs/threat-model.md](docs/threat-model.md) (threat model).
 
-`playwright install chromium` is only needed for the browser scan, the PDF report and the gates (or have Google Chrome installed, the browser scan falls back to it).
+`playwright install chromium` is only needed for the browser scan, the PDF report and the gates (or have Google Chrome installed, the browser scan falls back to it). To run the tests: `cd engine && python -m pytest`; four tests in `tests/test_verify.py` skip until you also run `npm install` in `target-app/frontend` (the V5 fix builds that front end).
 
 ## Local demo without Slack (scan and fix on TutorNest)
 
-One-time setup (Python 3.12, Node 20 or newer):
+One-time setup (Python 3.12 or newer, Node 20 or newer):
 
     python3 -m venv .venv && source .venv/bin/activate
     pip install -e "engine[slack]" pyjwt pytest jsonschema
