@@ -11,7 +11,7 @@ from . import config
 from .checks import CHECKS
 from .locator import find_column, find_route, find_text
 from .models import Clause, Finding, ScanResult, compute_counts, compute_score
-from .scanners import api_scan, browser_scan, children_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
+from .scanners import api_scan, browser_scan, children_scan, config_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
 log = logging.getLogger("dpdp_lens")
 CLAUSES = Path(__file__).resolve().parents[2] / "contract" / "clauses.json"
@@ -27,6 +27,11 @@ SCANNERS = [
     ("children_scan", lambda target, repo, db, frontend: children_scan.scan(target, db)),  # signs up a synthetic minor, then removes it
     ("contact_scan", lambda target, repo, db, frontend: contact_scan.scan(target, frontend)),
     ("browser_scan", lambda target, repo, db, frontend: browser_scan.scan(frontend)),  # opens the frontend in a headless browser
+]
+
+# Run after notice_drift, so the ids F-001 to F-010 of the first ten findings do not move (docs/15 D5). Full scans only.
+LATE_SCANNERS = [
+    ("config_scan", lambda target, repo, db, frontend: config_scan.scan(app_root_of(repo))),  # static, reads files only
 ]
 
 
@@ -76,10 +81,8 @@ def locate(findings: list[Finding], repo_path) -> list[Finding]:
     for f in findings:
         loc = f.evidence.location
         if loc.file:
-            try:
-                file, line = (repo / loc.file).relative_to(root).as_posix(), loc.line
-            except ValueError:
-                file, line = loc.file, loc.line
+            # shortcut: a file that exists under repo_path is treated as relative to it (log_pii), else as relative to app_root (config_scan)
+            file, line = ((repo / loc.file).relative_to(root).as_posix() if (repo / loc.file).exists() else loc.file), loc.line
         else:
             file, line = _where(f, root)
         out.append(f.model_copy(update={"evidence": f.evidence.model_copy(
@@ -98,17 +101,22 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
     clauses = json.loads(CLAUSES.read_text())
     findings = []
     todo = SCANNERS if scanners is None else scanners
-    total = len(todo) + (scanners is None)  # the full scan has one more step: notice_drift
-    for i, (name, fn) in enumerate(todo):
+    late = LATE_SCANNERS if scanners is None else []
+    total = len(todo) + (scanners is None) + len(late)  # the full scan has notice_drift and the late scanners on top
+
+    def step(name, fn, i):
         progress and progress(name, i, total)
         try:
-            findings += _run(fn, (target_url, str(repo_path), str(db_path), frontend), timeout)
+            findings.extend(_run(fn, (target_url, str(repo_path), str(db_path), frontend), timeout))
         except ScannerTimeout:
             log.warning("scanner_error: %s timed out after %ss", name, timeout)
             errors is None or errors.append(f"{name}: timed out after {timeout}s")
         except Exception as e:  # one scanner must not kill the scan
             log.warning("scanner_error: %s failed: %s: %s", name, type(e).__name__, e)
             errors is None or errors.append(f"{name}: {type(e).__name__}: {e}")
+
+    for i, (name, fn) in enumerate(todo):
+        step(name, fn, i)
     drift = None
     if scanners is None:  # the full scan also compares the privacy notice with what the app handles
         progress and progress("notice_drift", len(todo), total)
@@ -120,6 +128,8 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
             log.warning("scanner_error: notice_drift timed out after %ss", timeout)
         except Exception as e:
             log.warning("scanner_error: notice_drift failed: %s: %s", type(e).__name__, e)
+    for j, (name, fn) in enumerate(late):
+        step(name, fn, len(todo) + 1 + j)
     findings = [
         f.model_copy(update={"id": f"F-{i:03d}", "clauses": [Clause(**c) for c in clauses.get(f.check, [])],
                              "recommendation": CHECKS[f.check].recommendation if f.check in CHECKS else ""})
