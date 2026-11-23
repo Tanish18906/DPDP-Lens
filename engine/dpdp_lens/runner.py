@@ -5,10 +5,12 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as ScannerTimeout
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import config
 from .checks import CHECKS
-from .models import Clause, ScanResult, compute_counts, compute_score
+from .locator import find_column, find_route, find_text
+from .models import Clause, Finding, ScanResult, compute_counts, compute_score
 from .scanners import api_scan, browser_scan, children_scan, contact_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
 log = logging.getLogger("dpdp_lens")
@@ -35,6 +37,54 @@ def _run(fn, args, timeout):
     finally:
         # shortcut: a hung scanner thread cannot be killed, it is only abandoned. Upgrade to subprocess if it matters.
         pool.shutdown(wait=False)
+
+
+FRONTEND_GLOBS = ["frontend/*.html", "frontend/src/*.jsx", "frontend/src/*.tsx", "frontend/src/*.js"]
+ROUTES = {"erasure_incomplete": ("DELETE", "/api/students/{id}"), "children_no_parental_consent": ("POST", "/api/signup")}
+
+
+def app_root_of(repo_path) -> Path:
+    """docs/15 D6: the parent of repo_path when it has a frontend folder, else repo_path."""
+    repo = Path(repo_path).resolve()
+    return repo.parent if (repo.parent / "frontend").is_dir() else repo
+
+
+def _where(f: Finding, root: Path) -> tuple[str, int]:
+    loc, check = f.evidence.location, f.check
+    if check in ("api_pii_exposure", "api_idor"):
+        return find_route(root, "GET", urlparse(loc.url).path)
+    if check in ROUTES:
+        return find_route(root, *ROUTES[check])
+    if check == "db_plaintext_pii":
+        return find_column(root, loc.table, loc.column.split(",")[0].strip())
+    if check == "tracker_before_consent":
+        return find_text(root, urlparse(f.evidence.masked_sample).hostname or "", FRONTEND_GLOBS)
+    if check == "consent_bundled":
+        return find_text(root, 'type="checkbox"', FRONTEND_GLOBS)
+    if check == "missing_contact":
+        return find_text(root, "<h1", ["*notice.html"])
+    if check == "notice_drift":
+        return find_text(root, "<li", ["*notice.html"])
+    return "", 0
+
+
+def locate(findings: list[Finding], repo_path) -> list[Finding]:
+    """Fill evidence.location.file and .line when the scanner left them empty. A scanner's own file (log_pii) is
+    only rebased from repo_path to app_root so every path in a report has the same base."""
+    repo, root = Path(repo_path).resolve(), app_root_of(repo_path)
+    out = []
+    for f in findings:
+        loc = f.evidence.location
+        if loc.file:
+            try:
+                file, line = (repo / loc.file).relative_to(root).as_posix(), loc.line
+            except ValueError:
+                file, line = loc.file, loc.line
+        else:
+            file, line = _where(f, root)
+        out.append(f.model_copy(update={"evidence": f.evidence.model_copy(
+            update={"location": loc.model_copy(update={"file": file, "line": line})})}))
+    return out
 
 
 _CONFIG = object()  # frontend_url default: use config.FRONTEND_URL
@@ -73,7 +123,7 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
     findings = [
         f.model_copy(update={"id": f"F-{i:03d}", "clauses": [Clause(**c) for c in clauses.get(f.check, [])],
                              "recommendation": CHECKS[f.check].recommendation if f.check in CHECKS else ""})
-        for i, f in enumerate(findings, 1)]
+        for i, f in enumerate(locate(findings, repo_path), 1)]
     return ScanResult(
         scan_id=scan_id, target=target_url, scanned_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         score=compute_score(findings), counts=compute_counts(findings), findings=findings, notice_drift=drift)

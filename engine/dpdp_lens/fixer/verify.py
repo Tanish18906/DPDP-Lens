@@ -36,9 +36,10 @@ class Verification:
 
 
 def _key(f: Finding):
-    """Same problem in a re-scan: same check at the same URL path, file, table and column."""
+    """Same problem in a re-scan: same check at the same URL path, table and column. Only log_pii also keys on the
+    file name: the locator's file is relative to a different root in the sandbox, and the other checks get it from there."""
     loc = f.evidence.location
-    return (f.check, urlparse(loc.url).path, loc.file, loc.table, loc.column)
+    return (f.check, urlparse(loc.url).path, Path(loc.file).name if f.check == "log_pii" else "", loc.table, loc.column)
 
 
 def _left(deadline: float) -> float:
