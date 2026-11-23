@@ -39,6 +39,8 @@ class Engine:
     def delta(self, scan_id): return self._call("GET", f"/scans/{scan_id}/delta")
     def scan_result(self, scan_id): return self._call("GET", f"/scan/{scan_id}")  # 200 while running or done, 500 when the scan failed
     def finding(self, human_id): return self._call("GET", f"/findings/{human_id}")
+    def findings(self, repo_id, status=None, limit=500, offset=0):
+        return self._call("GET", "/findings", params={"repo_id": repo_id, **({"status": status} if status else {}), "limit": limit, "offset": offset})
     def outbox(self, after: int): return self._call("GET", "/outbox", params={"after": after})
 
     def github_installations(self): return self._call("GET", "/github/installations", auth=True)  # 503 when the engine has no GitHub App

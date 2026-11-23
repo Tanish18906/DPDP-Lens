@@ -85,6 +85,10 @@ def summary(repo: str, delta: dict, errors: list[str] = ()) -> tuple[str, list]:
     lines.append(f"*{esc(repo)}* · scan {delta['scan_id']}{commit}")
     lines.append(f"New {len(delta['new'])} · Resolved {len(delta['resolved'])} · Reopened {len(delta['reopened'])} · "
                  f"Persistent {delta['persistent']} · Suppressed {delta['suppressed']}")
+    counts = h.get("counts") or {}
+    open_n = counts.get("open", 0) + counts.get("in_progress", 0) or len(delta["new"]) + len(delta["reopened"]) + delta["persistent"]
+    if open_n:
+        lines.append(f"{open_n} finding{'s' if open_n != 1 else ''} still open: /dpdp findings")
     lines.append(f":{emoji}: Health: *{label}*")
     coverage = next((r for r in h["reasons"] if r.startswith("static checks only")), None)
     if coverage:
@@ -92,6 +96,55 @@ def summary(repo: str, delta: dict, errors: list[str] = ()) -> tuple[str, list]:
     lines += [f"• {esc(cut(r, 200))}" for r in h["reasons"] if r != coverage][:4]
     lines += [f"• Scan error: {esc(cut(e, 200))}" for e in list(errors)[:3]]
     return lines[0] if not complete else f"{repo}: scan {delta['scan_id']} complete, health {label}", [_section("\n".join(lines))]
+
+
+FINDINGS_MAX_LINES = 50
+SUPPRESSED = ("false_positive", "wont_fix")
+LIST_ORDER = ("open", "in_progress", "fixed", "false_positive", "wont_fix")
+
+
+def findings_list(repo: str, recs: list[dict], mode: str, health: dict, dashboard_url: str) -> tuple[str, list]:
+    """/dpdp findings. `recs` are the FindingRecords to list (already filtered: open and in progress for "open", every status for "all").
+    The first line says so when the last scan was incomplete or failed, or health is Unknown: such a list is never read as clean.
+    At most 50 finding lines. Suppressed ones (false positive, won't fix) only ever appear under "all", labelled."""
+    base = dashboard_url.rstrip("/")
+    lines, unsure = [], False
+    if health.get("last_scan_status") not in ("complete", None, "") or health.get("status") == "unknown":
+        why = {"incomplete": "the last scan was incomplete, so this list may be partial",
+               "failed": "the last scan failed, so this list may be out of date"}.get(health.get("last_scan_status"), "health is Unknown, so this list may be partial or stale")
+        lines.append(f":grey_question: *Not a clean result: {why}.*")
+        unsure = True
+    word = "Open findings" if mode == "open" else "All findings"
+    lines.append(f"*{esc(repo)}* · {word}: {len(recs)}")
+    if not recs:
+        lines.append("No open findings are stored for this repo." if mode == "open" else "No findings are stored for this repo.")
+        if unsure:
+            lines.append("That is not a pass: the scan did not finish cleanly.")
+        return lines[0], [_section("\n".join(lines))]
+    order = lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["human_id"])  # noqa: E731
+    body, shown = [], 0
+    for status in LIST_ORDER:
+        group = sorted((r for r in recs if r["status"] == status), key=order)
+        if not group or shown >= FINDINGS_MAX_LINES:
+            continue
+        if mode == "all":
+            body.append(f"*{STATUS[status]}*" + (" (suppressed: not counted in health)" if status in SUPPRESSED else "") + f" · {len(group)}")
+        for r in group[: FINDINGS_MAX_LINES - shown]:
+            emoji, label = SEVERITY.get(r["severity"], (":white_circle:", str(r["severity"]).upper()))
+            tag = f"{STATUS.get(r['status'], r['status'])}" + (" (suppressed)" if r["status"] in SUPPRESSED else "")
+            body.append(f"{emoji} {label} <{base}/?finding={r['human_id']}|{r['human_id']}> {esc(cut(r['title'], 80))} · {esc(_where(r['location']))} · {tag}")
+            shown += 1
+    if len(recs) > shown:
+        body.append(f"…and {len(recs) - shown} more, see the dashboard: {base}/")
+    # a Slack section holds 3000 characters: split the lines over several
+    blocks, chunk = [], []
+    for line in lines + body:
+        if sum(len(x) + 1 for x in chunk) + len(line) > 2800:
+            blocks.append(_section("\n".join(chunk)))
+            chunk = []
+        chunk.append(line)
+    blocks.append(_section("\n".join(chunk)))
+    return f"{repo}: {len(recs)} findings", blocks
 
 
 def diff(repo: str, d: dict, dashboard_url: str, errors: list[str] = ()) -> tuple[str, list]:

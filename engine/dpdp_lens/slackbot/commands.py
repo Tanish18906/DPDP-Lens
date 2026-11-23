@@ -12,6 +12,7 @@ HELP = ("*DPDP Lens* (readiness checks, not a compliance certificate)\n"
         "• `/dpdp connect`: connect through the GitHub App: install it, then pick a repository (approvers)\n"
         "• `/dpdp repos`: repositories shared with the GitHub App, and which are connected (approvers)\n"
         "• `/dpdp scan [owner/repo]`: scan again\n"
+        "• `/dpdp findings [open|all]`: the findings of this channel's repo, critical first (default open; all adds fixed and suppressed)\n"
         "• `/dpdp status`: health, last complete scan, counts\n"
         "• `/dpdp diff`: the latest scan against the baseline: new, resolved, persistent\n"
         "• `/dpdp baseline`: use the latest complete scan as the baseline (approvers)\n"
@@ -94,6 +95,28 @@ def _status(ctx, args, user, channel, reply):
     reply("\n".join(lines))
 
 
+def _all_records(ctx, repo_id: int, status: str | None) -> list[dict]:
+    out, total = [], None
+    while total is None or len(out) < total:
+        page = ctx.engine.findings(repo_id, status, 500, len(out))
+        total = page["total"]
+        out += page["items"]
+        if not page["items"]:
+            break
+    return out
+
+
+def _findings(ctx, args, user, channel, reply):
+    modes = [a.lower() for a in args if a.lower() in ("open", "all")]
+    if len(modes) > 1 or any(a.lower() not in ("open", "all") and "/" not in a for a in args):
+        return reply("Usage: `/dpdp findings [open|all] [owner/repo]`")
+    mode = modes[0] if modes else "open"
+    repo = _pick_repo(ctx, [a for a in args if "/" in a], channel)
+    recs = _all_records(ctx, repo["id"], None) if mode == "all" else \
+        [r for s in ("open", "in_progress") for r in _all_records(ctx, repo["id"], s)]  # suppressed and fixed are not "open"
+    reply(*cards.findings_list(repo["full_name"], recs, mode, ctx.engine.health(repo["id"]), ctx.cfg.dashboard_url))
+
+
 def _diff(ctx, args, user, channel, reply):
     repo = _pick_repo(ctx, args, channel)
     d = ctx.engine.diff(repo["id"])  # 404 with a clear text when the repo has no baseline: shown as the engine's answer
@@ -118,7 +141,7 @@ def _watch(ctx, args, user, channel, reply):
     reply(f"Scheduled scans of {repo['full_name']}: " + (f"every {out['watch_minutes']} minutes (a schedule, not real-time)" if out["watch_minutes"] else "off"))
 
 
-COMMANDS = {"connect": _connect, "repos": _repos, "scan": _scan, "status": _status, "diff": _diff, "baseline": _baseline, "watch": _watch}
+COMMANDS = {"connect": _connect, "repos": _repos, "scan": _scan, "status": _status, "findings": _findings, "diff": _diff, "baseline": _baseline, "watch": _watch}
 
 
 def run_command(ctx, text: str, user: str, channel: str, reply) -> None:

@@ -179,6 +179,12 @@ def make_engine_app():
             raise HTTPException(404, "acme/tutornest has no baseline yet: the first complete scan sets one, or POST /repos/1/baseline")
         return st.diff_response
 
+    @app.get("/findings")
+    def list_findings(repo_id: int | None = None, status: str | None = None, limit: int = 50, offset: int = 0):
+        items = sorted((f for f in st.findings.values() if status in (None, f["status"])), key=lambda f: f["human_id"])
+        counts = {k: sum(f["status"] == k for f in st.findings.values()) for k in ("open", "in_progress", "fixed", "false_positive", "wont_fix")}
+        return {"total": len(items), "counts_by_status": counts, "items": [record(f) for f in items[offset: offset + limit]]}
+
     @app.get("/findings/{hid}")
     def get_finding(hid: str):
         f = st.findings.get(hid)
