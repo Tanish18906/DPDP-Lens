@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ..models import Finding, Fix, NoticeDrift, ScanResult
-from ..runner import SCANNER_TIMEOUT, run_scan
+from ..runner import SCANNER_TIMEOUT, SCANNER_CHECKS, STATIC_CHECKS, STATIC_SCANNERS, run_scan
 from ..scanners import notice_drift as drift_scan
 from .notice_align import NOTICE_ALIGN, align_notice, pending_inputs
 from .sandbox import START_TIMEOUT, Sandbox
@@ -36,10 +36,10 @@ class Verification:
 
 
 def _key(f: Finding):
-    """Same problem in a re-scan: same check at the same URL path, table and column. Only log_pii also keys on the
-    file name: the locator's file is relative to a different root in the sandbox, and the other checks get it from there."""
+    """Same problem in a re-scan: same check at the same URL path, file, table and column."""
     loc = f.evidence.location
-    return (f.check, urlparse(loc.url).path, Path(loc.file).name if f.check == "log_pii" else "", loc.table, loc.column)
+    file_name = Path(loc.file).name if (loc.file and not loc.url) else ""
+    return (f.check, urlparse(loc.url).path if loc.url else "", file_name, loc.table, loc.column)
 
 
 def _left(deadline: float) -> float:
@@ -65,7 +65,7 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
     if finding.check == "notice_drift":  # generated patch, not a fixed snippet
         return verify_notice_align(finding, repo_path, db_path, drift=drift, tests_dir=tests_dir,
                                    score_before=score_before, golden_dir=golden_dir, timeout=timeout)
-    template = template or TEMPLATES.get(finding.check)
+    template = template or TEMPLATES.get(finding) or TEMPLATES.get(finding.check)
     if template is None:
         raise PatchError(f"no fix template for {finding.check}")
     tests_dir = Path(tests_dir or Path(repo_path).parent / "tests")
@@ -82,7 +82,16 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
 
     with Sandbox(repo_path, db_path, start_timeout=min(START_TIMEOUT, timeout), frontend_path=frontend_dir) as sb:
         mark("copy")
-        changes = apply_template(template, {"backend": sb.repo, "frontend": sb.frontend})
+        initial_checks = set()
+        if template.scanner in ("config_scan", "frontend_scan", "consent_scan"):
+            initial_scan = run_scan("", str(sb.repo), "", mode="static")
+            initial_checks = {f.check for f in initial_scan.findings}
+
+        roots = {"backend": sb.repo, "frontend": sb.frontend, "app_root": sb.root}
+        changes = apply_template(template, roots)
+        changes_second = apply_template(template, roots, allow_idempotent=True)
+        idempotent = len(changes_second) == 0
+
         for change in changes:
             if change.label.endswith(".py"):
                 try:
@@ -112,17 +121,26 @@ def verify_fix(finding: Finding, repo_path, db_path, *, tests_dir=None, frontend
 
     gone = all(_key(f) != _key(finding) for f in rescan.findings)
     tests_ok = proc.returncode == 0  # for a frontend patch this also means the patched frontend built
+    rescan_checks = {f.check for f in rescan.findings}
+    static_checks = {c for s in STATIC_SCANNERS for c in (STATIC_CHECKS.get(s) or SCANNER_CHECKS.get(s, []))}
+    new_checks = [c for c in rescan_checks if c in static_checks and c not in initial_checks and c != finding.check] if initial_checks else []
+    no_new = len(new_checks) == 0
+
     diff = "".join(line for c in changes for line in difflib.unified_diff(
         c.original.splitlines(True), c.patched.splitlines(True), f"a/{c.label}", f"b/{c.label}"))
-    fix = Fix(available=True, diff=diff, verified=gone and tests_ok, rescan_passed=gone, tests_passed=tests_ok,
+    verified = bool(gone and no_new and tests_ok and idempotent)
+    fix = Fix(available=True, diff=diff, verified=verified, rescan_passed=gone, tests_passed=tests_ok,
               score_before=score_before, score_after=rescan.score)
     if fix.verified:
         save_golden(template, fix, golden_dir)
     out = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    is_config = template.scanner in ("config_scan", "frontend_scan", "consent_scan")
+    statement = "re-scan clean, tests pass, config-only change (not booted)" if is_config else "re-scan clean, tests pass, verified"
     log = {"steps": steps, "total_ms": round((time.monotonic() - started) * 1000),
            "sandbox": sandbox_root, "port": urlparse(url).port,  # the sandbox folder is deleted when the run ends
            "rescan_check": template.scanner, "rescan_findings": len(rescan.findings), "rescan_result": "gone" if gone else "still found",
-           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}"}
+           "pytest_summary": out[-1] if out else f"pytest exit code {proc.returncode}",
+           "statement": statement, "idempotent": idempotent, "no_new_findings": no_new}
     return Verification(fix=fix, rescan=rescan, tests_output="\n".join(proc.stdout.splitlines()[-15:]), log=log)
 
 

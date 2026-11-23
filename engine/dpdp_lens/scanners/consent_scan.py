@@ -64,12 +64,12 @@ def has_consent_record(app_root) -> tuple[bool, int]:
     return False, read
 
 
-def _finding(check, layer, kind, title, summary, sample, explanation, **facts) -> Finding:
+def _finding(check, layer, kind, title, summary, sample, explanation, fix_available=False, **facts) -> Finding:
     return Finding(
         id="", check=check, layer=layer, severity="medium", title=title, severity_reason=reason(check, **facts),
         explanation=explanation, clauses=[],
         evidence=Evidence(kind=kind, summary=summary, masked_sample=sample, location=Location()),  # the runner adds the signup handler
-        fix=Fix(available=False))
+        fix=Fix(available=fix_available))
 
 
 def scan(target_url: str, app_root) -> list[Finding]:
@@ -81,7 +81,7 @@ def scan(target_url: str, app_root) -> list[Finding]:
             "consent_not_recorded", "code", "code", "No consent record found in the schema or source",
             f"No consent table, column or model field was found in {read} schema and source files", "",
             "We found no place where a consent is stored, so the app may not be able to show who agreed to what and when. "
-            "This likely does not meet the duty to be able to prove notice and consent."))
+            "This likely does not meet the duty to be able to prove notice and consent.", fix_available=True))
     if not target_url:
         return out
     r = httpx.get(f"{target_url.rstrip('/')}/openapi.json", timeout=config.HTTP_TIMEOUT)
