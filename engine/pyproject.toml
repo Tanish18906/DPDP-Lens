@@ -4,6 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = ["fastapi", "uvicorn[standard]", "httpx", "python-stdnum", "pydantic", "playwright", "pyyaml", "rich", "prompt_toolkit"]
 
+[project.optional-dependencies]
+slack = ["slack-bolt", "slack-sdk"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
