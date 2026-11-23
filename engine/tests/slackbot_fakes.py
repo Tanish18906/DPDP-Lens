@@ -74,7 +74,8 @@ TEMPLATES = [  # what a static scan of TutorNest looks like, trimmed. Everything
 def make_engine_app():
     """Returns (app, state). `state` can be changed by a test: complete, scan_fails, fix_response, health, repos_slack."""
     st = SimpleNamespace(repos=[], findings={}, scans={}, outbox=[], complete=True, scan_fails=False, health=None, fix_calls=[], status_calls=[],
-                         fix_response=None, fix_error=None, diff_response=None, diff_calls=0, watch_calls=[], baseline_calls=[], scan_errors=[])
+                         fix_response=None, fix_error=None, diff_response=None, diff_calls=0, watch_calls=[], baseline_calls=[], scan_errors=[],
+                         installs=None, gh_repos={}, connect_calls=[])  # installs None: the engine has no GitHub App (503)
     app = FastAPI()
 
     @app.exception_handler(HTTPException)
@@ -100,14 +101,28 @@ def make_engine_app():
     @app.post("/repos", status_code=201)
     def connect(body: dict = Body(...), x_dpdp_token: str | None = Header(None)):
         need(x_dpdp_token)
+        st.connect_calls.append(body)
         for r in st.repos:
             if r["full_name"].lower() == body["full_name"].lower():
                 return repo_out(r)
-        if body["full_name"] != "acme/tutornest":
+        if body["full_name"] != "acme/tutornest" and not body.get("installation_id"):
             raise HTTPException(403, f"{body['full_name']} is not in DPDP_ALLOWED_REPOS")
         r = {"id": len(st.repos) + 1, "full_name": body["full_name"], "branch": body["branch"], "slack_channel": body["slack_channel"]}
         st.repos.append(r)
         return repo_out(r)
+
+    @app.get("/github/installations")
+    def github_installations(x_dpdp_token: str | None = Header(None)):
+        need(x_dpdp_token)
+        if st.installs is None:
+            raise HTTPException(503, "the GitHub App is not configured on the engine")
+        return st.installs
+
+    @app.get("/github/installations/{iid}/repos")
+    def github_repos(iid: int, x_dpdp_token: str | None = Header(None)):
+        need(x_dpdp_token)
+        known = {r["full_name"].lower() for r in st.repos}
+        return [{**r, "connected": r["full_name"].lower() in known} for r in st.gh_repos.get(iid, [])]
 
     @app.get("/repos")
     def repos():

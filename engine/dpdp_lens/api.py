@@ -54,9 +54,10 @@ def default_db_path() -> Path:
 
 
 def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR, state_dir=None,
-               pdf_fn=render_pdf, store=None) -> FastAPI:
+               pdf_fn=render_pdf, store=None, github=None) -> FastAPI:
     """state_dir=None keeps everything in memory only (the tests). The real app below passes default_state_dir().
-    store=None leaves out the repo, finding and audit routes (api_v2). Pass Store(":memory:") in tests that need them."""
+    store=None leaves out the repo, finding and audit routes (api_v2). Pass Store(":memory:") in tests that need them.
+    github is a GitHubApp for tests; None builds one from the GITHUB_APP_* environment when it is needed."""
     root = Path(repo_root).resolve() if repo_root else default_repo_root()
     app = FastAPI(title="DPDP Lens engine")
     app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN, allow_methods=["*"], allow_headers=["*"])
@@ -237,7 +238,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
                 "mode": used, "fallback_reason": reason, "verification": vlog}
 
-    core = SimpleNamespace(scans=scans, inputs=inputs, save=save, new_scan_id=new_scan_id, fix_lock=fix_lock, fix_fn=fix_fn, golden_dir=golden_dir, store=store)
+    core = SimpleNamespace(scans=scans, inputs=inputs, save=save, new_scan_id=new_scan_id, fix_lock=fix_lock, fix_fn=fix_fn, golden_dir=golden_dir, store=store, github=github)
     app.state.core = core
     if store is not None:
         app.include_router(create_router(store, core))

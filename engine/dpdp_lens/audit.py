@@ -13,9 +13,10 @@ from .store import Store
 
 TYPES = {"repo_connected", "scan_started", "scan_completed", "scan_incomplete", "scan_failed", "finding_created",
          "finding_resolved", "finding_reopened", "status_changed", "baseline_set", "watch_changed", "fix_started",
-         "fix_verified", "fix_failed", "policy_changed"}
+         "fix_verified", "fix_failed", "policy_changed", "github_installed"}
 GENESIS = "0" * 64
-_TOKEN = re.compile(r"xox[abeprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}")
+_TOKEN = re.compile(r"xox[abeprs]-[A-Za-z0-9-]+|xapp-[A-Za-z0-9-]+|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}"
+                    r"|eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}")  # last: a JWT (the GitHub App's)
 
 
 def now() -> str:
@@ -23,7 +24,7 @@ def now() -> str:
 
 
 def redact(text: str) -> str:
-    """Replace anything that looks like a Slack or GitHub token."""
+    """Replace anything that looks like a Slack or GitHub token (ghp_, gho_, ghu_, ghs_ installation tokens, ghr_) or a JWT."""
     return _TOKEN.sub("[redacted]", text)
 
 

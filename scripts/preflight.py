@@ -28,7 +28,7 @@ SECRET_VARS = ("DPDP_API_TOKEN", "VITE_DPDP_TOKEN", "SLACK_BOT_TOKEN", "SLACK_AP
 REQUIRED = ("DPDP_API_TOKEN", "VITE_DPDP_TOKEN", "DPDP_ALLOWED_REPOS", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_CHANNEL")
 RECOMMENDED = {"DPDP_FIX_REPOS": "without it no Fix and verify button works", "SLACK_APPROVERS": "without it nobody can approve a fix in Slack",
                "GITHUB_TOKEN": "only needed for a private repo"}
-SHAPES = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|gh[pousr]_\w+|github_pat_\w+")
+SHAPES = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|gh[pousr]_\w+|github_pat_\w+|eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{6,}")
 REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 DEMO_REPO = "Tanish18906/acme-tutornest"
 PLACEHOLDER = re.compile(r"replace|placeholder|changeme|your[-_]|example|xxxx", re.I)
@@ -272,8 +272,74 @@ def check_dashboard(env, get=httpx.get):
     return Result("dashboard", "PASS" if status == 200 else "FAIL", f"{url} answered {status}", "" if status == 200 else "read the dashboard log")
 
 
-ENV_CHECKS = (check_vars, check_token_formats, check_slack_ids, check_vite_matches, check_allowlist, check_monitor, check_db)
-NETWORK_CHECKS = ((check_git, "github repo"), (check_slack, "slack bot token"))
+# ---- GitHub App (block 08). Every check SKIPs when none of its three settings is set, so the old GITHUB_TOKEN setup still passes.
+
+APP_VARS = ("GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_SLUG")
+
+
+def _app_unset(env) -> bool:
+    return not any(env.get(n) for n in APP_VARS)
+
+
+def check_app_vars(env):
+    if _app_unset(env):
+        return Result("github app vars", "SKIP", "GITHUB_APP_* not set: the app flow is off, GITHUB_TOKEN and the allowlist still work")
+    missing = [n for n in APP_VARS if not env.get(n)]
+    if missing:
+        return Result("github app vars", "FAIL", "missing: " + ", ".join(missing), "set all three (docs/github-app-setup.md)")
+    if env.get("DPDP_API_TOKEN", "") == "":
+        return Result("github app vars", "FAIL", "DPDP_API_TOKEN is not set: it signs the install link", "set DPDP_API_TOKEN")
+    return Result("github app vars", "PASS", f"app {env['GITHUB_APP_ID']}, slug {env['GITHUB_APP_SLUG']}")
+
+
+def _app_jwt(env):
+    """(jwt, None) or (None, Result) for the key and JWT checks. Reuses the engine's own key reader, so the same rules apply."""
+    try:
+        from dpdp_lens import github_app
+    except ImportError:
+        return None, Result("github app key", "FAIL", "the engine package or PyJWT is not installed in this Python", "pip install -e engine")
+    try:
+        return github_app.build_jwt(env["GITHUB_APP_ID"], github_app.read_key(env["GITHUB_APP_PRIVATE_KEY_PATH"])), None
+    except github_app.GitHubAppError as e:
+        return None, Result("github app key", "FAIL", str(e), "the file must be the app's downloaded .pem, mode 600 (chmod 600 <file>)")
+
+
+def check_app_key(env):
+    if _app_unset(env) or not (env.get("GITHUB_APP_ID") and env.get("GITHUB_APP_PRIVATE_KEY_PATH")):
+        return Result("github app key", "SKIP", "GitHub App not configured")
+    token, failed = _app_jwt(env)
+    return failed or Result("github app key", "PASS", "key file exists, is not readable by group or others, and parses")
+
+
+def check_app_jwt(env):
+    if _app_unset(env) or not (env.get("GITHUB_APP_ID") and env.get("GITHUB_APP_PRIVATE_KEY_PATH")):
+        return Result("github app jwt", "SKIP", "GitHub App not configured")
+    token, failed = _app_jwt(env)
+    return Result("github app jwt", "FAIL", "no JWT without a readable key", "fix the key check first") if failed else Result("github app jwt", "PASS", "an app JWT can be built (RS256, 9 minutes)")
+
+
+def check_app_live(env, get=httpx.get):
+    """GET /app with the app JWT: 200 and our slug mean the key, the app id and the slug belong together."""
+    if _app_unset(env) or not all(env.get(n) for n in APP_VARS):
+        return Result("github app", "SKIP", "GitHub App not configured")
+    token, failed = _app_jwt(env)
+    if failed:
+        return Result("github app", "SKIP", "no JWT: see the key check")
+    try:
+        r = get("https://api.github.com/app", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}, timeout=8)
+    except httpx.TransportError:
+        return Result("github app", "FAIL", "no network: cannot reach api.github.com", "connect to Wi-Fi or a phone hotspot")
+    if r.status_code != 200:
+        return Result("github app", "FAIL", f"GET /app answered {r.status_code}", "check GITHUB_APP_ID and that the .pem belongs to this app (401 means they do not match)")
+    slug = r.json().get("slug", "") if r.headers.get("content-type", "").startswith("application/json") else ""
+    if slug != env["GITHUB_APP_SLUG"]:
+        return Result("github app", "FAIL", f"the app's slug is {slug or 'unknown'}, not {env['GITHUB_APP_SLUG']}", "set GITHUB_APP_SLUG to the slug in the app's public URL")
+    return Result("github app", "PASS", f"GET /app 200, slug {slug}")
+
+
+ENV_CHECKS = (check_vars, check_token_formats, check_slack_ids, check_vite_matches, check_allowlist, check_monitor, check_db,
+              check_app_vars, check_app_key, check_app_jwt)
+NETWORK_CHECKS = ((check_git, "github repo"), (check_slack, "slack bot token"), (check_app_live, "github app"))
 SERVICE_CHECKS = (check_engine, check_engine_auth, check_dashboard)
 
 

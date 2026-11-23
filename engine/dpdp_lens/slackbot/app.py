@@ -44,6 +44,21 @@ def register(app, ctx: Ctx, pool: ThreadPoolExecutor) -> None:
         channel, ts = where(body)
         actions.change_status(ctx, body["user"]["id"], channel, ts, action["selected_option"]["value"], body["trigger_id"], client.views_open)
 
+    @app.action("dpdp_github_link")
+    def on_github_link(ack):
+        ack()  # a link button still sends an event when clicked: nothing to do, the browser opens the link
+
+    @app.action("dpdp_repo_pick")
+    def on_repo_pick(ack):
+        ack()  # the choice is read from the select's state when Connect is clicked
+
+    @app.action("dpdp_repo_connect")
+    def on_repo_connect(ack, body, respond):
+        ack()
+        picked = (body.get("state", {}).get("values", {}).get("repo_pick", {}).get("dpdp_repo_pick", {}).get("selected_option") or {}).get("value", "")
+        reply = lambda text, blocks=None: respond(text=text, blocks=blocks, replace_original=False, response_type="ephemeral")  # noqa: E731
+        pool.submit(safe, actions.connect_picked, ctx, body["user"]["id"], body["channel"]["id"], picked, reply)
+
     @app.action("dpdp_fix")
     def on_fix(ack, body, action):
         ack()
