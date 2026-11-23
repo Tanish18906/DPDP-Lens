@@ -2,13 +2,14 @@
 and return (file, line), or ("", 0) when nothing matches. File paths are relative to app_root, POSIX style."""
 import ast
 import fnmatch
+import contextvars
 import os
 import re
 from pathlib import Path
 
 SKIP_DIRS = {"node_modules", ".venv", "venv", "dist", "build", ".git", "__pycache__", ".dpdp-state", "golden"}
-SKIP_SUFFIXES = (".db", ".log")
-SKIP_FILES = {"package-lock.json"}
+SKIP_SUFFIXES = (".db", ".log", ".min.js", ".map")  # noise: skipped silently, no scan error
+SKIP_FILES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 NONE = ("", 0)
 METHODS = {"get", "post", "put", "delete", "patch"}
 
@@ -19,6 +20,16 @@ MAX_BYTES = 1_000_000
 
 class Capped(Exception):
     """A scan limit was hit. The runner records it as a ScanError of kind "capped": the scan is not complete."""
+
+
+class TooLarge(OSError):
+    """A file over MAX_BYTES. It is an OSError so a scanner that already skips unreadable files skips this one too."""
+
+
+# The runner sets this list before a scanner runs (and copies the context into the scanner thread). read_capped adds
+# the path of every skipped file, so the scanner still returns findings from its other files and the runner can
+# record one "capped" ScanError and treat the scanner's checks as not fully run.
+SKIPPED: contextvars.ContextVar = contextvars.ContextVar("skipped_files", default=None)
 
 
 def _files(root, limit=None):
@@ -41,10 +52,12 @@ def _files(root, limit=None):
 
 
 def read_capped(root, rel) -> str:
-    """Text of a scanned file. Raises Capped above MAX_BYTES, so a file is never half read and called clean."""
+    """Text of a scanned file. A file over MAX_BYTES is skipped and noted in SKIPPED (raises TooLarge)."""
     path = Path(root) / rel
     if path.stat().st_size > MAX_BYTES:
-        raise Capped(f"{rel} is larger than {MAX_BYTES} bytes")
+        if (noted := SKIPPED.get()) is not None:
+            noted.append(rel)
+        raise TooLarge(f"{rel} is larger than {MAX_BYTES} bytes")
     return path.read_text()
 
 

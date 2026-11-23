@@ -13,7 +13,7 @@ from dpdp_lens.checks import CHECKS
 from dpdp_lens.fingerprint import RULES, fingerprint, fingerprints
 from dpdp_lens.locator import Capped, _files
 from dpdp_lens.runner import SCANNER_CHECKS, STATIC_SCANNERS, run_scan
-from dpdp_lens.scanners import log_scan
+from dpdp_lens.scanners import config_scan, frontend_scan, log_scan
 from test_contract import load_sample
 
 TARGET_APP = BACKEND.parent
@@ -165,12 +165,41 @@ def test_more_than_the_file_limit_is_a_cap_not_a_clean_scan(tmp_path):
     assert len(list(_files(tmp_path, limit=6))) == 6
 
 
-def test_file_over_1mb_is_recorded_as_capped(tmp_path):
-    (tmp_path / "big.py").write_text("x = 1\n" + "#" * 1_000_001)
+BIG = "#" * 1_000_001
+
+
+def test_file_over_1mb_is_skipped_and_recorded_but_other_files_still_give_findings(tmp_path):
+    (tmp_path / "big.py").write_text("x = 1\n" + BIG)
+    (tmp_path / "ok.py").write_text("import logging\nlog = logging.getLogger('a')\nlog.info('x', email)\n")
     r = run_scan("", str(tmp_path), "", scanners=[LOG_SCAN])
+    assert [f.check for f in r.findings] == ["log_pii"]  # the other file was still scanned
     assert [(e.scanner, e.kind) for e in r.scan_errors] == [("log_scan", "capped")] and r.complete is False
     assert "big.py" in r.scan_errors[0].message
+    # the scanner did not see everything, so its check is not "run": a later ingest must not resolve findings from it
     assert r.coverage.checks_run == [] and r.coverage.scanners_failed == ["log_scan"]
+
+
+def test_noise_files_over_1mb_are_skipped_silently(tmp_path):
+    for rel in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "frontend/app.min.js", "frontend/app.js.map", "dist/big.js",
+                "node_modules/x/big.py", "build/big.py"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(BIG)
+    (tmp_path / "frontend" / "ok.js").write_text("const a = 1;\n")
+    scanners = [LOG_SCAN, ("config_scan", lambda t, repo, db, fe: config_scan.scan(repo)),
+                ("frontend_scan", lambda t, repo, db, fe: frontend_scan.scan(repo))]
+    r = run_scan("", str(tmp_path), "", scanners=scanners)
+    assert r.scan_errors == [] and r.complete is True
+    assert set(r.coverage.checks_run) == {"log_pii", "fe_pii_in_storage"} | {c for c in CHECKS if c.startswith("config_")}
+
+
+def test_big_file_that_is_not_noise_marks_the_other_walkers_incomplete_too(tmp_path):
+    (tmp_path / "frontend").mkdir()
+    (tmp_path / "frontend" / "bundle.js").write_text(BIG)
+    (tmp_path / "settings.yml").write_text("a: 1\n" + BIG)
+    r = run_scan("", str(tmp_path), "", scanners=[("config_scan", lambda t, repo, db, fe: config_scan.scan(repo)),
+                                                   ("frontend_scan", lambda t, repo, db, fe: frontend_scan.scan(repo))])
+    assert sorted((e.scanner, e.kind) for e in r.scan_errors) == [("config_scan", "capped"), ("frontend_scan", "capped")]
+    assert r.complete is False and r.coverage.checks_run == []
 
 
 # ---- fingerprints

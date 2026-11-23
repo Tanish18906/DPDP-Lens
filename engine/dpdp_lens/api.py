@@ -7,14 +7,16 @@ import threading
 import time
 from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Body, FastAPI, Header, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+from .api_v2 import create_router, require_token
 from .fixer.notice_align import NOTICE_ALIGN
 from .fixer.templates import TEMPLATES, PatchError
 from .fixer.verify import GOLDEN_DIR, load_golden, verify_fix
@@ -23,6 +25,7 @@ from .models import Fix, ScanResult, compute_counts, compute_score
 from .report import render_pdf, render_report
 from .sarif import to_sarif
 from .runner import run_scan
+from .store import Store
 
 log = logging.getLogger("dpdp_lens")
 LOCAL_ORIGIN = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
@@ -44,9 +47,15 @@ def default_state_dir() -> Path:
     return Path(os.environ.get("DPDP_STATE_DIR") or default_repo_root() / ".dpdp-state")
 
 
+def default_db_path() -> Path:
+    """The finding store (repos, findings, audit events). DPDP_DB overrides it."""
+    return Path(os.environ.get("DPDP_DB") or default_state_dir() / "dpdp.db")
+
+
 def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=GOLDEN_DIR, state_dir=None,
-               pdf_fn=render_pdf) -> FastAPI:
-    """state_dir=None keeps everything in memory only (the tests). The real app below passes default_state_dir()."""
+               pdf_fn=render_pdf, store=None) -> FastAPI:
+    """state_dir=None keeps everything in memory only (the tests). The real app below passes default_state_dir().
+    store=None leaves out the repo, finding and audit routes (api_v2). Pass Store(":memory:") in tests that need them."""
     root = Path(repo_root).resolve() if repo_root else default_repo_root()
     app = FastAPI(title="DPDP Lens engine")
     app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN, allow_methods=["*"], allow_headers=["*"])
@@ -100,6 +109,15 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(400, f"{name} must be inside the project folder ({root}): {given}")
         return path
 
+    def new_scan_id(scan_inputs: tuple) -> str:
+        """The next S-NNN. Legacy scans and repo scans (api_v2) share one counter, one dict and the state files."""
+        with lock:
+            scan_id = f"S-{next_n[0]:03d}"
+            next_n[0] += 1
+            scans[scan_id] = {"status": "running"}
+            inputs[scan_id] = scan_inputs
+        return scan_id
+
     def _run(scan_id: str, target_url: str, repo_path: str, db_path: str):
         steps = timings.setdefault(scan_id, [])  # finished steps with their measured ms
         current = {"step": None, "at": time.monotonic()}
@@ -135,11 +153,7 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             raise HTTPException(400, f"repo_path is not a folder: {req.repo_path}")
         if not db_path.is_file():
             raise HTTPException(400, f"db_path is not a file: {req.db_path}")
-        with lock:
-            scan_id = f"S-{next_n[0]:03d}"
-            next_n[0] += 1
-            scans[scan_id] = {"status": "running"}
-            inputs[scan_id] = (str(repo_path), str(db_path))
+        scan_id = new_scan_id((str(repo_path), str(db_path)))
         background.add_task(_run, scan_id, req.target_url, str(repo_path), str(db_path))
         return {"scan_id": scan_id}
 
@@ -196,12 +210,20 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
             "X-Content-Type-Options": "nosniff"})
 
     @app.post("/findings/{finding_id}/fix")
-    def fix_finding(finding_id: str, scan_id: str, mode: Literal["live", "cached"] = "live"):
+    def fix_finding(finding_id: str, scan_id: str | None = None, mode: Literal["live", "cached"] = "live", body: dict | None = Body(None),
+                    x_dpdp_token: str | None = Header(None)):
+        if finding_id.startswith("DPDP-") and store is not None:  # a stored finding: api_v2 owns it (FIX_REPOS, audit)
+            require_token(x_dpdp_token)
+            return core.fix_human(finding_id, mode, str((body or {}).get("actor") or "api")[:100])
+        if scan_id is None:
+            raise HTTPException(422, "query.scan_id: Field required")
         scan = scans.get(scan_id)
         if scan is None:
             raise HTTPException(404, f"Unknown scan {scan_id}")
         if not isinstance(scan, ScanResult):
             raise HTTPException(409, f"Scan {scan_id} is not finished")
+        if inputs[scan_id][0].startswith("repo:"):
+            raise HTTPException(409, "this is a connected repo scan: fix its findings with POST /findings/DPDP-NNN/fix")
         with fix_lock:
             try:
                 fixed, updated, used, reason, vlog = apply_fix(
@@ -214,6 +236,9 @@ def create_app(scan_fn=run_scan, repo_root=None, fix_fn=verify_fix, golden_dir=G
         return {"finding": fixed, "score_before": scan.score, "score_after": updated.score,
                 "mode": used, "fallback_reason": reason, "verification": vlog}
 
+    core = SimpleNamespace(scans=scans, inputs=inputs, save=save, new_scan_id=new_scan_id, fix_lock=fix_lock, fix_fn=fix_fn, golden_dir=golden_dir)
+    if store is not None:
+        app.include_router(create_router(store, core))
     return app
 
 
@@ -278,4 +303,4 @@ def _golden_fix(golden: dict, score_before: int) -> Fix:
                kind=golden.get("kind"), pending_inputs=golden.get("pending_inputs"))
 
 
-app = create_app(state_dir=default_state_dir())
+app = create_app(state_dir=default_state_dir(), store=Store(default_db_path()))

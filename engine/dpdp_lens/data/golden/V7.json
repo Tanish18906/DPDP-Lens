@@ -2,7 +2,7 @@
   "golden_id": "V7",
   "check": "erasure_incomplete",
   "source": "live",
-  "saved_at": "2026-11-23T18:31:01+00:00",
+  "saved_at": "2026-11-23T18:49:01+00:00",
   "diff": "--- a/app/db.py\n+++ b/app/db.py\n@@ -109,7 +109,7 @@\n     return student_id\n \n def delete_student(student_id: int) -> bool:\n-    # PLANTED V7\n+    # PLANTED V7 (fixed: the row is deleted, nothing is copied to students_backup)\n     # Soft-delete: only sets is_deleted=1 and duplicates the full row into students_backup\n     # Leaves PII in both tables indefinitely in violation of DPDP s8(7)\n     conn = get_connection()\n@@ -119,16 +119,7 @@\n     if not row:\n         conn.close()\n         return False\n-    row_dict = dict(row)\n-    cursor.execute(\"\"\"\n-        INSERT INTO students_backup (name, email, phone, dob, age, aadhaar, parent_pan, password_hash, role, is_deleted, created_at)\n-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)\n-    \"\"\", (\n-        row_dict[\"name\"], row_dict[\"email\"], row_dict[\"phone\"], row_dict[\"dob\"],\n-        row_dict[\"age\"], row_dict[\"aadhaar\"], row_dict[\"parent_pan\"],\n-        row_dict[\"password_hash\"], row_dict[\"role\"], row_dict[\"created_at\"]\n-    ))\n-    cursor.execute(\"UPDATE students SET is_deleted=1 WHERE id=?\", (student_id,))\n+    cursor.execute(\"DELETE FROM students WHERE id=?\", (student_id,))\n     conn.commit()\n     conn.close()\n     return True\n",
   "verified": true,
   "rescan_passed": true,

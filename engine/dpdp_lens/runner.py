@@ -1,4 +1,5 @@
 """Runs the scanners in a fixed order and builds the ScanResult (docs/05 Runner)."""
+import contextvars
 import json
 import logging
 from importlib import metadata
@@ -11,7 +12,7 @@ from urllib.parse import urlparse
 from . import config
 from .checks import CHECKS
 from .fingerprint import fingerprints
-from .locator import Capped, find_column, find_route, find_text
+from .locator import SKIPPED, Capped, find_column, find_route, find_text
 from .models import Clause, Coverage, Finding, ScanError, ScanResult, compute_counts, compute_score
 from .scanners import api_scan, browser_scan, children_scan, config_scan, consent_scan, contact_scan, frontend_scan, db_scan, erasure_scan, idor_probe, log_scan, notice_drift
 
@@ -51,10 +52,13 @@ STATIC_SCANNERS = ["log_scan", "config_scan", "frontend_scan", "consent_scan"]
 STATIC_CHECKS = {"consent_scan": ["consent_not_recorded"]}
 
 
-def _run(fn, args, timeout):
+def _run(fn, args, timeout, skipped=None):
+    """skipped: the list the scanner's thread fills (through locator.SKIPPED) with files it skipped as too large."""
+    ctx = contextvars.copy_context()
+    ctx.run(SKIPPED.set, skipped)  # only the copy changes, the caller's context is untouched
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        return pool.submit(fn, *args).result(timeout=timeout)
+        return pool.submit(ctx.run, fn, *args).result(timeout=timeout)
     finally:
         # shortcut: a hung scanner thread cannot be killed, it is only abandoned. Upgrade to subprocess if it matters.
         pool.shutdown(wait=False)
@@ -140,9 +144,16 @@ def run_scan(target_url: str, repo_path: str, db_path: str, scanners=None, timeo
     def attempt(name, fn, args, i):
         """(result, True) or (None, False). A failure is recorded in scan_errors and never reads as "no findings"."""
         progress and progress(name, i, total)
+        skipped = []  # files over the size cap, filled by locator.read_capped inside the scanner
         try:
-            result = _run(fn, args, timeout)
-            finished.append(name)
+            result = _run(fn, args, timeout, skipped)
+            if skipped:  # findings of the other files are kept, but the scanner did not see everything
+                names = sorted(set(skipped))
+                message = f"skipped {len(names)} file(s) over 1 MB: {', '.join(names[:3])}" + (", ..." if len(names) > 3 else "")
+                scan_errors.append(ScanError(scanner=name, kind="capped", message=" ".join(message.split())[:300]))
+                errors is None or errors.append(f"{name}: {scan_errors[-1].message}")
+            else:
+                finished.append(name)
             return result, True
         except ScannerTimeout:
             kind, message = "timeout", f"timed out after {timeout}s"

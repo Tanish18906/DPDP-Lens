@@ -174,14 +174,42 @@ The `scan` command has two more flags: `--pretty` prints the grouped list instea
 
 `scan.sarif` is SARIF 2.1.0: one rule per check, one result per open finding, severity mapped to error (critical, high), warning (medium) and note (low), clauses in the rule help text. The engine also serves it at `GET /scan/{scan_id}/sarif`. Only masked text is included. Not tested: validation against the official SARIF JSON schema and an upload to GitHub code scanning, because we worked offline.
 
+## Finding store and repo API
+
+Findings of connected repos get stable IDs (DPDP-001, never reused), a triage status (open, in_progress, fixed, false_positive, wont_fix) and an append-only audit log, in one SQLite file (`DPDP_DB`, default `.dpdp-state/dpdp.db`, WAL mode). A scan resolves a finding only when its check actually ran in that scan (`coverage.checks_run`), so an incomplete or static scan never marks something fixed that it could not look at. "Fixed" is set by a scan or a verified fix, never by hand.
+
+| Env var | Meaning |
+|---------|---------|
+| `DPDP_API_TOKEN` | Required header value `X-DPDP-Token` for every change (POST, PATCH, PUT on the routes below). Unset: all changes are refused. |
+| `DPDP_ALLOWED_REPOS` | Comma separated `owner/name` list that may be connected and scanned. Empty: none. |
+| `DPDP_FIX_REPOS` | Comma separated list whose code may be run by a live fix. Empty: none. |
+| `DPDP_DB` | Path of the SQLite file. |
+| `DPDP_STATE_DIR` | Folder of saved scans (exists already). |
+| `GITHUB_TOKEN` | Optional, for private repos. Read from the environment only, given to git through `GIT_ASKPASS`, never in a URL, argument, log or event. |
+
+| Route | What it does |
+|-------|--------------|
+| `POST /repos`, `GET /repos` | Connect an allowlisted repo (403 if not allowlisted, 422 for a bad name), list repos with health. |
+| `POST /repos/{id}/scan` | Shallow clone, static scan, store (202, `{scan_id}`). The scan is also reachable by the legacy `/scan/{id}`, `/report/{id}` and SARIF routes. |
+| `GET /scans/{scan_id}/delta`, `GET /repos/{id}/health`, `GET /repos/{id}/history` | New, reopened and resolved findings, healthy / changed / at_risk / unknown, scan history. |
+| `POST /repos/{id}/baseline`, `POST /repos/{id}/watch` | Set the baseline explicitly (a scan never replaces it), set the re-scan interval. |
+| `GET /findings`, `GET /findings/{id}`, `PATCH /findings/{id}/status`, `PUT /findings/{id}/slack` | List with filters, detail with events, change status, link a Slack message. |
+| `POST /findings/{id}/fix?mode=live\|cached` | Fix and verify a stored finding (same loop as before, on a fresh checkout of the scanned commit). The stored scan is never edited. |
+| `GET /outbox?after=N`, `GET /audit/events`, `GET /audit/verify` | Change feed for the Slack bot, audit events, hash chain check. |
+
+Health is "unknown" whenever the latest scan is incomplete or failed, never green. Until the policy file lands (a later block), "blocking" means critical or high severity.
+
 ## What it does NOT do
 
 - It is a readiness report, **never a compliance certificate**. A clean scan does not mean compliance.
-- A scanner that fails, times out or hits a limit (5000 files, 1 MB per file) is reported in `scan_errors`, sets `complete: false` and its checks are not counted as run (`coverage`). The score of such a scan is not a clean result. The dashboard banner for this comes later.
+- A scanner that fails, times out or hits a limit is reported in `scan_errors` and sets `complete: false`; the score of such a scan is not a clean result. A file over 1 MB is skipped and recorded (the scanner still returns findings from its other files, but its checks are then not counted as run in `coverage`); more than 5000 files stops that scanner. Lockfiles, `*.min.js`, `*.map` and build folders are skipped silently. The dashboard banner for this comes later.
+- When two findings in one scan share a fingerprint, the second gets an occurrence number, so fixing the first can make the second look new.
 - Localhost and private-IP targets only. Scan only apps you own.
 - A small subset of DPDP duties is checked. Not detected yet: the `age` field in notice drift. JavaScript and TypeScript source is not scanned for secrets, and consent kept outside the scanned source cannot be seen.
 - Only a FastAPI + SQLite target is tested. Finished scans and fix results are saved as JSON in `.dpdp-state/` (git-ignored, `DPDP_STATE_DIR` overrides) and reloaded when the engine restarts. A scan that is still running when the engine stops is lost.
-- No authentication on the engine API. See [docs/threat-model.md](docs/threat-model.md).
+- No authentication on the legacy scan routes (`POST /scan`, fix, report). The repo, finding and audit routes below need the `X-DPDP-Token` header for every change. See [docs/threat-model.md](docs/threat-model.md).
+- Connected repos: only repos in `DPDP_ALLOWED_REPOS` can be connected (empty means none), and they get the static checks only (9 of 19, no live probes). Only repos in `DPDP_FIX_REPOS` get a live fix, because the fix runs that repo's own `seed.py`, app and tests.
+- The audit log is tamper-evident, not tamper-proof: every event holds the hash of the one before, so an edited or deleted event is detected by `GET /audit/verify`, but anyone who can write the database file can rewrite the whole chain or cut events off the end.
 
 ## Safe use
 
