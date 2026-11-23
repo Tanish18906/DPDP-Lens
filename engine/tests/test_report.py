@@ -34,7 +34,7 @@ def test_sample_scan_report_has_everything_a_reader_needs():
         assert f.id in html and escape(f.title) in html and escape(f.evidence.summary) in html  # shown escaped (T&amp;C)
         assert all(escape(c.ref) in html for c in f.clauses)
     assert "Act s8(5)" in html and "reasonable security safeguards" in html
-    assert "3 of 6 data fields are collected but not disclosed" in html
+    assert "3 of 6 data fields the app handles are not in its privacy notice" in html
     assert html.count("Not in the notice") == 3 and "<code>aadhaar</code>" in html
     assert "s8(7) may be exempt. s8(5) still applies." in html
 
@@ -136,7 +136,7 @@ def test_report_after_a_live_fix_shows_verified_fixed(target, target_db, tmp_pat
     assert c.post(f"/findings/{v1['id']}/fix", params={"scan_id": "S-001"}).status_code == 200
     html = c.get("/report/S-001").text
     assert "Status: Verified fixed" in html and "Verified on a sandbox copy. Re-scan passed" in html and "Cached golden" not in html
-    assert "Score 13 to 33" in html and "get_admin_user" in html and "3 of 6 data fields are collected" in html
+    assert "Score 13 to 33" in html and "get_admin_user" in html and "3 of 6 data fields the app handles" in html
     assert "<script" not in html
 
 
@@ -148,3 +148,43 @@ def test_report_marks_a_cached_replay(tmp_path):
     assert c.post("/findings/F-001/fix", params={"scan_id": "S-001", "mode": "cached"}).status_code == 200
     html = c.get("/report/S-001").text
     assert "Cached golden patch mode" in html and "Replayed from a saved verified run" in html
+
+
+def test_pdf_endpoint_returns_a_pdf_download(tmp_path):
+    seen = {}
+
+    def fake_pdf(html, scan_id):
+        seen.update(html=html, scan_id=scan_id)
+        return b"%PDF-1.4 fake"
+
+    r = client(tmp_path, pdf_fn=fake_pdf).get("/report/S-001.pdf")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+    assert 'filename="dpdp-lens-S-001.pdf"' in r.headers["content-disposition"]
+    assert seen["scan_id"] == "S-001" and "DPDP Lens: readiness report - S-001" in seen["html"]
+
+
+def test_pdf_endpoint_without_a_browser_is_a_clear_json_error(tmp_path):
+    def no_browser(html, scan_id):
+        raise RuntimeError("Executable doesn't exist")
+
+    c = client(tmp_path, pdf_fn=no_browser)
+    r = c.get("/report/S-001.pdf")
+    assert r.status_code == 503 and r.json()["detail"] == "PDF needs Chromium or Chrome, use the HTML report"
+    assert c.get("/report/S-404.pdf").status_code == 404
+    assert c.get("/report/S-001").status_code == 200  # the HTML route still works next to the .pdf one
+
+
+def test_render_pdf_makes_a_real_a4_pdf():
+    from dpdp_lens.report import render_pdf
+    pdf = render_pdf(render_report(SAMPLE), "S-001")
+    boxes = {tuple(round(float(x)) for x in m.split()) for m in re.findall(rb"/MediaBox\s*\[([^\]]*)\]", pdf)}
+    assert pdf.startswith(b"%PDF") and boxes == {(0, 0, 596, 843)}  # A4 (595 x 842 points, Chromium rounds up)
+
+
+def test_score_line_shows_score_at_scan_and_now_after_a_fix():
+    fixed = finding("F-001", "critical", status="verified_fixed")
+    scan = SAMPLE.model_copy(update={"findings": [fixed, *SAMPLE.findings[1:]]})
+    scan = scan.model_copy(update={"score": compute_score(scan.findings)})
+    html = render_report(scan)
+    assert f"Score at scan {SAMPLE.score}, now {scan.score} after 1 verified fix" in html
+    assert "Score at scan" not in render_report(SAMPLE)

@@ -46,11 +46,11 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - Do not click Run scan again after a fix. Fixes go to a sandbox copy and the original app is never patched, so a new scan reads 0 again. Say "the patch is a download you apply yourself" if asked.
 - A live scan writes to `demo.db` (the erasure check signs up and deletes a synthetic user). Re-seed with `cd target-app/backend && ../../.venv/bin/python seed.py`, or just restart `./run_demo.sh`.
 - Finished scans survive an engine restart (saved in `.dpdp-state/`, git-ignored). A scan that was still running is lost. `rm -rf .dpdp-state` clears them before a fresh demo.
-- The Export report button opens the engine's HTML report in a new tab (about 4 printed pages). In cached mode the report carries the same "Cached golden patch mode" label.
+- Export report is a menu: PDF (A4 download, about 8 pages, needs Chromium or Chrome on the engine machine), HTML (new tab), JSON (the scan result) and SARIF. It is hidden in sample mode. In cached mode the report carries the same "Cached golden patch mode" label.
 - Chrome or Chromium must be installed for the browser findings. Not tested without it; expect the browser findings to be missing, like with the frontend down.
 
 ## How to run the gates
-`scripts/run_gates.sh` runs six Playwright gates (85 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
+`scripts/run_gates.sh` runs six Playwright gates (88 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
 
     scripts/run_gates.sh
 

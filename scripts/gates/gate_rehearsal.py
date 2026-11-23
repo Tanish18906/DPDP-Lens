@@ -1,6 +1,8 @@
 """The docs/demo-script.md path on the live stack, with timings: scan, critical finding, fix V1, drift, data flow,
 V3 and V5 fixes, report. Needs the demo stack (./run_demo.sh)."""
 import re
+import shutil
+import subprocess
 import time
 
 from playwright.sync_api import sync_playwright
@@ -8,6 +10,8 @@ from playwright.sync_api import sync_playwright
 import common as c
 
 RAW = re.compile(r"\b\d{12}\b|\b\d{4}\s\d{4}\s\d{4}\b|\b[6-9]\d{9}\b|\b[\w.]+@[\w.]+\.\w+\b")  # raw Aadhaar, phone, email
+# In PDF text: an unmasked Aadhaar (12 digits), a full PAN (masks start XXXXX) or a full Indian mobile number.
+PDF_PII = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b|\b(?!X{5})[A-Z]{5}\d{4}[A-Z]\b|\b(?:\+91[\s-]?)?[6-9]\d{9}\b")
 g, T, t0 = c.Gate("rehearsal"), {}, [time.perf_counter()]
 
 
@@ -72,8 +76,24 @@ with sync_playwright() as p:
     s = c.summary(page)
     g.check("gauge 38, history 0 to 38", " 38 " in f" {s} " and "0 to 38" in s, s[:120])
     c.shot(page, "rehearsal-4-after-3-fixes", top=True)
+    page.get_by_role("button", name="Export report").click()
+    items = page.get_by_role("menuitem").all()
+    fmts = {m.locator("span").first.inner_text(): m.get_attribute("href") for m in items}
+    g.check("export menu: PDF, HTML, JSON, SARIF only", list(fmts) == ["PDF", "HTML", "JSON", "SARIF"], str(list(fmts)))
+    got = {k: page.request.get(v) for k, v in fmts.items()}
+    g.check("export: every format is a real 200 from the engine",
+            all(r.status == 200 for r in got.values()) and got["PDF"].headers["content-type"] == "application/pdf"
+            and got["JSON"].json()["scan_id"] and got["SARIF"].json()["version"] == "2.1.0", str({k: r.status for k, r in got.items()}))
+    pdf_path = c.SHOT_DIR / "report-sample.pdf"
+    pdf_path.write_bytes(got["PDF"].body())
+    tool = shutil.which("pdftotext")
+    text = subprocess.run([tool, "-layout", str(pdf_path), "-"], capture_output=True, text=True).stdout if tool else ""
+    leaks = PDF_PII.findall(text)
+    g.check("pdf: masked evidence only (no unmasked Aadhaar, PAN or phone), footer and score line present",
+            bool(tool) and not leaks and "Main duties apply from 13 May 2027" in text and "Score at scan 0, now 38" in text
+            and "XXXX XXXX" in text, "pdftotext not found, install poppler-utils" if not tool else str(leaks[:3]))
     with page.context.expect_page() as pop:
-        page.get_by_role("button", name="Export report").click()
+        page.get_by_role("menuitem", name="HTML").click()
     rp = pop.value
     rp.wait_for_load_state()
     rt = rp.locator("body").inner_text()

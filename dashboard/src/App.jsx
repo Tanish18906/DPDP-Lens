@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import sampleScan from './sample-scan.json'
 
 // API & Environment Constants
@@ -39,6 +39,80 @@ function LogoMark({ className }) {
       <circle cx="16" cy="16" r="11" stroke="currentColor" strokeWidth="3.5" strokeDasharray="56 13.1" transform="rotate(-12 16 16)" />
       <circle cx="16" cy="16" r="3.5" fill="currentColor" />
     </svg>
+  )
+}
+
+// Export menu: only formats the engine really serves for this scan.
+function ExportMenu({ scanId }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const id = encodeURIComponent(scanId)
+  const formats = [
+    ['PDF', 'A4 report, masked evidence', `${API_BASE}/report/${id}.pdf`],
+    ['HTML', 'Report in a new tab', `${API_BASE}/report/${id}`],
+    ['JSON', 'The scan result', `${API_BASE}/scan/${id}`],
+    ['SARIF', 'For code scanning tools', `${API_BASE}/scan/${id}/sarif`]
+  ]
+
+  useEffect(() => {
+    if (!open) return
+    ref.current?.querySelector('[role="menuitem"]')?.focus()
+    const onDown = (e) => !ref.current?.contains(e.target) && setOpen(false)
+    const onKey = (e) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const onMenuKey = (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    const items = [...ref.current.querySelectorAll('[role="menuitem"]')]
+    const i = items.indexOf(document.activeElement)
+    items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus()
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 text-[15px] font-medium text-accent hover:text-accent-hover underline-offset-4 hover:underline transition-colors duration-150 cursor-pointer"
+      >
+        Export report
+        <svg aria-hidden="true" className={`w-4 h-4 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Export formats"
+          onKeyDown={onMenuKey}
+          className="absolute right-0 top-full mt-2 z-30 w-64 bg-surface border border-line rounded-[6px] py-1"
+        >
+          {formats.map(([name, hint, href]) => (
+            <a
+              key={name}
+              role="menuitem"
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="flex items-baseline justify-between gap-3 px-4 py-2.5 hover:bg-paper focus:bg-paper outline-none focus-visible:bg-accent-soft transition-colors duration-150"
+            >
+              <span className="font-mono text-[15px] font-semibold text-ink">{name}</span>
+              <span className="text-[13px] text-muted">{hint}</span>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -335,6 +409,7 @@ export default function App() {
   // Keyboard navigation: ArrowUp and ArrowDown navigate the list
   useEffect(() => {
     function handleKeyDown(e) {
+      if (e.target.closest?.('[role="menu"]')) return // arrow keys inside the export menu move between formats
       if (!sortedFindings.length || fixingFindingId !== null || isScanning) return
       const currentIndex = sortedFindings.findIndex((f) => f.id === selectedFindingId)
 
@@ -550,12 +625,9 @@ export default function App() {
   }
 
   // Live scan: open the engine's report in a new tab. Sample mode (or no scan yet): print this page.
+  // The all-verified summary opens the HTML report (live scans only).
   const handleExportReport = () => {
-    if (!sampleMode && scanData.scan_id) {
-      window.open(`${API_BASE}/report/${encodeURIComponent(scanData.scan_id)}`, '_blank', 'noopener')
-    } else {
-      window.print()
-    }
+    window.open(`${API_BASE}/report/${encodeURIComponent(scanData.scan_id)}`, '_blank', 'noopener')
   }
 
   const score = animatedScore
@@ -688,15 +760,8 @@ export default function App() {
                   Back to live engine
                 </button>
               )}
-              {hasScan && (
-              <button
-                type="button"
-                onClick={handleExportReport}
-                className="text-[15px] font-medium text-accent hover:text-accent-hover underline-offset-4 hover:underline transition-colors duration-150 cursor-pointer"
-              >
-                Export report
-              </button>
-              )}
+              {/* Sample data has no scan on the engine, so there is nothing real to export. */}
+              {hasScan && !sampleMode && <ExportMenu scanId={scanData.scan_id} />}
               {/* The first-run screen has its own Run scan button, so there is only ever one. */}
               {!firstRun && (
               <button

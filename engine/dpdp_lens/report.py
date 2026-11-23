@@ -2,7 +2,7 @@
 Every dynamic value goes through html.escape. The output depends only on the scan, so it is deterministic."""
 from html import escape
 
-from .models import Finding, ScanResult
+from .models import Finding, ScanResult, compute_score
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 TAGLINE = "Does your app do what its privacy notice says?"
@@ -51,7 +51,10 @@ pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6p
 table { border-collapse: collapse; width: 100%; } th, td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
 th { background: var(--panel); } td { background: #fff; } tr.undeclared td { background: #fbf3f1; } .not-in-notice { color: var(--bad); font-weight: 700; }
 footer { margin-top: 36px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
-@media print { body { padding: 0; max-width: none; background: #fff; } h2 { break-after: avoid; } .finding, tr { break-inside: avoid; } }
+@page { size: A4; margin: 16mm 14mm 20mm; }
+@media print { body { padding: 0; max-width: none; background: #fff; font-size: 13px; } h2 { break-after: avoid; }
+  .finding, tr, .summary, .notice { break-inside: avoid; } pre, code, dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+  footer { display: none; } }
 """
 
 
@@ -132,7 +135,7 @@ def _drift(scan: ScanResult) -> str:
     if d is None:
         return "<p>No drift data for this scan.</p>"
     fields = {o.field for o in d.observed} | set(d.declared)
-    head = (f"<p><b>{len(d.undeclared)} of {len(fields)} data fields are collected but not disclosed.</b> "
+    head = (f"<p><b>{len(d.undeclared)} of {len(fields)} data fields the app handles are not in its privacy notice.</b> "
             "Notice duties: Act s5, Rule 3.</p>")
     declared = ", ".join(h(x) for x in d.declared) or "none"
     rows = "".join(
@@ -142,6 +145,38 @@ def _drift(scan: ScanResult) -> str:
         for o in d.observed)
     return (f"{head}<p>The notice lists: {declared}.</p>"
             f"<table><tr><th>Field</th><th>Observed in</th><th>Notice</th></tr>{rows}</table>")
+
+
+def _score_change(scan: ScanResult) -> str:
+    """Score when the scan ran (every finding open) next to the score now. Only shown after a verified fix."""
+    at_scan = compute_score([f.model_copy(update={"status": "open"}) for f in scan.findings])
+    fixed = sum(f.status == "verified_fixed" for f in scan.findings)
+    if not fixed:
+        return ""
+    return (f'<p class="muted">Score at scan {h(at_scan)}, now {h(scan.score)} after {fixed} verified '
+            f'{"fix" if fixed == 1 else "fixes"} on sandbox copies.</p>')
+
+
+PDF_FOOTER = ('<div style="width:100%;font:9pt sans-serif;color:#5b6270;padding:0 14mm;display:flex;justify-content:space-between">'
+              '<span>{footer}</span><span>{scan_id} &middot; page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>')
+
+
+def render_pdf(html: str, scan_id: str) -> bytes:
+    """A4 PDF of the HTML report, rendered by the same headless browser the scanner uses. Raises if no browser starts."""
+    from playwright.sync_api import sync_playwright  # imported here so the engine still loads without Playwright
+
+    from .browser import launch
+
+    with sync_playwright() as p:
+        browser = launch(p)
+        try:
+            page = browser.new_page()
+            page.set_content(html, wait_until="load")
+            return page.pdf(format="A4", print_background=True, display_header_footer=True, header_template="<span></span>",
+                            footer_template=PDF_FOOTER.format(footer=h(FOOTER), scan_id=h(scan_id)),
+                            margin={"top": "16mm", "bottom": "20mm", "left": "14mm", "right": "14mm"})
+        finally:
+            browser.close()
 
 
 def render_report(scan: ScanResult, fix_modes: dict | None = None) -> str:
@@ -158,11 +193,12 @@ def render_report(scan: ScanResult, fix_modes: dict | None = None) -> str:
 <p class="muted">Scan {h(scan.scan_id)} of <code>{h(scan.target)}</code>, scanned {h(scan.scanned_at)}</p>
 <div class="notice"><b>{h(FOOTER)}</b></div>
 <div class="summary"><div class="score"><b>{h(scan.score)}</b>readiness score</div>{counts}</div>
+{_score_change(scan)}
 <p class="muted">Readiness score: 100 minus 20 per critical, 10 per high, 5 per medium and 2 per low open finding. Higher is better.</p>
-<h2>Findings ({len(findings)})</h2>
-{"".join(_finding(f, fix_modes.get(f.id)) for f in findings) or "<p>No findings from the checks we ran. The checks are limited, so this is not a compliance result.</p>"}
 <h2>Notice vs Runtime</h2>
 {_drift(scan)}
+<h2>Findings ({len(findings)})</h2>
+{"".join(_finding(f, fix_modes.get(f.id)) for f in findings) or "<p>No findings from the checks we ran. The checks are limited, so this is not a compliance result.</p>"}
 <h2>Limits</h2>
 <ul>
 <li>These checks are a subset of the duties in the DPDP Act 2023 and the DPDP Rules 2025. A clean report does not mean the app complies.</li>
