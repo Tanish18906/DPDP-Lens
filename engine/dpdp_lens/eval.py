@@ -194,6 +194,16 @@ describe it, not code in general.
 """
 
 
+def register(sub) -> None:
+    """For __main__.py: add this module to its MODULES list and `python -m dpdp_lens eval` works too."""
+    p = sub.add_parser("eval", help="precision and recall of the scanners on the labelled corpus (engine/tests/accuracy)")
+    p.add_argument("--json", action="store_true", help="the full report as JSON")
+    p.add_argument("--md", action="store_true", help="the Markdown of docs/ACCURACY.md (above its History heading)")
+    p.add_argument("--floors", action="store_true", help="the least precision and recall the test accepts, as JSON")
+    p.add_argument("--corpus", help="a corpus folder (default: engine/tests/accuracy)")
+    p.set_defaults(func=lambda a: main([f for f in ("--json", "--md", "--floors") if getattr(a, f[2:])] + (["--corpus", a.corpus] if a.corpus else [])))
+
+
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     corpus = Path(args[args.index("--corpus") + 1]) if "--corpus" in args else CORPUS

@@ -61,3 +61,12 @@ def test_eval_prints_no_value(report):
 def test_eval_runs_as_a_module(capsys):
     assert acc.main([]) == 0
     assert "OVERALL (corpus)" in capsys.readouterr().out
+
+
+def test_register_adds_an_eval_command_that_prints_the_same_table(capsys):
+    import argparse
+    parser = argparse.ArgumentParser()
+    acc.register(parser.add_subparsers(dest="cmd"))
+    args = parser.parse_args(["eval", "--md"])
+    assert args.func(args) == 0
+    assert capsys.readouterr().out.startswith("# Scanner accuracy")
