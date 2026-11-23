@@ -109,6 +109,6 @@ def scan(app_root) -> list[Finding]:
                 evidence=Evidence(kind="code", summary=f"{m.group(1)}.setItem stores {names} in {rel}",
                                   masked_sample=" ".join(call.split())[:160],  # code only, never a stored value
                                   location=Location(file=rel, line=line)),
-                fix=Fix(available=False)))
+                fix=Fix(available=True)))
             break  # one finding per file
     return out

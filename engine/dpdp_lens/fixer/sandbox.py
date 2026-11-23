@@ -36,16 +36,35 @@ class Sandbox:
 
     def __enter__(self):
         self.root = Path(tempfile.mkdtemp(prefix="dpdp-lens-"))
-        self.repo, self.db, self.log = self.root / "repo", self.root / "sandbox.db", self.root / "server.log"
+        self.db, self.log = self.root / "sandbox.db", self.root / "server.log"
         try:
-            shutil.copytree(self.src_repo, self.repo, ignore=IGNORE)
-            shutil.copy(self.src_db, self.db)
-            if self.src_frontend:
-                self.frontend = self.root / "frontend"
-                self.dist = self.root / "dist"
-                shutil.copytree(self.src_frontend, self.frontend, ignore=IGNORE)
-                if (self.src_frontend / "node_modules").is_dir():  # not copied (huge): link the original, read only use
-                    os.symlink(self.src_frontend / "node_modules", self.frontend / "node_modules")
+            if self.src_repo.name == "backend":
+                app_root = self.src_repo.parent
+                self.repo = self.root / "backend"
+                shutil.copytree(self.src_repo, self.repo, ignore=IGNORE)
+                os.symlink(self.repo, self.root / "repo")
+                if app_root.is_dir():
+                    for item in app_root.iterdir():
+                        if item.is_file() and not item.name.startswith("."):
+                            shutil.copy(item, self.root / item.name)
+                frontend_src = self.src_frontend or (app_root / "frontend" if (app_root / "frontend").is_dir() else None)
+                if frontend_src and frontend_src.is_dir():
+                    self.frontend = self.root / "frontend"
+                    self.dist = self.root / "dist"
+                    shutil.copytree(frontend_src, self.frontend, ignore=IGNORE)
+                    if (frontend_src / "node_modules").is_dir():
+                        os.symlink(frontend_src / "node_modules", self.frontend / "node_modules")
+            else:
+                self.repo = self.root / "repo"
+                shutil.copytree(self.src_repo, self.repo, ignore=IGNORE)
+                if self.src_frontend:
+                    self.frontend = self.root / "frontend"
+                    self.dist = self.root / "dist"
+                    shutil.copytree(self.src_frontend, self.frontend, ignore=IGNORE)
+                    if (self.src_frontend / "node_modules").is_dir():
+                        os.symlink(self.src_frontend / "node_modules", self.frontend / "node_modules")
+            if self.src_db.exists():
+                shutil.copy(self.src_db, self.db)
         except BaseException:
             self.__exit__()
             raise

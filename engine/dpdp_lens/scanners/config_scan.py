@@ -74,12 +74,12 @@ def _tracked(root: Path, rel: str) -> bool:
 
 
 def _finding(check: str, severity: str, title: str, rel: str, line: int, summary: str, sample: str,
-             explanation: str, **facts) -> Finding:
+             explanation: str, fix_available: bool = False, **facts) -> Finding:
     return Finding(
         id="", check=check, layer="config", severity=severity, title=title,
         severity_reason=reason(check, **facts), explanation=explanation, clauses=[],
         evidence=Evidence(kind="code", summary=summary, masked_sample=sample, location=Location(file=rel, line=line)),
-        fix=Fix(available=False))
+        fix=Fix(available=fix_available))
 
 
 def _secrets(text: str, rel: str, is_py: bool, token_only: bool = False) -> list[tuple[int, str, str]]:
@@ -120,11 +120,13 @@ def _secret_finding(root: Path, rel: str, hits: list[tuple[int, str, str]]) -> F
     line, key, masked = hits[0]
     keys = ", ".join(dict.fromkeys(h[1] for h in hits))
     tracked = " The file is tracked by git." if _tracked(root, rel) else ""
+    is_fixable = rel.endswith(".env") or rel in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
     return _finding(
         "config_secret_committed", "high", "Secret value written in a file in the repository", rel, line,
         f"{len(hits)} secret value(s) in plain text in {rel}: {keys}", f"{key}={masked}",
         f"{rel} holds secret values as literal text.{tracked} This likely does not meet the reasonable security "
-        "safeguards expected for access control, because anyone with the repository can read them.", n=len(hits), file=rel)
+        "safeguards expected for access control, because anyone with the repository can read them.",
+        fix_available=is_fixable, n=len(hits), file=rel)
 
 
 def _dockerfile(rel: str, text: str) -> list[Finding]:
@@ -148,14 +150,16 @@ def _dockerfile(rel: str, text: str) -> list[Finding]:
             "config_env_in_image", "high", "Secrets are baked into the container image", rel, i,
             f"The Dockerfile {what}", sample,
             f"The image built from {rel} {what}, so anyone who can pull the image can read it. "
-            "This likely does not meet the reasonable security safeguards expected for protecting secrets.", what=what))
+            "This likely does not meet the reasonable security safeguards expected for protecting secrets.",
+            fix_available=True, what=what))
     if froms and (not users or users[-1][1] in ("root", "0")):
         out.append(_finding(
             "config_container_root", "medium", "Container runs as root", rel, users[-1][0] if users else froms[-1],
             "The Dockerfile has no non root USER" if not users else f"The last USER is {users[-1][1]}",
             "no USER instruction" if not users else f"USER {users[-1][1]}",
             f"{rel} never switches to a non root user, so the app runs with root rights inside the container. "
-            "This likely does not meet the technical measures expected to limit damage from a break-in."))
+            "This likely does not meet the technical measures expected to limit damage from a break-in.",
+            fix_available=True))
     reload_line = next((i for i, line in enumerate(lines, 1) if re.match(r"(?:CMD|ENTRYPOINT)\b", line.strip(), re.I)
                         and re.search(r"--reload|--debug", line)), 0)
     if reload_line:
@@ -167,7 +171,7 @@ def _debug_finding(rel: str, line: int, sample: str, where: str) -> Finding:
     return _finding(
         "config_debug_enabled", "medium", "Debug mode is on", rel, line, f"Debug or reload is enabled in {where}", sample,
         f"{rel} turns on debug or reload mode. This likely does not meet the technical measures expected in production, "
-        "because debug mode can show internals and stack traces to users.", file=rel)
+        "because debug mode can show internals and stack traces to users.", fix_available=True, file=rel)
 
 
 def _cors_finding(rel: str, line: int, creds: bool, sample: str) -> Finding:
@@ -176,7 +180,7 @@ def _cors_finding(rel: str, line: int, creds: bool, sample: str) -> Finding:
         "Any website may call this API from a browser" + (", with credentials" if creds else ""), sample,
         f"{rel} allows requests from any origin" + (" together with credentials" if creds else "") + ". "
         "This likely does not meet the access control expected for reasonable security safeguards.",
-        creds=" and credentials are allowed" if creds else "")
+        fix_available=True, creds=" and credentials are allowed" if creds else "")
 
 
 def _python_rules(rel: str, text: str) -> list[Finding]:
@@ -235,7 +239,7 @@ def _compose(rel: str, text: str) -> list[Finding]:
             f"{rel} publishes the {service} database port to the host without limiting it to 127.0.0.1"
             + (", and the password is a common default" if weak else "") + ". "
             "This likely does not meet the access control expected for reasonable security safeguards.",
-            service=service, port=container, creds=" and its password is a common default" if weak else ""))
+            fix_available=True, service=service, port=container, creds=" and its password is a common default" if weak else ""))
         break  # one finding per file
     return out
 
