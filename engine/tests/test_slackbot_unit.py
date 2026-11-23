@@ -199,7 +199,7 @@ def test_connect_errors_are_answered_ephemeral():
     ctx, slack, st = make_ctx()
     r = connect(ctx, text="connect evil/repo")
     assert "DPDP_ALLOWED_REPOS" in r.text and slack.of("post") == []
-    assert "Usage" in connect(ctx, text="connect").text
+    assert "GitHub App is not set up" in connect(ctx, text="connect").text  # no argument is the GitHub App picker now (block 08)
 
 
 def test_commands_only_work_in_allowed_channels_and_unknown_gets_help():

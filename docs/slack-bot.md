@@ -52,6 +52,7 @@ settings:
 
 ## What it does and does not do
 
+- `/dpdp connect` with no argument (approvers): connect through the GitHub App, see docs/github-app-setup.md. `/dpdp repos` (approvers) lists the shared repos. The bot posts "GitHub connected: <account>, <n> repositories shared" when the install finishes.
 - `/dpdp connect owner/repo [branch]`, `scan`, `status`, `diff`, `baseline` (approvers), `watch <minutes>|off` (approvers), `help`. Answers to commands are ephemeral. The scan summary and the finding cards are posted in the channel.
 - One card per finding, posted once and then edited in place. Cards follow status changes made in Slack, in the dashboard or by a scan, through the engine outbox (polled every 2 seconds).
 - Fix and verify says "VERIFIED" only when the engine's answer has `fix.verified` true and the finding status `verified_fixed`. A cached replay is labelled "Cached verified patch (replay)".

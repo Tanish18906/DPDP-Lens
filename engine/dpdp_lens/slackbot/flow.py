@@ -83,6 +83,14 @@ def post_report(ctx: Ctx, channel: str, repo: str, delta: dict) -> None:
     post_cards(ctx, channel, delta["new"] + delta["reopened"])
 
 
+def connect_and_scan(ctx: Ctx, full_name: str, branch: str, user: str, channel: str, installation_id: int | None = None) -> None:
+    """Connect the repo (the engine checks the allowlist or the installation), start a static scan, follow it into the channel."""
+    repo = ctx.engine.connect(full_name, branch, channel, user, installation_id)
+    scan_id = ctx.engine.scan(repo["id"], user)["scan_id"]
+    ctx.poster.post(channel, f"Scanning {full_name} (static checks only)")
+    follow_scan(ctx, repo, scan_id, channel)
+
+
 def follow_scan(ctx: Ctx, repo: dict, scan_id: str, channel: str) -> None:
     try:
         delta = wait_for_delta(ctx, scan_id)

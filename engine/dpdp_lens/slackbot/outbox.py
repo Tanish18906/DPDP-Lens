@@ -12,7 +12,8 @@ log = logging.getLogger("dpdp_lens.slackbot")
 class Poller:
     def __init__(self, ctx, interval: float = 2.0):
         self.ctx, self.interval, self.cursor = ctx, interval, None
-        self.handlers = {"status_changed": self._status_changed, "scan_delta": self._scan_delta, "health_changed": self._health_changed}
+        self.handlers = {"status_changed": self._status_changed, "scan_delta": self._scan_delta, "health_changed": self._health_changed,
+                         "github_installed": self._github_installed}
 
     def _repo(self, repo_id) -> dict | None:
         return next((r for r in self.ctx.engine.repos() if r["id"] == repo_id), None)
@@ -26,6 +27,12 @@ class Poller:
         if repo is None:
             return
         flow.post_report(self.ctx, repo["slack_channel"] or self.ctx.cfg.channel, repo["full_name"], self.ctx.engine.delta(row["scan_id"]))
+
+    def _github_installed(self, row) -> None:
+        """The install finished in the browser: one short message. The installation id rides in the row's human_id."""
+        iid = int(row["human_id"])
+        account = next(i["account_login"] for i in self.ctx.engine.github_installations() if i["installation_id"] == iid)
+        self.ctx.poster.post(self.ctx.cfg.channel, f"GitHub connected: {cards.esc(account)}, {len(self.ctx.engine.github_repos(iid))} repositories shared")
 
     def _health_changed(self, row) -> None:
         """One alert when health turns at_risk or unknown, and nothing more until it has recovered."""

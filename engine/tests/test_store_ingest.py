@@ -47,7 +47,7 @@ def put(store, hid, status):
 
 def test_schema_is_versioned_and_wal_on_a_file(tmp_path):
     s = Store(tmp_path / "x.db")
-    assert s.one("PRAGMA user_version")[0] == 2 and s.one("PRAGMA journal_mode")[0] == "wal"
+    assert s.one("PRAGMA user_version")[0] == 3 and s.one("PRAGMA journal_mode")[0] == "wal"
     assert (tmp_path / "x.db").stat().st_mode & 0o777 == 0o600
 
 

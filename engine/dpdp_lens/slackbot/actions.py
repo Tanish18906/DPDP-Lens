@@ -3,7 +3,7 @@ Only approvers may change a status or run a fix. Anyone in an allowed channel ma
 import json
 import logging
 
-from . import cards
+from . import cards, flow
 from .api import EngineError
 from .redact import redact
 
@@ -18,6 +18,21 @@ def _gate(ctx, user: str, channel: str, approver: bool = True) -> bool:
         ctx.poster.ephemeral(channel, user, NOT_ALLOWED)
         return False
     return True
+
+
+def connect_picked(ctx, user: str, channel: str, value: str, reply) -> None:
+    """The Connect button of the repo picker. `value` is "<installation id>|owner/repo" from the select, or empty when nothing was picked.
+    The engine decides again whether the installation really shares the repo."""
+    if not _gate(ctx, user, channel):
+        return
+    iid, _, name = value.partition("|")
+    if not iid.isdigit() or not name:
+        return reply("Pick a repository first.")
+    reply(f"Connecting {name}...")
+    try:
+        flow.connect_and_scan(ctx, name, "", user, channel, int(iid))
+    except EngineError as e:
+        reply(f"The engine said: {e.detail}" if e.status else f"Could not reach the engine: {e.detail}")
 
 
 def view_details(ctx, user: str, channel: str, ts: str, hid: str) -> None:

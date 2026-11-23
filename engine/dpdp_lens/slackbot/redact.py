@@ -1,10 +1,10 @@
-"""Strip secrets from anything that is logged or shown in Slack: Slack and GitHub tokens, and the exact values of the
+"""Strip secrets from anything that is logged or shown in Slack: Slack and GitHub tokens (ghs_ installation tokens too), JWTs, and the exact values of the
 token environment variables (so DPDP_API_TOKEN is removed even though it has no fixed prefix)."""
 import logging
 import os
 import re
 
-_TOKEN = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|ghp_\w+|github_pat_\w+")
+_TOKEN = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|gh[pousr]_\w+|github_pat_\w+|eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{6,}")
 _ENV = ("DPDP_API_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "GITHUB_TOKEN")
 _extra: set[str] = set()
 

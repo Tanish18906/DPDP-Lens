@@ -9,6 +9,8 @@ from .redact import redact
 log = logging.getLogger("dpdp_lens.slackbot")
 HELP = ("*DPDP Lens* (readiness checks, not a compliance certificate)\n"
         "• `/dpdp connect owner/repo [branch]`: connect a repo and run a static scan\n"
+        "• `/dpdp connect`: connect through the GitHub App: install it, then pick a repository (approvers)\n"
+        "• `/dpdp repos`: repositories shared with the GitHub App, and which are connected (approvers)\n"
         "• `/dpdp scan [owner/repo]`: scan again\n"
         "• `/dpdp status`: health, last complete scan, counts\n"
         "• `/dpdp diff`: the latest scan against the baseline: new, resolved, persistent\n"
@@ -36,13 +38,41 @@ def _need_approver(ctx, user: str, reply) -> bool:
     return False
 
 
+def _shared_repos(ctx, reply):
+    """Every repo the app's installations share, with connected status. None (after telling the user why) when there is nothing to list."""
+    try:
+        installs = ctx.engine.github_installations()
+    except EngineError as e:
+        if e.status != 503:
+            raise
+        reply("The GitHub App is not set up on the engine. Use `/dpdp connect owner/repo` for an allowlisted repo.")
+        return None
+    if not installs:
+        text, blocks = cards.github_link(ctx.cfg.engine_url + "/github/connect")
+        reply(text, blocks)
+        return None
+    return [{**r, "installation_id": i["installation_id"]} for i in installs for r in ctx.engine.github_repos(i["installation_id"])]
+
+
 def _connect(ctx, args, user, channel, reply):
-    if not args:
-        return reply("Usage: `/dpdp connect owner/repo [branch]`")
-    repo = ctx.engine.connect(args[0], args[1] if len(args) > 1 else "", channel, user)
-    scan_id = ctx.engine.scan(repo["id"], user)["scan_id"]
-    ctx.poster.post(channel, f"Scanning {args[0]} (static checks only)")
-    flow.follow_scan(ctx, repo, scan_id, channel)
+    if not args:  # no argument: the GitHub App flow. It lists private repo names, so approvers only.
+        if not _need_approver(ctx, user, reply):
+            return
+        repos = _shared_repos(ctx, reply)
+        if repos is None:
+            return
+        if not repos:
+            return reply("The GitHub App is installed but shares no repository. Change its repository access on GitHub, then try again.")
+        return reply(*cards.repo_picker(repos))
+    flow.connect_and_scan(ctx, args[0], args[1] if len(args) > 1 else "", user, channel)
+
+
+def _repos(ctx, args, user, channel, reply):
+    if not _need_approver(ctx, user, reply):
+        return
+    repos = _shared_repos(ctx, reply)
+    if repos is not None:
+        reply(cards.repo_list(repos) if repos else "The GitHub App is installed but shares no repository.")
 
 
 def _scan(ctx, args, user, channel, reply):
@@ -88,7 +118,7 @@ def _watch(ctx, args, user, channel, reply):
     reply(f"Scheduled scans of {repo['full_name']}: " + (f"every {out['watch_minutes']} minutes (a schedule, not real-time)" if out["watch_minutes"] else "off"))
 
 
-COMMANDS = {"connect": _connect, "scan": _scan, "status": _status, "diff": _diff, "baseline": _baseline, "watch": _watch}
+COMMANDS = {"connect": _connect, "repos": _repos, "scan": _scan, "status": _status, "diff": _diff, "baseline": _baseline, "watch": _watch}
 
 
 def run_command(ctx, text: str, user: str, channel: str, reply) -> None:

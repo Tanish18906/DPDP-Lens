@@ -110,6 +110,29 @@ def failed(repo: str, scan_id: str, why: str) -> tuple[str, list]:
     return f"Scan failed for {repo}", [_section(text)]
 
 
+def github_link(url: str) -> tuple[str, list]:
+    """No installation yet: a link button to the engine's /github/connect (it redirects to GitHub). The signed state is never in Slack."""
+    text = "Connect GitHub: install the DPDP Lens GitHub App on your account and pick the repositories to share (read-only)."
+    return text, [_section(text), {"type": "actions", "elements": [
+        {"type": "button", "action_id": "dpdp_github_link", "text": {"type": "plain_text", "text": "Connect GitHub"}, "url": url, "style": "primary"}]}]
+
+
+def repo_picker(repos: list[dict]) -> tuple[str, list]:
+    """repos: [{installation_id, full_name, connected}]. Slack allows 100 options per select, so a longer list is cut and says so."""
+    shown = repos[:100]
+    options = [{"text": {"type": "plain_text", "text": cut(r["full_name"] + (" (connected)" if r["connected"] else ""), 75)},
+                "value": f"{r['installation_id']}|{r['full_name']}"} for r in shown]
+    text = "Pick a repository to connect and scan" + (f" (showing {len(shown)} of {len(repos)})" if len(repos) > len(shown) else "")
+    return text, [_section(text), {"type": "actions", "block_id": "repo_pick", "elements": [
+        {"type": "static_select", "action_id": "dpdp_repo_pick", "placeholder": {"type": "plain_text", "text": "Repository"}, "options": options},
+        {"type": "button", "action_id": "dpdp_repo_connect", "text": {"type": "plain_text", "text": "Connect"}, "style": "primary"}]}]
+
+
+def repo_list(repos: list[dict]) -> str:
+    lines = [f"• {esc(r['full_name'])}" + (" (connected)" if r["connected"] else "") for r in repos[:40]]
+    return f"*Repositories shared with the GitHub App ({len(repos)})*\n" + "\n".join(lines) + (f"\n…and {len(repos) - 40} more" if len(repos) > 40 else "")
+
+
 def alert(repo: str, health: dict, scan_id: str = "") -> tuple[str, list]:
     emoji, label = HEALTH.get(health["status"], HEALTH["unknown"])
     what = "A scan was incomplete or failed, or no complete scan is recent. This is not a pass." if health["status"] == "unknown" \

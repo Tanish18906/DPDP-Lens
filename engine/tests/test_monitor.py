@@ -302,10 +302,12 @@ def test_a_version_1_database_is_migrated_and_keeps_its_data(tmp_path):
     s.run("ALTER TABLE repos DROP COLUMN last_health")
     s.run("ALTER TABLE outbox DROP COLUMN repo_id")
     s.run("ALTER TABLE outbox DROP COLUMN scan_id")
+    s.run("ALTER TABLE repos DROP COLUMN installation_id")  # the objects of version 3: a real version 1 file has neither
+    s.run("DROP TABLE installations")
     s.run("PRAGMA user_version=1")
     s.close()
     new = Store(path)
-    assert new.one("PRAGMA user_version")[0] == SCHEMA_VERSION == 2
+    assert new.one("PRAGMA user_version")[0] == SCHEMA_VERSION == 3
     assert new.one("SELECT human_id, repo_id, scan_id FROM outbox")[:] == ("DPDP-001", None, "")
     assert new.one("SELECT full_name, last_health FROM repos")[:] == ("acme/app", None)
-    assert sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0] == 2
+    assert sqlite3.connect(path).execute("PRAGMA user_version").fetchone()[0] == 3

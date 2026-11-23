@@ -65,6 +65,11 @@ def test_every_mutating_route_is_guarded_and_reads_are_not(api, method, path, bo
     assert getattr(api, method)(path, json=body).status_code == 401
     for read in ("/repos", "/findings", "/outbox", "/audit/events", "/audit/verify"):
         assert api.get(read).status_code == 200
+    # The ONLY guarded reads (block 08): they show who installed the GitHub App or which private repos it can see. Every other
+    # read above stays open. /github/connect and /github/setup are open on purpose (a browser opens them, the signed state is
+    # their check): test_github_app.py covers all five.
+    for guarded in ("/github/install-url", "/github/installations", "/github/installations/1/repos"):
+        assert api.get(guarded).status_code == 401
 
 
 def test_connect_checks_name_then_allowlist(api):

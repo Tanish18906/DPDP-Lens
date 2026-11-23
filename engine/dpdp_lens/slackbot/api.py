@@ -18,8 +18,8 @@ class Engine:
         self.token, self.timeout = token, timeout
         self.http = client or httpx.Client(base_url=base_url)
 
-    def _call(self, method: str, path: str, *, body=None, params=None, write=False, timeout=None):
-        headers = {"X-DPDP-Token": self.token} if write else {}
+    def _call(self, method: str, path: str, *, body=None, params=None, write=False, timeout=None, auth=False):
+        headers = {"X-DPDP-Token": self.token} if write or auth else {}  # auth: a read the engine guards with the token
         try:
             r = self.http.request(method, path, json=body, params=params, headers=headers, timeout=timeout or self.timeout)
         except httpx.HTTPError as e:
@@ -41,9 +41,15 @@ class Engine:
     def finding(self, human_id): return self._call("GET", f"/findings/{human_id}")
     def outbox(self, after: int): return self._call("GET", "/outbox", params={"after": after})
 
+    def github_installations(self): return self._call("GET", "/github/installations", auth=True)  # 503 when the engine has no GitHub App
+    def github_repos(self, installation_id): return self._call("GET", f"/github/installations/{installation_id}/repos", auth=True)
+
     # writes
-    def connect(self, full_name, branch, channel, actor):
-        return self._call("POST", "/repos", body={"full_name": full_name, "branch": branch or "", "slack_channel": channel, "actor": actor}, write=True)
+    def connect(self, full_name, branch, channel, actor, installation_id=None):
+        body = {"full_name": full_name, "branch": branch or "", "slack_channel": channel, "actor": actor}
+        if installation_id is not None:
+            body["installation_id"] = installation_id
+        return self._call("POST", "/repos", body=body, write=True)
 
     def scan(self, repo_id, actor):
         return self._call("POST", f"/repos/{repo_id}/scan", body={"mode": "static", "actor": actor}, write=True)
