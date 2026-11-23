@@ -140,3 +140,16 @@ def test_js_is_read_for_token_shapes_only_not_by_key_name(tmp_path):
 def test_publishable_stripe_keys_and_node_modules_are_not_flagged(tmp_path):
     pk = "pk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
     assert run(tmp_path, {"pay.js": f'Stripe("{pk}")\n', "node_modules/x/i.js": f'a("{STRIPE}")\n'}) == []
+
+
+# ---- block 06 job 2, item C: a constant that names a field or a label is not a secret
+@pytest.mark.parametrize("line", ['PASSWORD_FIELD = "password"', 'TOKEN_LABEL = "API token"', 'loginPasswordPlaceholder = "Enter your password"',
+                                  'SECRET_HEADER_NAME = "x-secret"'])
+def test_names_of_fields_and_labels_are_not_secrets(tmp_path, line):
+    assert run(tmp_path, {"app/forms.py": line + "\n"}) == []
+    assert run(tmp_path, {"app.yml": line.replace(" = ", ": ").replace('"', "") + "\n"}) == []
+
+
+@pytest.mark.parametrize("line", ['SECRET_KEY = "dev-secret"', 'DB_PASSWORD_FIELD = "hunter2hunter2"', 'API_TOKEN = "abcdefgh"', 'PASSWORD = "changeit-not"'])
+def test_real_looking_secrets_with_similar_names_are_still_found(tmp_path, line):
+    assert run(tmp_path, {"app/forms.py": line + "\n"}) == [("config_secret_committed", "app/forms.py", 1)]

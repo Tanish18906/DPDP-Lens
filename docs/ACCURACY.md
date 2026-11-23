@@ -18,7 +18,7 @@ describe it, not code in general.
 | config_db_exposed | 3 | 0 | 0 | 3 | 100% | 100% |
 | config_debug_enabled | 4 | 0 | 0 | 5 | 100% | 100% |
 | config_env_in_image | 3 | 0 | 0 | 4 | 100% | 100% |
-| config_secret_committed | 13 | 1 | 1 | 16 | 93% | 93% |
+| config_secret_committed | 13 | 0 | 1 | 17 | 100% | 93% |
 | consent_not_recorded | 3 | 0 | 0 | 4 | 100% | 100% |
 | fe_pii_in_storage | 4 | 0 | 0 | 5 | 100% | 100% |
 | log_pii | 8 | 2 | 0 | 13 | 80% | 100% |
@@ -27,12 +27,11 @@ describe it, not code in general.
 | pii_email | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_pan | 4 | 0 | 0 | 0 | 100% | 100% |
 | pii_phone | 5 | 0 | 0 | 0 | 100% | 100% |
-| OVERALL (corpus) | 61 | 3 | 1 | 55 | 95% | 98% |
+| OVERALL (corpus) | 61 | 2 | 1 | 56 | 97% | 98% |
 | TutorNest static ground truth | 11 | 0 | 0 | - | 100% | 100% |
 
 ## Misses (every false positive and false negative)
 
-- `FP config_secret_committed/neg_py_field_name_constant`
 - `FN config_secret_committed/pos_json_token`
 - `FP log_pii/neg_py_email_count`
 - `FP log_pii/neg_py_test_file`
@@ -50,5 +49,6 @@ Each row is a measured run of `python -m dpdp_lens.eval` on the corpus, after th
 | 4. `recognizers.py`: phone numbers written 5 + 5, no decimals, no identifier words (build, order, invoice, id...) before the number | 94% | 97% | 93% / 93% | 80% / 100% | 100% / 100% | 75% / 75% | 11 of 11 / 0 |
 | A. `frontend_scan`: a `localStorage` call inside a comment is not a finding | 95% | 97% | 93% / 93% | 80% / 100% | 100% / 100% | 100% / 75% | 11 of 11 / 0 |
 | B. `frontend_scan`: plain `.ts` files are read as front end source | 95% | 98% | 93% / 93% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
+| C. `config_scan`: a constant named like a field or label (`PASSWORD_FIELD = "password"`) is not a secret | 97% | 98% | 100% / 93% | 80% / 100% | 100% / 100% | 100% / 100% | 11 of 11 / 0 |
 
 Item 4 notes. Three of the brief's four points were already in `recognizers.py` before this block and have tests and corpus cases that pass at baseline: the PAN fourth letter must be a holder type (P C H F A T B L J G) and the digits cannot be 0000, an Aadhaar starts with 2 to 9 and must pass the Verhoeff check, and a 10 digit number inside a longer digit run is not a phone number. The measured gap was the phone recognizer (decimals, invoice and build numbers beside the word "mobile", numbers written 5 + 5), which is what changed. The corpus was extended first (row above) so the before number is on the same corpus as the after number. Floors in `tests/accuracy/floors.json` were regenerated after that extension, because the corpus changed, not the code.

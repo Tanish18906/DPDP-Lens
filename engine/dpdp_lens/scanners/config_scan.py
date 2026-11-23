@@ -38,6 +38,17 @@ DEFAULT_PASSWORDS = {"", "admin", "password", "root", "postgres", "123456", "sec
 SAFE_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
 
+# A constant that names a form field, label or header is not a secret: PASSWORD_FIELD = "password", TOKEN_LABEL = "API token".
+# The name must end in one of these words (not "key": SECRET_KEY = "abcdef" is a secret) and the value must be plain words, no digits.
+LABEL_WORDS = {"field", "name", "label", "column", "header", "param", "attr", "prop", "placeholder", "title", "prompt", "help", "hint", "message", "msg", "text", "selector"}
+_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+")
+
+
+def _is_label(key: str, value: str) -> bool:
+    words = [w.lower() for w in _WORDS.findall(key)]
+    return bool(words) and words[-1] in LABEL_WORDS and re.fullmatch(r"[A-Za-z _.-]+", value) is not None
+
+
 def _literal(raw: str) -> str:
     """The value if it is a real literal secret (4 or more characters, not a placeholder), else ''."""
     v = raw.split(" #")[0].strip().rstrip(",").strip().strip("\"'")
@@ -80,12 +91,12 @@ def _secrets(text: str, rel: str, is_py: bool, token_only: bool = False) -> list
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target] if isinstance(n, ast.AnnAssign) else []
                 value = getattr(n, "value", None)
                 if isinstance(value, ast.Constant) and isinstance(value.value, str) and (v := _literal(value.value)):
-                    hits += [(n.lineno, t.id, _mask(v)) for t in targets if isinstance(t, ast.Name) and KEY_ONLY.search(t.id)]
+                    hits += [(n.lineno, t.id, _mask(v)) for t in targets if isinstance(t, ast.Name) and KEY_ONLY.search(t.id) and not _is_label(t.id, v)]
         except (SyntaxError, ValueError):
             pass
     else:
         for i, line in enumerate(text.splitlines(), 1):
-            if (m := KV.match(line)) and (v := _literal(m.group(2))):
+            if (m := KV.match(line)) and (v := _literal(m.group(2))) and not _is_label(m.group(1), v):
                 hits.append((i, m.group(1), _mask(v)))
     for i, line in enumerate(text.splitlines(), 1):  # user:password@host in a URL
         if not token_only and (m := URL_CRED.search(line)) and (v := _literal(m.group(1))) and not any(h[0] == i for h in hits):

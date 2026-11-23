@@ -21,7 +21,7 @@
    "recall": 1.0
   },
   "config_secret_committed": {
-   "precision": 0.9285714285714286,
+   "precision": 1.0,
    "recall": 0.9285714285714286
   },
   "consent_not_recorded": {
