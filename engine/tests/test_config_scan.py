@@ -153,3 +153,20 @@ def test_names_of_fields_and_labels_are_not_secrets(tmp_path, line):
 @pytest.mark.parametrize("line", ['SECRET_KEY = "dev-secret"', 'DB_PASSWORD_FIELD = "hunter2hunter2"', 'API_TOKEN = "abcdefgh"', 'PASSWORD = "changeit-not"'])
 def test_real_looking_secrets_with_similar_names_are_still_found(tmp_path, line):
     assert run(tmp_path, {"app/forms.py": line + "\n"}) == [("config_secret_committed", "app/forms.py", 1)]
+
+
+# ---- block 06 job 2, item D: key/value pairs in a one-line JSON file
+def test_a_one_line_json_file_is_read(tmp_path):
+    found = scan_root(tmp_path, {"config.json": '{"name": "app", "api_token": "abcd1234efgh5678", "nested": {"db_password": "hunter2hunter2"}}\n'})
+    (f,) = found
+    assert f.evidence.location.line == 1 and "2 secret value(s)" in f.evidence.summary and "abcd1234" not in f.model_dump_json() and "hunter2" not in f.model_dump_json()
+    assert "ab***" in f.evidence.masked_sample
+
+
+def test_multi_line_json_still_gives_one_hit_per_secret_and_the_right_line(tmp_path):
+    (f,) = scan_root(tmp_path, {"config.json": '{\n  "x": 1,\n  "api_token": "abcd1234efgh5678"\n}\n'})
+    assert f.evidence.location.line == 3 and "1 secret value(s)" in f.evidence.summary
+
+
+def test_json_placeholders_labels_and_non_secret_keys_are_not_flagged(tmp_path):
+    assert run(tmp_path, {"config.json": '{"api_token": "${API_TOKEN}", "password_field": "password", "token_url": "", "author": "someone", "api_key": "changeme"}\n'}) == []

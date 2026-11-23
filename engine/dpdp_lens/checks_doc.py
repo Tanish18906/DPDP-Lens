@@ -25,7 +25,7 @@ SECRET_RULES = [
     "A URL with `user:password@host` counts, with the password as the secret.",
     "A constant whose name ends in field, name, label, column, header, param, attr, prop, placeholder, title, prompt, help, hint, message, msg, text or selector, with a value of plain words and no digits, is a label and not a secret (`PASSWORD_FIELD = \"password\"`). `SECRET_KEY = \"abc\"` is still a secret.",
     "`.env.example`, `.env.sample` and `.env.template` are never flagged.",
-    "Python is read with `ast` (assignments of a string literal to a secret-like name), other config files line by line.",
+    "Python is read with `ast` (assignments of a string literal to a secret-like name), other config files line by line. JSON files are also read for `\"key\": \"value\"` pairs anywhere in the text, so a one-line file works.",
     "Test folders, `test_*.py` and `conftest.py` are skipped. JavaScript and TypeScript source is not scanned for secrets by key name.",
     "A secret is shown as its first 2 characters plus `***`, never in full. One finding per file.",
 ]

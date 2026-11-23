@@ -27,6 +27,8 @@ TOKEN_SHAPES = [
     ("Stripe secret key", re.compile(r"\b[sr]k_live_[A-Za-z0-9]{16,}\b")),
 ]
 TOKEN_ONLY_SUFFIXES = (".js", ".jsx", ".ts", ".tsx", ".sh")  # no key-name rule here, only the token shapes above
+# "key": "value" anywhere in a JSON file, so one-line files such as {"api_token": "..."} are read too (the line scan needs the key at the line start).
+JSON_PAIR = re.compile(rf"""["']([\w.\-]*{KEY}[\w.\-]*)["']\s*:\s*["']([^"'\n]*)["']""", re.I)
 URL_CRED = re.compile(r"://[^/\s:@\"']+:([^@\s/\"']+)@")
 DEBUG_LINE = re.compile(r"^\s*(?:-\s*)?(?:export\s+)?DEBUG\s*[:=]\s*[\"']?(true|1|yes|on)\b", re.I)
 CORS_HEADER = re.compile(r"Access-Control-Allow-Origin[\"']?[\s:,=]+[\"']?\*", re.I)
@@ -97,6 +99,11 @@ def _secrets(text: str, rel: str, is_py: bool, token_only: bool = False) -> list
     else:
         for i, line in enumerate(text.splitlines(), 1):
             if (m := KV.match(line)) and (v := _literal(m.group(2))) and not _is_label(m.group(1), v):
+                hits.append((i, m.group(1), _mask(v)))
+    if rel.endswith(".json") and not token_only:
+        for m in JSON_PAIR.finditer(text):
+            i = text.count("\n", 0, m.start()) + 1
+            if (v := _literal(m.group(2))) and not _is_label(m.group(1), v) and not any(h[0] == i and h[1] == m.group(1) for h in hits):
                 hits.append((i, m.group(1), _mask(v)))
     for i, line in enumerate(text.splitlines(), 1):  # user:password@host in a URL
         if not token_only and (m := URL_CRED.search(line)) and (v := _literal(m.group(1))) and not any(h[0] == i for h in hits):
