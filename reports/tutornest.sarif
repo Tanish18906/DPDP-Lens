@@ -1,0 +1,999 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "DPDP Lens",
+          "rules": [
+            {
+              "id": "api_pii_exposure",
+              "name": "api_pii_exposure",
+              "shortDescription": {
+                "text": "Public API endpoint exposes personal data"
+              },
+              "fullDescription": {
+                "text": "GET /api/students returns personal data to anyone, with no login. This likely does not meet the access control expected for reasonable security safeguards."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(b): access control"
+              },
+              "properties": {
+                "layer": "api",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(b)"
+                ]
+              }
+            },
+            {
+              "id": "api_idor",
+              "name": "api_idor",
+              "shortDescription": {
+                "text": "Any logged-in user can read other users' records"
+              },
+              "fullDescription": {
+                "text": "GET /api/students/{student_id} returns another user's record to a logged-in user without checking ownership. This likely does not meet the access control expected for reasonable security safeguards."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(b): access control"
+              },
+              "properties": {
+                "layer": "api",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(b)"
+                ]
+              }
+            },
+            {
+              "id": "db_plaintext_pii",
+              "name": "db_plaintext_pii",
+              "shortDescription": {
+                "text": "Aadhaar or PAN stored in plaintext columns"
+              },
+              "fullDescription": {
+                "text": "Table students keeps Aadhaar or PAN numbers as readable text, with no encryption, masking or tokens. This likely does not meet the safeguard expected for personal data at rest."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(a): encryption, obfuscation, masking or virtual tokens"
+              },
+              "properties": {
+                "layer": "db",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(a)"
+                ]
+              }
+            },
+            {
+              "id": "log_pii",
+              "name": "log_pii",
+              "shortDescription": {
+                "text": "Personal data written to logs"
+              },
+              "fullDescription": {
+                "text": "A log call writes personal data in plain text, so anyone who can read the logs can read it. This likely does not meet the safeguard expected for masking personal data."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(a): encryption, obfuscation, masking or virtual tokens"
+              },
+              "properties": {
+                "layer": "code",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(a)"
+                ]
+              }
+            },
+            {
+              "id": "erasure_incomplete",
+              "name": "erasure_incomplete",
+              "shortDescription": {
+                "text": "Personal data is still stored after deletion"
+              },
+              "fullDescription": {
+                "text": "After a delete request, the user's personal data is still in the database. This likely does not meet the duty to erase data once the purpose is served or consent is withdrawn."
+              },
+              "help": {
+                "text": "Act s8(7): erase when consent is withdrawn or purpose is served"
+              },
+              "properties": {
+                "layer": "db",
+                "clauses": [
+                  "Act s8(7)"
+                ]
+              }
+            },
+            {
+              "id": "children_no_parental_consent",
+              "name": "children_no_parental_consent",
+              "shortDescription": {
+                "text": "Under-18 signup accepted with no parental consent"
+              },
+              "fullDescription": {
+                "text": "A signup for a 14 year old was accepted with no step to verify a parent or guardian. The Act asks for verifiable consent of a parent before processing a child's data."
+              },
+              "help": {
+                "text": "Act s9(1): verifiable parental consent for under 18; Rule 10: verify the parent is an identifiable adult"
+              },
+              "properties": {
+                "layer": "api",
+                "clauses": [
+                  "Act s9(1)",
+                  "Rule 10"
+                ]
+              }
+            },
+            {
+              "id": "missing_contact",
+              "name": "missing_contact",
+              "shortDescription": {
+                "text": "No DPO or grievance contact published"
+              },
+              "fullDescription": {
+                "text": "The pages we checked do not give a Data Protection Officer or grievance contact. This likely does not meet the duty to publish contact details and a grievance process."
+              },
+              "help": {
+                "text": "Act s8(9): publish contact of DPO or other person; Act s8(10): grievance mechanism; Rule 9: publish business contact; Rule 14(3): publish grievance process, respond within 90 days at most"
+              },
+              "properties": {
+                "layer": "notice",
+                "clauses": [
+                  "Act s8(9)",
+                  "Act s8(10)",
+                  "Rule 9",
+                  "Rule 14(3)"
+                ]
+              }
+            },
+            {
+              "id": "tracker_before_consent",
+              "name": "tracker_before_consent",
+              "shortDescription": {
+                "text": "Tracking script loads before any consent"
+              },
+              "fullDescription": {
+                "text": "The signup page contacts an advertising or social tracker as soon as it opens, before the user has agreed to anything. This likely does not meet the consent expected before tracking, and it matters more because the users are children."
+              },
+              "help": {
+                "text": "Act s6(1): consent must be free, specific, informed, unambiguous, clear affirmative action; Act s9(3): no tracking, behavioural monitoring or targeted ads aimed at children"
+              },
+              "properties": {
+                "layer": "browser",
+                "clauses": [
+                  "Act s6(1)",
+                  "Act s9(3)"
+                ]
+              }
+            },
+            {
+              "id": "consent_bundled",
+              "name": "consent_bundled",
+              "shortDescription": {
+                "text": "Consent box is pre-ticked or bundled with marketing"
+              },
+              "fullDescription": {
+                "text": "The consent checkbox is already ticked, or one box covers both the terms and marketing messages. This likely does not meet the requirement for free, specific and unambiguous consent given by a clear action."
+              },
+              "help": {
+                "text": "Act s5: notice; Act s6(1): consent must be free, specific, informed, unambiguous, clear affirmative action; Rule 3: notice stands alone, plain language, itemises personal data and specific purposes"
+              },
+              "properties": {
+                "layer": "browser",
+                "clauses": [
+                  "Act s5",
+                  "Act s6(1)",
+                  "Rule 3"
+                ]
+              }
+            },
+            {
+              "id": "notice_drift",
+              "name": "notice_drift",
+              "shortDescription": {
+                "text": "Collected personal data is not listed in the privacy notice"
+              },
+              "fullDescription": {
+                "text": "The app handles personal data that its public privacy notice does not list. This likely does not meet the duty to itemise the personal data in the notice."
+              },
+              "help": {
+                "text": "Act s5: notice; Rule 3: notice itemises the personal data and specific purposes"
+              },
+              "properties": {
+                "layer": "notice",
+                "clauses": [
+                  "Act s5",
+                  "Rule 3"
+                ]
+              }
+            },
+            {
+              "id": "config_secret_committed",
+              "name": "config_secret_committed",
+              "shortDescription": {
+                "text": "Secret value written in a file in the repository"
+              },
+              "fullDescription": {
+                "text": "docker-compose.yml holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(b): access control; Rule 6(1)(g): effective technical and organisational measures"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(b)",
+                  "Rule 6(1)(g)"
+                ]
+              }
+            },
+            {
+              "id": "config_db_exposed",
+              "name": "config_db_exposed",
+              "shortDescription": {
+                "text": "Database port is published to every network interface"
+              },
+              "fullDescription": {
+                "text": "docker-compose.yml publishes the db database port to the host without limiting it to 127.0.0.1, and the password is a common default. This likely does not meet the access control expected for reasonable security safeguards."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(b): access control"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(b)"
+                ]
+              }
+            },
+            {
+              "id": "config_debug_enabled",
+              "name": "config_debug_enabled",
+              "shortDescription": {
+                "text": "Debug mode is on"
+              },
+              "fullDescription": {
+                "text": "backend/.env turns on debug or reload mode. This likely does not meet the technical measures expected in production, because debug mode can show internals and stack traces to users."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(g): effective technical and organisational measures"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(g)"
+                ]
+              }
+            },
+            {
+              "id": "config_env_in_image",
+              "name": "config_env_in_image",
+              "shortDescription": {
+                "text": "Secrets are baked into the container image"
+              },
+              "fullDescription": {
+                "text": "The image built from backend/Dockerfile copies .env into the image, so anyone who can pull the image can read it. This likely does not meet the reasonable security safeguards expected for protecting secrets."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(g): effective technical and organisational measures"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(g)"
+                ]
+              }
+            },
+            {
+              "id": "config_container_root",
+              "name": "config_container_root",
+              "shortDescription": {
+                "text": "Container runs as root"
+              },
+              "fullDescription": {
+                "text": "backend/Dockerfile never switches to a non root user, so the app runs with root rights inside the container. This likely does not meet the technical measures expected to limit damage from a break-in."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(g): effective technical and organisational measures"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(g)"
+                ]
+              }
+            },
+            {
+              "id": "config_cors_wildcard",
+              "name": "config_cors_wildcard",
+              "shortDescription": {
+                "text": "CORS allows every origin"
+              },
+              "fullDescription": {
+                "text": "backend/app/main.py allows requests from any origin together with credentials. This likely does not meet the access control expected for reasonable security safeguards."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(b): access control"
+              },
+              "properties": {
+                "layer": "config",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(b)"
+                ]
+              }
+            },
+            {
+              "id": "fe_pii_in_storage",
+              "name": "fe_pii_in_storage",
+              "shortDescription": {
+                "text": "Personal data kept in browser storage"
+              },
+              "fullDescription": {
+                "text": "The page saves name, dob, aadhaar in localStorage, where any script on the page can read it and it stays after the tab is closed. This likely does not meet the safeguard expected for protecting personal data in the browser."
+              },
+              "help": {
+                "text": "Act s8(5): reasonable security safeguards; Rule 6(1)(a): encryption, obfuscation, masking or virtual tokens"
+              },
+              "properties": {
+                "layer": "frontend",
+                "clauses": [
+                  "Act s8(5)",
+                  "Rule 6(1)(a)"
+                ]
+              }
+            },
+            {
+              "id": "consent_not_recorded",
+              "name": "consent_not_recorded",
+              "shortDescription": {
+                "text": "No consent record found in the schema or source"
+              },
+              "fullDescription": {
+                "text": "We found no place where a consent is stored, so the app may not be able to show who agreed to what and when. This likely does not meet the duty to be able to prove notice and consent."
+              },
+              "help": {
+                "text": "Act s6(10): the fiduciary must prove notice and consent; Act s6(1): consent must be free, specific, informed, unambiguous, clear affirmative action"
+              },
+              "properties": {
+                "layer": "code",
+                "clauses": [
+                  "Act s6(10)",
+                  "Act s6(1)"
+                ]
+              }
+            },
+            {
+              "id": "consent_no_withdrawal",
+              "name": "consent_no_withdrawal",
+              "shortDescription": {
+                "text": "No consent withdrawal route found"
+              },
+              "fullDescription": {
+                "text": "The API has no route that lets a person withdraw consent. This likely does not meet the duty to make withdrawal as easy as giving consent and to stop processing after it."
+              },
+              "help": {
+                "text": "Act s6(4): withdrawal must be as easy as giving consent; Act s6(6): stop processing after consent is withdrawn"
+              },
+              "properties": {
+                "layer": "api",
+                "clauses": [
+                  "Act s6(4)",
+                  "Act s6(6)"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "properties": {
+        "scanId": "S-001",
+        "target": "http://localhost:8000",
+        "readinessScore": 13,
+        "note": "Readiness report, not a compliance certificate."
+      },
+      "results": [
+        {
+          "ruleId": "api_pii_exposure",
+          "level": "error",
+          "message": {
+            "text": "Public API endpoint exposes personal data. GET /api/students returns personal data to anyone, with no login. This likely does not meet the access control expected for reasonable security safeguards. Evidence: GET /api/students returned 15 record(s) with email, phone, dob, aadhaar, parent_pan without login Sample (masked): email=a***@tutornest.test; phone=98XXXXXX10; dob=1990-XX-XX; aadhaar=XXXX XXXX 9013; parent_pan=XXXXX1234A"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 64
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-001",
+            "severity": "critical",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "api_idor",
+          "level": "error",
+          "message": {
+            "text": "Any logged-in user can read other users' records. GET /api/students/{student_id} returns another user's record to a logged-in user without checking ownership. This likely does not meet the access control expected for reasonable security safeguards. Evidence: user 2 read the record of user 3 via GET /api/students/{student_id} Sample (masked): email=d***@example.test; phone=87XXXXXX44; dob=2005-XX-XX; aadhaar=XXXX XXXX 2341; parent_pan=XXXXX5678B"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 70
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-002",
+            "severity": "critical",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "db_plaintext_pii",
+          "level": "error",
+          "message": {
+            "text": "Aadhaar or PAN stored in plaintext columns. Table students keeps Aadhaar or PAN numbers as readable text, with no encryption, masking or tokens. This likely does not meet the safeguard expected for personal data at rest. Evidence: Plaintext aadhaar, parent_pan in table students (sampled up to 20 rows per column). Also seen: email, phone, dob Sample (masked): aadhaar=XXXX XXXX 9013; parent_pan=XXXXX1234A"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/db.py"
+                },
+                "region": {
+                  "startLine": 29
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-003",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(a)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "log_pii",
+          "level": "error",
+          "message": {
+            "text": "Personal data written to logs. A log call writes personal data in plain text, so anyone who can read the logs can read it. This likely does not meet the safeguard expected for masking personal data. Evidence: Log call includes email, aadhaar Sample (masked): logger.info(\"signup email=%s aadhaar=%s\", req.email, req.aadhaar)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 87
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-004",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(a)"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "erasure_incomplete",
+          "level": "error",
+          "message": {
+            "text": "Personal data is still stored after deletion. After a delete request, the user's personal data is still in the database. This likely does not meet the duty to erase data once the purpose is served or consent is withdrawn. Evidence: After DELETE of a synthetic user, its data is still in: students, students_backup Sample (masked): email=e***@example.test"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 138
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-005",
+            "severity": "high",
+            "clauses": [
+              "Act s8(7)"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "children_no_parental_consent",
+          "level": "error",
+          "message": {
+            "text": "Under-18 signup accepted with no parental consent. A signup for a 14 year old was accepted with no step to verify a parent or guardian. The Act asks for verifiable consent of a parent before processing a child's data. Evidence: POST /api/signup with age 14 and no parent data returned 201 Sample (masked): email=e***@example.test"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 77
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-006",
+            "severity": "high",
+            "clauses": [
+              "Act s9(1)",
+              "Rule 10"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "missing_contact",
+          "level": "note",
+          "message": {
+            "text": "No DPO or grievance contact published. The pages we checked do not give a Data Protection Officer or grievance contact. This likely does not meet the duty to publish contact details and a grievance process. Evidence: No DPO or grievance contact with an email or phone on: http://localhost:8000/notice, http://localhost:5173"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/static/notice.html"
+                },
+                "region": {
+                  "startLine": 14
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-007",
+            "severity": "low",
+            "clauses": [
+              "Act s8(9)",
+              "Act s8(10)",
+              "Rule 9",
+              "Rule 14(3)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "tracker_before_consent",
+          "level": "error",
+          "message": {
+            "text": "Tracking script loads before any consent. The signup page contacts an advertising or social tracker as soon as it opens, before the user has agreed to anything. This likely does not meet the consent expected before tracking, and it matters more because the users are children. Evidence: Before any click, the page requested connect.facebook.net (Social, Meta) Sample (masked): https://connect.facebook.net/en_US/fbevents.js"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "frontend/index.html"
+                },
+                "region": {
+                  "startLine": 9
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-008",
+            "severity": "high",
+            "clauses": [
+              "Act s6(1)",
+              "Act s9(3)"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "consent_bundled",
+          "level": "warning",
+          "message": {
+            "text": "Consent box is pre-ticked or bundled with marketing. The consent checkbox is already ticked, or one box covers both the terms and marketing messages. This likely does not meet the requirement for free, specific and unambiguous consent given by a clear action. Evidence: The consent checkbox is already ticked and bundles terms with marketing Sample (masked): I agree to the Terms and to marketing messages"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "frontend/src/App.jsx"
+                },
+                "region": {
+                  "startLine": 216
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-009",
+            "severity": "medium",
+            "clauses": [
+              "Act s5",
+              "Act s6(1)",
+              "Rule 3"
+            ],
+            "fixAvailable": true
+          }
+        },
+        {
+          "ruleId": "notice_drift",
+          "level": "warning",
+          "message": {
+            "text": "Collected personal data is not listed in the privacy notice. The app handles personal data that its public privacy notice does not list. This likely does not meet the duty to itemise the personal data in the notice. Evidence: The notice lists name, email, phone. Also found in the app: dob, aadhaar, parent_pan Sample (masked): dob, aadhaar, parent_pan"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/static/notice.html"
+                },
+                "region": {
+                  "startLine": 22
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-010",
+            "severity": "medium",
+            "clauses": [
+              "Act s5",
+              "Rule 3"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_secret_committed",
+          "level": "error",
+          "message": {
+            "text": "Secret value written in a file in the repository. docker-compose.yml holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them. Evidence: 1 secret value(s) in plain text in docker-compose.yml: POSTGRES_PASSWORD Sample (masked): POSTGRES_PASSWORD=ad***"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docker-compose.yml"
+                },
+                "region": {
+                  "startLine": 12
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-011",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_db_exposed",
+          "level": "error",
+          "message": {
+            "text": "Database port is published to every network interface. docker-compose.yml publishes the db database port to the host without limiting it to 127.0.0.1, and the password is a common default. This likely does not meet the access control expected for reasonable security safeguards. Evidence: Service db publishes database port 5432 on all interfaces with a default password Sample (masked): 5432:5432"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "docker-compose.yml"
+                },
+                "region": {
+                  "startLine": 10
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-012",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_secret_committed",
+          "level": "error",
+          "message": {
+            "text": "Secret value written in a file in the repository. backend/.env holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them. Evidence: 3 secret value(s) in plain text in backend/.env: JWT_SECRET, DB_PASSWORD, SMTP_PASSWORD Sample (masked): JWT_SECRET=tu***"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/.env"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-013",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_debug_enabled",
+          "level": "warning",
+          "message": {
+            "text": "Debug mode is on. backend/.env turns on debug or reload mode. This likely does not meet the technical measures expected in production, because debug mode can show internals and stack traces to users. Evidence: Debug or reload is enabled in backend/.env Sample (masked): DEBUG=true"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/.env"
+                },
+                "region": {
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-014",
+            "severity": "medium",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_env_in_image",
+          "level": "error",
+          "message": {
+            "text": "Secrets are baked into the container image. The image built from backend/Dockerfile copies .env into the image, so anyone who can pull the image can read it. This likely does not meet the reasonable security safeguards expected for protecting secrets. Evidence: The Dockerfile copies .env into the image Sample (masked): COPY .env /app/.env"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/Dockerfile"
+                },
+                "region": {
+                  "startLine": 5
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-015",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_container_root",
+          "level": "warning",
+          "message": {
+            "text": "Container runs as root. backend/Dockerfile never switches to a non root user, so the app runs with root rights inside the container. This likely does not meet the technical measures expected to limit damage from a break-in. Evidence: The Dockerfile has no non root USER Sample (masked): no USER instruction"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/Dockerfile"
+                },
+                "region": {
+                  "startLine": 2
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-016",
+            "severity": "medium",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_secret_committed",
+          "level": "error",
+          "message": {
+            "text": "Secret value written in a file in the repository. backend/app/auth.py holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them. Evidence: 1 secret value(s) in plain text in backend/app/auth.py: SECRET_KEY Sample (masked): SECRET_KEY=tu***"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/auth.py"
+                },
+                "region": {
+                  "startLine": 9
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-017",
+            "severity": "high",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)",
+              "Rule 6(1)(g)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "config_cors_wildcard",
+          "level": "warning",
+          "message": {
+            "text": "CORS allows every origin. backend/app/main.py allows requests from any origin together with credentials. This likely does not meet the access control expected for reasonable security safeguards. Evidence: Any website may call this API from a browser, with credentials Sample (masked): allow_origins=[\"*\"], allow_credentials=True"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 35
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-018",
+            "severity": "medium",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(b)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "fe_pii_in_storage",
+          "level": "warning",
+          "message": {
+            "text": "Personal data kept in browser storage. The page saves name, dob, aadhaar in localStorage, where any script on the page can read it and it stays after the tab is closed. This likely does not meet the safeguard expected for protecting personal data in the browser. Evidence: localStorage.setItem stores name, dob, aadhaar in frontend/src/App.jsx Sample (masked): localStorage.setItem('tutornest_student', JSON.stringify({ name, dob, aadhaar }))"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "frontend/src/App.jsx"
+                },
+                "region": {
+                  "startLine": 46
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-019",
+            "severity": "medium",
+            "clauses": [
+              "Act s8(5)",
+              "Rule 6(1)(a)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "consent_not_recorded",
+          "level": "warning",
+          "message": {
+            "text": "No consent record found in the schema or source. We found no place where a consent is stored, so the app may not be able to show who agreed to what and when. This likely does not meet the duty to be able to prove notice and consent. Evidence: No consent table, column or model field was found in 5 schema and source files"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 77
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-020",
+            "severity": "medium",
+            "clauses": [
+              "Act s6(10)",
+              "Act s6(1)"
+            ],
+            "fixAvailable": false
+          }
+        },
+        {
+          "ruleId": "consent_no_withdrawal",
+          "level": "warning",
+          "message": {
+            "text": "No consent withdrawal route found. The API has no route that lets a person withdraw consent. This likely does not meet the duty to make withdrawal as easy as giving consent and to stop processing after it. Evidence: None of the 8 routes in the OpenAPI spec is about consent, withdrawal, opt out or unsubscribe Sample (masked): /api/admin/students, /api/login, /api/me, /api/signup, /api/students, /api/students/{student_id}, /health, /notice"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "backend/app/main.py"
+                },
+                "region": {
+                  "startLine": 77
+                }
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "F-021",
+            "severity": "medium",
+            "clauses": [
+              "Act s6(4)",
+              "Act s6(6)"
+            ],
+            "fixAvailable": false
+          }
+        }
+      ]
+    }
+  ]
+}

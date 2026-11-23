@@ -40,6 +40,17 @@ Never store or return a raw value anywhere (JSON, logs, report).
 | children_no_parental_consent | api | high | Act s9(1), Rule 10 | under 18 signup accepted with no parent step | no |
 | missing_contact | notice | low | Act s8(9), s8(10), Rule 9, Rule 14(3) | no DPO or grievance contact | no |
 | notice_drift | notice | medium | Act s5, Rule 3 | collected fields not in the notice | no |
+| config_secret_committed | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A key named like a secret, password, token or API key has a literal value in a config file or source. | no |
+| config_env_in_image | config | high | Act s8(5), Rule 6(1)(g) | A Dockerfile copies a .env file, or sets a secret with ENV or ARG. | no |
+| config_container_root | config | medium | Act s8(5), Rule 6(1)(g) | A Dockerfile has no USER instruction, or the last USER is root. | no |
+| config_cors_wildcard | config | medium | Act s8(5), Rule 6(1)(b) | allow_origins holds "*", or the Access-Control-Allow-Origin header is *. | no |
+| config_debug_enabled | config | medium | Act s8(5), Rule 6(1)(g) | DEBUG is true in an env file, debug=True is in app code, or a container command uses reload. | no |
+| config_db_exposed | config | high | Act s8(5), Rule 6(1)(b) | A compose file publishes a database port without binding it to 127.0.0.1. | no |
+| fe_pii_in_storage | frontend | medium | Act s8(5), Rule 6(1)(a) | localStorage or sessionStorage setItem is called with a key or value that names personal data. | no |
+| consent_not_recorded | code | medium | Act s6(10), Act s6(1) | No consent table, column or model field exists in the schema or the backend source. | no |
+| consent_no_withdrawal | api | medium | Act s6(4), Act s6(6) | No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing. | no |
+
+The full list with the recommended fix per check is `docs/CHECKS.md`, generated from `engine/dpdp_lens/checks.py`.
 
 ## Engine API (FastAPI, port 8100, CORS open for localhost)
 - POST /scan body {target_url, repo_path, db_path} returns {scan_id}

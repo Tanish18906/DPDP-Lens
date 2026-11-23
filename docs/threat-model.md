@@ -39,6 +39,9 @@ Dashboard (browser, :5174) to Engine API (127.0.0.1:8100) to Target app (:8000, 
 | T13 | Third-party requests leak data when the browser scan loads the page | Information disclosure | External hosts are stubbed with an empty 200 (`page.route`), so nothing leaves the machine |
 | T14 | Intentionally vulnerable demo app exposed to a network | Information disclosure | `run_demo.sh` binds the backend to 127.0.0.1. TutorNest must never be deployed (its JWT secret is a hard-coded demo value). README says so |
 
+### Planted secrets
+The demo app carries secrets that we planted on purpose for the scanner: `target-app/backend/.env` (V9), the Dockerfile and compose file (V10, V12) and a hard-coded `SECRET_KEY` in `app/auth.py`. Every value is synthetic and fake, works nowhere, and `.env` is committed through a `.gitignore` exception so the config scan has something real to find. Secret scanners such as gitleaks or GitHub secret scanning may flag them, and that is expected. The auditor itself never prints a secret in full: `config_scan` shows the first 2 characters plus `***`, and `scripts/make_sample_report.sh` fails if a planted value or raw personal data appears in `reports/`. If a real secret ever shows up in a scan of a real app, rotate it, because the file in the repository is the leak, not the report.
+
 ## 5. Out of scope and known limits
 - No authentication on the engine API in this version.
 - Finished scans and fix results are saved as JSON on disk (`.dpdp-state/`, masked evidence only, no raw PII) so an engine restart keeps them. The folder is not encrypted, so treat it as sensitive. A scan still running at restart is lost.

@@ -1,10 +1,13 @@
-"""CLI. `sample` prints the contract sample scan, `scan` audits a running target."""
+"""CLI. `sample` prints the contract sample scan, `scan` audits a running target, `checks` lists every check and rule,
+`report` renders the HTML report of a saved scan."""
 import argparse
 import json
 import sys
 from pathlib import Path
 
+from . import checks_doc
 from .models import ScanResult
+from .report import render_report
 from .runner import run_scan
 from .sarif import to_sarif
 
@@ -21,11 +24,23 @@ def main(argv: list[str] | None = None) -> int:
     scan_p.add_argument("--db", required=True, help="target SQLite file (opened read only)")
     scan_p.add_argument("--out", help="write JSON here (default: print it)")
     scan_p.add_argument("--sarif", help="also write a SARIF 2.1.0 file here")
+    checks_p = sub.add_parser("checks", help="list every check and the rules we wrote")
+    fmt = checks_p.add_mutually_exclusive_group()
+    fmt.add_argument("--md", action="store_true", help="Markdown (the default, same as docs/CHECKS.md)")
+    fmt.add_argument("--json", action="store_true", help="JSON")
+    report_p = sub.add_parser("report", help="render the HTML report of a saved scan JSON")
+    report_p.add_argument("scan_json")
+    report_p.add_argument("--out", required=True, help="write the HTML here")
     args = parser.parse_args(argv)
 
     if args.cmd == "sample":
         scan = ScanResult.model_validate_json(SAMPLE.read_text())  # fails loudly if the sample drifts from the models
         print(scan.model_dump_json(indent=2))
+    elif args.cmd == "checks":
+        sys.stdout.write(checks_doc.to_json() if args.json else checks_doc.to_markdown())
+    elif args.cmd == "report":
+        Path(args.out).write_text(render_report(ScanResult.model_validate_json(Path(args.scan_json).read_text())))
+        print(f"report -> {args.out}")
     elif args.cmd == "scan":
         result = run_scan(args.target, args.repo, args.db)
         text = result.model_dump_json(indent=2)

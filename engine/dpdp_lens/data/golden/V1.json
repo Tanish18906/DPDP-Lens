@@ -2,9 +2,11 @@
   "golden_id": "V1",
   "check": "api_pii_exposure",
   "source": "live",
-  "saved_at": "2026-11-22T20:38:01+00:00",
+  "saved_at": "2026-11-23T15:13:38+00:00",
   "diff": "--- a/app/main.py\n+++ b/app/main.py\n@@ -62,9 +62,9 @@\n \n # PLANTED V1\n @app.get(\"/api/students\")\n-def list_students_public():\n-    rows = db.all_students()   # returns name, phone, dob, aadhaar, parent_pan\n-    return rows\n+def list_students_public(admin_user: dict = Depends(get_admin_user)):\n+    rows = db.all_students()  # admin only; aadhaar and parent_pan are not returned\n+    return [{k: v for k, v in row.items() if k not in (\"aadhaar\", \"parent_pan\")} for row in rows]\n \n # PLANTED V2\n @app.get(\"/api/students/{student_id}\")\n",
   "verified": true,
   "rescan_passed": true,
-  "tests_passed": true
+  "tests_passed": true,
+  "kind": null,
+  "pending_inputs": null
 }

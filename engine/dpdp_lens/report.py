@@ -2,7 +2,7 @@
 Every dynamic value goes through html.escape. The output depends only on the scan, so it is deterministic."""
 from html import escape
 
-from .models import Finding, ScanResult, compute_score
+from .models import SEVERITY_WEIGHTS, Finding, ScanResult, compute_score
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 TAGLINE = "Does your app do what its privacy notice says?"
@@ -24,7 +24,7 @@ h1, h2, h3, .score b, .brand { font-family: var(--serif); }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 22px; font-weight: 600; margin-bottom: 18px; } .mark { width: 28px; height: 28px; }
 .tagline { font-family: var(--serif); font-size: 18px; margin: 2px 0 6px; }
 h1 { font-size: 28px; margin: 0 0 4px; } h2 { font-size: 20px; margin: 32px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
-h3 { font-size: 16px; margin: 0 0 6px; } p { margin: 6px 0; } .muted { color: var(--muted); }
+h3 { font-size: 16px; margin: 0 0 6px; } p { margin: 6px 0; } .muted { color: var(--muted); } .reason { font-weight: 600; }
 .notice { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 10px 14px; margin: 14px 0; }
 .summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; margin: 14px 0; font-variant-numeric: tabular-nums; }
 .score { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 8px 18px; text-align: center; }
@@ -65,7 +65,8 @@ def h(value) -> str:
 def _location(f: Finding) -> str:
     loc = f.evidence.location
     if loc.file:
-        return f"{loc.file}:{loc.line}" if loc.line else loc.file
+        where = f"{loc.file}:{loc.line}" if loc.line else loc.file
+        return f"{where} ({loc.url})" if loc.url else where
     if loc.url:
         return loc.url
     if loc.table:
@@ -122,11 +123,15 @@ def _finding(f: Finding, mode: dict | None) -> str:
         rows.append(("Masked sample", f"<code>{h(ev.masked_sample)}</code>"))
     if _location(f):
         rows.append(("Location", f"<code>{h(_location(f))}</code>"))
+    if f.recommendation:
+        rows.append(("Recommended fix", h(f.recommendation)))
     status = "Verified fixed" if f.status == "verified_fixed" else "Open"
     return (f'<section class="finding sev-{h(f.severity)}">'
             f'<h3><span class="id">{h(f.id)}</span> <span class="pill {h(f.severity)}">{h(f.severity)}</span> '
             f'<span class="layer">{h(f.layer)}</span> {h(f.title)}</h3>'
-            f'<p class="muted">Status: {status}</p><p>{h(f.explanation)}</p><p>{chips}</p>'
+            f'<p class="muted">Status: {status}</p>'
+            + (f'<p class="reason">{h(f.severity_reason)}</p>' if f.severity_reason else "")
+            + f'<p>{h(f.explanation)}</p><p>{chips}</p>'
             f'<dl>{"".join(f"<dt>{k}</dt><dd>{v}</dd>" for k, v in rows)}</dl>{_fix_block(f, mode)}</section>')
 
 
@@ -194,7 +199,7 @@ def render_report(scan: ScanResult, fix_modes: dict | None = None) -> str:
 <div class="notice"><b>{h(FOOTER)}</b></div>
 <div class="summary"><div class="score"><b>{h(scan.score)}</b>readiness score</div>{counts}</div>
 {_score_change(scan)}
-<p class="muted">Readiness score: 100 minus 20 per critical, 10 per high, 5 per medium and 2 per low open finding. Higher is better.</p>
+<p class="muted">Readiness score: 100 minus {SEVERITY_WEIGHTS["critical"]} per critical, {SEVERITY_WEIGHTS["high"]} per high, {SEVERITY_WEIGHTS["medium"]} per medium and {SEVERITY_WEIGHTS["low"]} per low open finding. Higher is better.</p>
 <h2>Notice vs Runtime</h2>
 {_drift(scan)}
 <h2>Findings ({len(findings)})</h2>

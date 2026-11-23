@@ -2,9 +2,11 @@
   "golden_id": "V8",
   "check": "children_no_parental_consent",
   "source": "live",
-  "saved_at": "2026-11-22T21:41:04+00:00",
+  "saved_at": "2026-11-23T15:13:03+00:00",
   "diff": "--- a/app/main.py\n+++ b/app/main.py\n@@ -1,4 +1,5 @@\n import os\n+import re\n import logging\n from datetime import datetime, timezone\n from typing import Optional\n@@ -76,8 +77,9 @@\n \n @app.post(\"/api/signup\", status_code=201)\n def signup(req: SignupRequest):\n-    # PLANTED V8  (no parental consent check)\n-    # The application accepts minor signup without verifying identifiable parental consent\n+    # PLANTED V8 (fixed: under 18 needs a parent PAN. Format check only, the parent is not verified, see Rule 10)\n+    if req.age < 18 and not (req.parent_pan and re.fullmatch(r\"[A-Z]{5}[0-9]{4}[A-Z]\", req.parent_pan)):\n+        raise HTTPException(status_code=422, detail=\"Under 18: a valid parent PAN is required\")\n \n     existing = db.get_student_by_email(req.email)\n     if existing:\n",
   "verified": true,
   "rescan_passed": true,
-  "tests_passed": true
+  "tests_passed": true,
+  "kind": null,
+  "pending_inputs": null
 }

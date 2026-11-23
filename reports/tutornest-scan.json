@@ -1,0 +1,1073 @@
+{
+  "scan_id": "S-001",
+  "target": "http://localhost:8000",
+  "scanned_at": "2026-11-23T15:11:42+00:00",
+  "score": 13,
+  "counts": {
+    "critical": 2,
+    "high": 10,
+    "medium": 8,
+    "low": 1
+  },
+  "findings": [
+    {
+      "id": "F-001",
+      "check": "api_pii_exposure",
+      "layer": "api",
+      "severity": "critical",
+      "title": "Public API endpoint exposes personal data",
+      "explanation": "GET /api/students returns personal data to anyone, with no login. This likely does not meet the access control expected for reasonable security safeguards.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        }
+      ],
+      "severity_reason": "Critical: no login needed, 15 records returned with email, phone, dob, aadhaar, parent_pan.",
+      "recommendation": "Require authentication and authorisation on this route and return only the fields the caller needs.",
+      "evidence": {
+        "kind": "http",
+        "summary": "GET /api/students returned 15 record(s) with email, phone, dob, aadhaar, parent_pan without login",
+        "masked_sample": "email=a***@tutornest.test; phone=98XXXXXX10; dob=1990-XX-XX; aadhaar=XXXX XXXX 9013; parent_pan=XXXXX1234A",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 64,
+          "url": "http://localhost:8000/api/students",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-002",
+      "check": "api_idor",
+      "layer": "api",
+      "severity": "critical",
+      "title": "Any logged-in user can read other users' records",
+      "explanation": "GET /api/students/{student_id} returns another user's record to a logged-in user without checking ownership. This likely does not meet the access control expected for reasonable security safeguards.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        }
+      ],
+      "severity_reason": "Critical: a logged in user read another user's record.",
+      "recommendation": "Check on the server that the logged in user owns the record, or is an admin, before returning it.",
+      "evidence": {
+        "kind": "http",
+        "summary": "user 2 read the record of user 3 via GET /api/students/{student_id}",
+        "masked_sample": "email=d***@example.test; phone=87XXXXXX44; dob=2005-XX-XX; aadhaar=XXXX XXXX 2341; parent_pan=XXXXX5678B",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 70,
+          "url": "http://localhost:8000/api/students/{student_id}",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-003",
+      "check": "db_plaintext_pii",
+      "layer": "db",
+      "severity": "high",
+      "title": "Aadhaar or PAN stored in plaintext columns",
+      "explanation": "Table students keeps Aadhaar or PAN numbers as readable text, with no encryption, masking or tokens. This likely does not meet the safeguard expected for personal data at rest.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(a)",
+          "note": "encryption, obfuscation, masking or virtual tokens"
+        }
+      ],
+      "severity_reason": "High: aadhaar, parent_pan stored unencrypted in students.",
+      "recommendation": "Encrypt Aadhaar and PAN at rest, or store a token or masked form, and limit who can read the columns.",
+      "evidence": {
+        "kind": "db",
+        "summary": "Plaintext aadhaar, parent_pan in table students (sampled up to 20 rows per column). Also seen: email, phone, dob",
+        "masked_sample": "aadhaar=XXXX XXXX 9013; parent_pan=XXXXX1234A",
+        "location": {
+          "file": "backend/app/db.py",
+          "line": 29,
+          "url": "",
+          "table": "students",
+          "column": "aadhaar, parent_pan"
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-004",
+      "check": "log_pii",
+      "layer": "code",
+      "severity": "high",
+      "title": "Personal data written to logs",
+      "explanation": "A log call writes personal data in plain text, so anyone who can read the logs can read it. This likely does not meet the safeguard expected for masking personal data.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(a)",
+          "note": "encryption, obfuscation, masking or virtual tokens"
+        }
+      ],
+      "severity_reason": "High: email, aadhaar written to a log in plain text.",
+      "recommendation": "Log an internal id instead of personal data, and mask any value that must be logged.",
+      "evidence": {
+        "kind": "code",
+        "summary": "Log call includes email, aadhaar",
+        "masked_sample": "logger.info(\"signup email=%s aadhaar=%s\", req.email, req.aadhaar)",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 87,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-005",
+      "check": "erasure_incomplete",
+      "layer": "db",
+      "severity": "high",
+      "title": "Personal data is still stored after deletion",
+      "explanation": "After a delete request, the user's personal data is still in the database. This likely does not meet the duty to erase data once the purpose is served or consent is withdrawn.",
+      "clauses": [
+        {
+          "ref": "Act s8(7)",
+          "note": "erase when consent is withdrawn or purpose is served"
+        }
+      ],
+      "severity_reason": "High: personal data remains in students, students_backup after delete.",
+      "recommendation": "On deletion, remove personal data from every table and backup copy, except logs you must keep by law.",
+      "evidence": {
+        "kind": "db",
+        "summary": "After DELETE of a synthetic user, its data is still in: students, students_backup",
+        "masked_sample": "email=e***@example.test",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 138,
+          "url": "",
+          "table": "students, students_backup",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-006",
+      "check": "children_no_parental_consent",
+      "layer": "api",
+      "severity": "high",
+      "title": "Under-18 signup accepted with no parental consent",
+      "explanation": "A signup for a 14 year old was accepted with no step to verify a parent or guardian. The Act asks for verifiable consent of a parent before processing a child's data.",
+      "clauses": [
+        {
+          "ref": "Act s9(1)",
+          "note": "verifiable parental consent for under 18"
+        },
+        {
+          "ref": "Rule 10",
+          "note": "verify the parent is an identifiable adult"
+        }
+      ],
+      "severity_reason": "High: a 14 year old signup was accepted with no parental step.",
+      "recommendation": "Require verifiable parental consent before accepting an under 18 signup.",
+      "evidence": {
+        "kind": "http",
+        "summary": "POST /api/signup with age 14 and no parent data returned 201",
+        "masked_sample": "email=e***@example.test",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 77,
+          "url": "http://localhost:8000/api/signup",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-007",
+      "check": "missing_contact",
+      "layer": "notice",
+      "severity": "low",
+      "title": "No DPO or grievance contact published",
+      "explanation": "The pages we checked do not give a Data Protection Officer or grievance contact. This likely does not meet the duty to publish contact details and a grievance process.",
+      "clauses": [
+        {
+          "ref": "Act s8(9)",
+          "note": "publish contact of DPO or other person"
+        },
+        {
+          "ref": "Act s8(10)",
+          "note": "grievance mechanism"
+        },
+        {
+          "ref": "Rule 9",
+          "note": "publish business contact"
+        },
+        {
+          "ref": "Rule 14(3)",
+          "note": "publish grievance process, respond within 90 days at most"
+        }
+      ],
+      "severity_reason": "Low: no data protection contact or grievance process was found.",
+      "recommendation": "Publish a contact for a data protection officer or other person, and the grievance process, on the site and in the notice.",
+      "evidence": {
+        "kind": "http",
+        "summary": "No DPO or grievance contact with an email or phone on: http://localhost:8000/notice, http://localhost:5173",
+        "masked_sample": "",
+        "location": {
+          "file": "backend/static/notice.html",
+          "line": 14,
+          "url": "http://localhost:8000/notice",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-008",
+      "check": "tracker_before_consent",
+      "layer": "browser",
+      "severity": "high",
+      "title": "Tracking script loads before any consent",
+      "explanation": "The signup page contacts an advertising or social tracker as soon as it opens, before the user has agreed to anything. This likely does not meet the consent expected before tracking, and it matters more because the users are children.",
+      "clauses": [
+        {
+          "ref": "Act s6(1)",
+          "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"
+        },
+        {
+          "ref": "Act s9(3)",
+          "note": "no tracking, behavioural monitoring or targeted ads aimed at children"
+        }
+      ],
+      "severity_reason": "High: connect.facebook.net (Social) is contacted before any consent click.",
+      "recommendation": "Do not load third party trackers until the user gives clear consent. Load them only from the consent handler.",
+      "evidence": {
+        "kind": "network",
+        "summary": "Before any click, the page requested connect.facebook.net (Social, Meta)",
+        "masked_sample": "https://connect.facebook.net/en_US/fbevents.js",
+        "location": {
+          "file": "frontend/index.html",
+          "line": 9,
+          "url": "http://localhost:5173",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-009",
+      "check": "consent_bundled",
+      "layer": "browser",
+      "severity": "medium",
+      "title": "Consent box is pre-ticked or bundled with marketing",
+      "explanation": "The consent checkbox is already ticked, or one box covers both the terms and marketing messages. This likely does not meet the requirement for free, specific and unambiguous consent given by a clear action.",
+      "clauses": [
+        {
+          "ref": "Act s5",
+          "note": "notice"
+        },
+        {
+          "ref": "Act s6(1)",
+          "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"
+        },
+        {
+          "ref": "Rule 3",
+          "note": "notice stands alone, plain language, itemises personal data and specific purposes"
+        }
+      ],
+      "severity_reason": "Medium: consent is pre ticked and bundled with the terms.",
+      "recommendation": "Use a separate, unticked consent box for each purpose and itemise the data and purposes in the notice.",
+      "evidence": {
+        "kind": "dom",
+        "summary": "The consent checkbox is already ticked and bundles terms with marketing",
+        "masked_sample": "I agree to the Terms and to marketing messages",
+        "location": {
+          "file": "frontend/src/App.jsx",
+          "line": 216,
+          "url": "http://localhost:5173",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": true,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-010",
+      "check": "notice_drift",
+      "layer": "notice",
+      "severity": "medium",
+      "title": "Collected personal data is not listed in the privacy notice",
+      "explanation": "The app handles personal data that its public privacy notice does not list. This likely does not meet the duty to itemise the personal data in the notice.",
+      "clauses": [
+        {
+          "ref": "Act s5",
+          "note": "notice"
+        },
+        {
+          "ref": "Rule 3",
+          "note": "notice itemises the personal data and specific purposes"
+        }
+      ],
+      "severity_reason": "Medium: 3 collected fields are not in the notice.",
+      "recommendation": "Update the notice to list every personal data field collected and why, or stop collecting the extra fields.",
+      "evidence": {
+        "kind": "http",
+        "summary": "The notice lists name, email, phone. Also found in the app: dob, aadhaar, parent_pan",
+        "masked_sample": "dob, aadhaar, parent_pan",
+        "location": {
+          "file": "backend/static/notice.html",
+          "line": 22,
+          "url": "http://localhost:8000/notice",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-011",
+      "check": "config_secret_committed",
+      "layer": "config",
+      "severity": "high",
+      "title": "Secret value written in a file in the repository",
+      "explanation": "docker-compose.yml holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "High: 1 secret value(s) are written in plain text in docker-compose.yml.",
+      "recommendation": "Remove the secret from the repository, rotate it, and load secrets from the environment or a secret manager.",
+      "evidence": {
+        "kind": "code",
+        "summary": "1 secret value(s) in plain text in docker-compose.yml: POSTGRES_PASSWORD",
+        "masked_sample": "POSTGRES_PASSWORD=ad***",
+        "location": {
+          "file": "docker-compose.yml",
+          "line": 12,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-012",
+      "check": "config_db_exposed",
+      "layer": "config",
+      "severity": "high",
+      "title": "Database port is published to every network interface",
+      "explanation": "docker-compose.yml publishes the db database port to the host without limiting it to 127.0.0.1, and the password is a common default. This likely does not meet the access control expected for reasonable security safeguards.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        }
+      ],
+      "severity_reason": "High: db database port 5432 is published on all interfaces and its password is a common default.",
+      "recommendation": "Do not publish the database port. Keep it on the internal network or bind to 127.0.0.1, and use strong credentials.",
+      "evidence": {
+        "kind": "code",
+        "summary": "Service db publishes database port 5432 on all interfaces with a default password",
+        "masked_sample": "5432:5432",
+        "location": {
+          "file": "docker-compose.yml",
+          "line": 10,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-013",
+      "check": "config_secret_committed",
+      "layer": "config",
+      "severity": "high",
+      "title": "Secret value written in a file in the repository",
+      "explanation": "backend/.env holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "High: 3 secret value(s) are written in plain text in backend/.env.",
+      "recommendation": "Remove the secret from the repository, rotate it, and load secrets from the environment or a secret manager.",
+      "evidence": {
+        "kind": "code",
+        "summary": "3 secret value(s) in plain text in backend/.env: JWT_SECRET, DB_PASSWORD, SMTP_PASSWORD",
+        "masked_sample": "JWT_SECRET=tu***",
+        "location": {
+          "file": "backend/.env",
+          "line": 2,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-014",
+      "check": "config_debug_enabled",
+      "layer": "config",
+      "severity": "medium",
+      "title": "Debug mode is on",
+      "explanation": "backend/.env turns on debug or reload mode. This likely does not meet the technical measures expected in production, because debug mode can show internals and stack traces to users.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "Medium: debug mode is on in backend/.env.",
+      "recommendation": "Turn debug off outside local development.",
+      "evidence": {
+        "kind": "code",
+        "summary": "Debug or reload is enabled in backend/.env",
+        "masked_sample": "DEBUG=true",
+        "location": {
+          "file": "backend/.env",
+          "line": 5,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-015",
+      "check": "config_env_in_image",
+      "layer": "config",
+      "severity": "high",
+      "title": "Secrets are baked into the container image",
+      "explanation": "The image built from backend/Dockerfile copies .env into the image, so anyone who can pull the image can read it. This likely does not meet the reasonable security safeguards expected for protecting secrets.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "High: the image build copies .env into the image.",
+      "recommendation": "Do not copy .env or bake secrets into the image. Pass them at run time.",
+      "evidence": {
+        "kind": "code",
+        "summary": "The Dockerfile copies .env into the image",
+        "masked_sample": "COPY .env /app/.env",
+        "location": {
+          "file": "backend/Dockerfile",
+          "line": 5,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-016",
+      "check": "config_container_root",
+      "layer": "config",
+      "severity": "medium",
+      "title": "Container runs as root",
+      "explanation": "backend/Dockerfile never switches to a non root user, so the app runs with root rights inside the container. This likely does not meet the technical measures expected to limit damage from a break-in.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "Medium: the container runs as root.",
+      "recommendation": "Add a non root USER to the Dockerfile.",
+      "evidence": {
+        "kind": "code",
+        "summary": "The Dockerfile has no non root USER",
+        "masked_sample": "no USER instruction",
+        "location": {
+          "file": "backend/Dockerfile",
+          "line": 2,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-017",
+      "check": "config_secret_committed",
+      "layer": "config",
+      "severity": "high",
+      "title": "Secret value written in a file in the repository",
+      "explanation": "backend/app/auth.py holds secret values as literal text. The file is tracked by git. This likely does not meet the reasonable security safeguards expected for access control, because anyone with the repository can read them.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        },
+        {
+          "ref": "Rule 6(1)(g)",
+          "note": "effective technical and organisational measures"
+        }
+      ],
+      "severity_reason": "High: 1 secret value(s) are written in plain text in backend/app/auth.py.",
+      "recommendation": "Remove the secret from the repository, rotate it, and load secrets from the environment or a secret manager.",
+      "evidence": {
+        "kind": "code",
+        "summary": "1 secret value(s) in plain text in backend/app/auth.py: SECRET_KEY",
+        "masked_sample": "SECRET_KEY=tu***",
+        "location": {
+          "file": "backend/app/auth.py",
+          "line": 9,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-018",
+      "check": "config_cors_wildcard",
+      "layer": "config",
+      "severity": "medium",
+      "title": "CORS allows every origin",
+      "explanation": "backend/app/main.py allows requests from any origin together with credentials. This likely does not meet the access control expected for reasonable security safeguards.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(b)",
+          "note": "access control"
+        }
+      ],
+      "severity_reason": "Medium: any origin is allowed and credentials are allowed.",
+      "recommendation": "Allow only the exact front end origins you need. Never combine a wildcard with credentials.",
+      "evidence": {
+        "kind": "code",
+        "summary": "Any website may call this API from a browser, with credentials",
+        "masked_sample": "allow_origins=[\"*\"], allow_credentials=True",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 35,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-019",
+      "check": "fe_pii_in_storage",
+      "layer": "frontend",
+      "severity": "medium",
+      "title": "Personal data kept in browser storage",
+      "explanation": "The page saves name, dob, aadhaar in localStorage, where any script on the page can read it and it stays after the tab is closed. This likely does not meet the safeguard expected for protecting personal data in the browser.",
+      "clauses": [
+        {
+          "ref": "Act s8(5)",
+          "note": "reasonable security safeguards"
+        },
+        {
+          "ref": "Rule 6(1)(a)",
+          "note": "encryption, obfuscation, masking or virtual tokens"
+        }
+      ],
+      "severity_reason": "Medium: name, dob, aadhaar are kept in localStorage.",
+      "recommendation": "Do not keep personal data in browser storage. Keep it on the server and use short lived session tokens.",
+      "evidence": {
+        "kind": "code",
+        "summary": "localStorage.setItem stores name, dob, aadhaar in frontend/src/App.jsx",
+        "masked_sample": "localStorage.setItem('tutornest_student', JSON.stringify({ name, dob, aadhaar }))",
+        "location": {
+          "file": "frontend/src/App.jsx",
+          "line": 46,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-020",
+      "check": "consent_not_recorded",
+      "layer": "code",
+      "severity": "medium",
+      "title": "No consent record found in the schema or source",
+      "explanation": "We found no place where a consent is stored, so the app may not be able to show who agreed to what and when. This likely does not meet the duty to be able to prove notice and consent.",
+      "clauses": [
+        {
+          "ref": "Act s6(10)",
+          "note": "the fiduciary must prove notice and consent"
+        },
+        {
+          "ref": "Act s6(1)",
+          "note": "consent must be free, specific, informed, unambiguous, clear affirmative action"
+        }
+      ],
+      "severity_reason": "Medium: no consent record found in the schema or source.",
+      "recommendation": "Record each consent (who, what, when, which notice version) so you can prove it later.",
+      "evidence": {
+        "kind": "code",
+        "summary": "No consent table, column or model field was found in 5 schema and source files",
+        "masked_sample": "",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 77,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    },
+    {
+      "id": "F-021",
+      "check": "consent_no_withdrawal",
+      "layer": "api",
+      "severity": "medium",
+      "title": "No consent withdrawal route found",
+      "explanation": "The API has no route that lets a person withdraw consent. This likely does not meet the duty to make withdrawal as easy as giving consent and to stop processing after it.",
+      "clauses": [
+        {
+          "ref": "Act s6(4)",
+          "note": "withdrawal must be as easy as giving consent"
+        },
+        {
+          "ref": "Act s6(6)",
+          "note": "stop processing after consent is withdrawn"
+        }
+      ],
+      "severity_reason": "Medium: none of the 8 API routes is about consent or withdrawal.",
+      "recommendation": "Add a way to withdraw consent that is as easy as giving it, and stop processing when it is used.",
+      "evidence": {
+        "kind": "http",
+        "summary": "None of the 8 routes in the OpenAPI spec is about consent, withdrawal, opt out or unsubscribe",
+        "masked_sample": "/api/admin/students, /api/login, /api/me, /api/signup, /api/students, /api/students/{student_id}, /health, /notice",
+        "location": {
+          "file": "backend/app/main.py",
+          "line": 77,
+          "url": "",
+          "table": "",
+          "column": ""
+        },
+        "detector": "rule"
+      },
+      "status": "open",
+      "fix": {
+        "available": false,
+        "diff": null,
+        "verified": false,
+        "rescan_passed": null,
+        "tests_passed": null,
+        "score_before": null,
+        "score_after": null,
+        "kind": null,
+        "pending_inputs": null
+      }
+    }
+  ],
+  "notice_drift": {
+    "declared": [
+      "name",
+      "email",
+      "phone"
+    ],
+    "observed": [
+      {
+        "field": "name",
+        "where": [
+          "db:students.name",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:104"
+        ]
+      },
+      {
+        "field": "email",
+        "where": [
+          "db:students.email",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:117"
+        ]
+      },
+      {
+        "field": "phone",
+        "where": [
+          "db:students.phone",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:132"
+        ]
+      },
+      {
+        "field": "dob",
+        "where": [
+          "db:students.dob",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:145"
+        ]
+      },
+      {
+        "field": "aadhaar",
+        "where": [
+          "db:students.aadhaar",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:174"
+        ]
+      },
+      {
+        "field": "parent_pan",
+        "where": [
+          "db:students.parent_pan",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:190"
+        ]
+      }
+    ],
+    "undeclared": [
+      "dob",
+      "aadhaar",
+      "parent_pan"
+    ],
+    "undeclared_detail": [
+      {
+        "field": "dob",
+        "where": [
+          "db:students.dob",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:145"
+        ],
+        "needs_review": true,
+        "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."
+      },
+      {
+        "field": "aadhaar",
+        "where": [
+          "db:students.aadhaar",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:174"
+        ],
+        "needs_review": true,
+        "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."
+      },
+      {
+        "field": "parent_pan",
+        "where": [
+          "db:students.parent_pan",
+          "api:/api/students",
+          "frontend:frontend/src/App.jsx:190"
+        ],
+        "needs_review": true,
+        "review_note": "Check whether you need this field for a stated purpose. If not, stop collecting it. If yes, the notice must itemise it with its specific purpose (Act s5, Rule 3)."
+      }
+    ]
+  }
+}
