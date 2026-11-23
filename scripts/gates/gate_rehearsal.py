@@ -1,4 +1,4 @@
-"""The docs/demo-script.md path on the live stack, with timings: scan, critical finding, fix V1, drift,
+"""The docs/demo-script.md path on the live stack, with timings: scan, critical finding, fix V1, drift, data flow,
 V3 and V5 fixes, report. Needs the demo stack (./run_demo.sh)."""
 import re
 import time
@@ -60,6 +60,8 @@ with sync_playwright() as p:
     t = c.body(page)
     g.check("drift headline and 3 undeclared rows", "3 of 6 data fields the app handles are not in its privacy notice" in t and t.lower().count("not in the notice") == 3)
     c.shot(page, "rehearsal-3-drift")
+    page.get_by_role("button", name="Data Flow").click()
+    page.get_by_role("list", name="Fields by layer").wait_for(); lap("data flow view")
     page.get_by_role("button", name="Findings").click()
     v3 = c.fix_and_wait(page, "Personal data written to logs"); lap("fix V3")
     g.check("V3 live, verified, 18 to 28", v3["mode"] == "live" and v3["finding"]["fix"]["verified"] and (v3["score_before"], v3["score_after"]) == (18, 28),

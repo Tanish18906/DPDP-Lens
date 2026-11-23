@@ -132,8 +132,9 @@ function layerState(steps, progress) {
   return steps.includes(progress?.step) ? 'current' : 'pending'
 }
 
-// Notice vs Runtime layer columns, by the prefix of each notice_drift.observed[].where entry.
-const DRIFT_LAYERS = [['db', 'Database'], ['api', 'API'], ['request', 'Third party']]
+// Data Flow columns after Notice. Browser = a third-party request from the page (request: entries).
+const DRIFT_LAYERS = [['db', 'Database'], ['api', 'API'], ['request', 'Browser']]
+const LANE_COLS = [['notice', 'Notice'], ...DRIFT_LAYERS]
 
 const LAYER_NAMES = { db: 'Database', code: 'Code', api: 'API', browser: 'Browser', notice: 'Notice' }
 
@@ -588,7 +589,8 @@ export default function App() {
 
   const views = [
     { key: 'findings', label: 'Findings', count: sortedFindings.length, countText: 'findings' },
-    { key: 'notice_drift', label: 'Notice vs Runtime', count: undeclaredCount, countText: 'undeclared fields', alert: undeclaredCount > 0 }
+    { key: 'notice_drift', label: 'Notice vs Runtime', count: undeclaredCount, countText: 'undeclared fields', alert: undeclaredCount > 0 },
+    { key: 'data_flow', label: 'Data Flow' }
   ]
   const showResults = hasScan && !isScanning
   const fixable = (scanData.findings || []).filter((f) => f.fix?.available)
@@ -619,7 +621,7 @@ export default function App() {
               }`}
             >
               {v.label}
-              {(hasScan || sampleMode) && (
+              {(hasScan || sampleMode) && v.count != null && (
                 <span className={`ml-auto font-mono text-[14px] tabular ${v.alert ? 'text-critical font-semibold' : 'text-muted'}`}>
                   {v.count}
                   <span className="sr-only"> {v.countText}</span>
@@ -1321,22 +1323,17 @@ export default function App() {
             </div>
 
             <div className="bg-surface border border-line rounded-[6px] overflow-x-auto">
-              <table className="w-full border-collapse text-left" aria-label="Fields by layer">
+              <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="bg-paper border-b border-line text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">
-                    <th scope="col" className="pl-5 pr-4 py-2.5 font-semibold w-[180px]">Field</th>
-                    <th scope="col" className="px-4 py-2.5 font-semibold w-[190px]">In the notice?</th>
-                    {DRIFT_LAYERS.map(([, name]) => (
-                      <th key={name} scope="col" className="px-4 py-2.5 font-semibold">{name}</th>
-                    ))}
+                    <th scope="col" className="pl-5 pr-4 py-2.5 font-semibold w-[200px]">Field</th>
+                    <th scope="col" className="px-4 py-2.5 font-semibold w-[220px]">In the notice?</th>
+                    <th scope="col" className="px-4 py-2.5 font-semibold">Where it was seen</th>
                   </tr>
                 </thead>
                 <tbody>
                   {driftRows.map((row) => (
-                    <tr
-                      key={row.field}
-                      className={`border-b border-line last:border-b-0 ${row.undeclared ? 'bg-[#FBF3F1]' : ''}`}
-                    >
+                    <tr key={row.field} className={`border-b border-line last:border-b-0 ${row.undeclared ? 'bg-[#FBF3F1]' : ''}`}>
                       <th
                         scope="row"
                         className={`pl-4 pr-4 py-3 border-l-4 font-mono text-[16px] font-medium text-left ${
@@ -1354,25 +1351,19 @@ export default function App() {
                           <span className="text-muted">No</span>
                         )}
                       </td>
-                      {DRIFT_LAYERS.map(([prefix, name]) => {
-                        const seen = row.where.filter((w) => w.startsWith(`${prefix}:`)).map((w) => w.slice(prefix.length + 1))
-                        return (
-                          <td key={prefix} className="px-4 py-3">
-                            {seen.length ? (
-                              <span className="flex flex-col gap-0.5">
-                                {seen.map((loc) => (
-                                  <span key={loc} className="font-mono text-[14px] text-ink break-all">{loc}</span>
-                                ))}
+                      <td className="px-4 py-3">
+                        {row.where.length ? (
+                          <span className="flex flex-wrap gap-1.5">
+                            {row.where.map((loc) => (
+                              <span key={loc} className="font-mono text-[14px] text-ink bg-paper border border-line rounded-[4px] px-2 py-0.5">
+                                {loc}
                               </span>
-                            ) : (
-                              <span className="text-[15px] text-muted">
-                                <span aria-hidden="true">—</span>
-                                <span className="sr-only">Not seen in {name}</span>
-                              </span>
-                            )}
-                          </td>
-                        )
-                      })}
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-[15px] text-muted">Not observed in this scan</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1380,10 +1371,136 @@ export default function App() {
             </div>
 
             <p className="text-[14px] text-muted m-0">
-              Database: a column holding the field. API: a response returned without login. Third party: a request from the
-              browser that carried the field.
+              Where it was seen: <span className="font-mono">db:</span> a database column, <span className="font-mono">api:</span> an API
+              response without login, <span className="font-mono">request:</span> a request to a third party. The Data Flow view shows
+              the same data by layer.
+            </p>
+          </section>
+        )}
+
+        {/* 6. Data Flow: where each field was seen, by layer. Built only from notice_drift. */}
+        {activeTab === 'data_flow' && !isScanning && !scanData.notice_drift && (
+          <section
+            className="bg-surface border border-line rounded-[6px] p-8 text-center flex flex-col gap-2"
+            aria-label="Data Flow"
+          >
+            <h2 className="font-serif text-[22px] font-semibold text-ink m-0">No data flow yet</h2>
+            <p className="text-[15px] text-muted m-0">
+              {hasScan
+                ? 'The engine returned no Notice vs Runtime data for this scan, so there is nothing to map.'
+                : 'Run a scan to see where each personal data field appears: notice, database, API and browser.'}
+            </p>
+          </section>
+        )}
+
+        {activeTab === 'data_flow' && !isScanning && scanData.notice_drift && (
+          <section className="flex flex-col gap-4" aria-label="Data Flow">
+            <p className="text-[16px] text-ink m-0">
+              Where each of the {totalUniqueFields} personal data fields was seen.{' '}
+              {undeclaredCount > 0 && (
+                <span className="text-critical font-semibold">
+                  {undeclaredCount} {undeclaredCount === 1 ? 'is' : 'are'} not in the notice.
+                </span>
+              )}
+            </p>
+
+            {/* Field lanes: one per field, nodes only where the engine saw the field, lines join consecutive nodes. */}
+            <div className="bg-surface border border-line rounded-[6px] overflow-x-auto">
+              <div className="min-w-[820px]">
+                <div data-testid="lane-head" className="grid grid-cols-[170px_1fr] bg-paper border-b border-line text-[14px] font-semibold text-muted">
+                  <div className="pl-5 pr-4 py-3">Field</div>
+                  <div className="grid grid-cols-4">
+                    {LANE_COLS.map(([key, name]) => (
+                      <div key={key} className="px-4 py-3">{name}</div>
+                    ))}
+                  </div>
+                </div>
+                <ul aria-label="Fields by layer" className="list-none m-0 p-0">
+                  {driftRows.map((row) => {
+                    const bg = row.undeclared ? 'bg-[#FBF3F1]' : 'bg-surface'
+                    const seenIn = (prefix) => row.where.filter((w) => w.startsWith(`${prefix}:`))
+                    // Stops: the notice mark, then every layer column where the field was seen. Segments join neighbours.
+                    const stops = [0, ...LANE_COLS.slice(1).flatMap(([prefix], k) => (seenIn(prefix).length ? [k + 1] : []))]
+                    const lineClass = row.undeclared ? 'h-1 bg-critical' : 'h-0.5 bg-accent'
+                    return (
+                      <li key={row.field} data-field={row.field} className={`grid grid-cols-[170px_1fr] border-b border-line last:border-b-0 ${bg}`}>
+                        <div
+                          className={`pl-4 pr-4 py-4 border-l-4 font-mono text-[16px] font-medium leading-5 ${
+                            row.undeclared ? 'border-l-critical text-critical' : 'border-l-transparent text-ink'
+                          }`}
+                        >
+                          {row.field}
+                        </div>
+                        <div className="relative grid grid-cols-4">
+                          {stops.slice(1).map((b, k) => {
+                            const a = stops[k]
+                            return (
+                              <span
+                                key={b}
+                                aria-hidden="true"
+                                className={`absolute rounded-full -translate-y-1/2 ${lineClass}`}
+                                style={{ top: 26, left: `calc(${a * 25}% + 26px)`, width: `${(b - a) * 25}%` }}
+                              />
+                            )
+                          })}
+                          {LANE_COLS.map(([prefix, name], col) => {
+                            if (col === 0)
+                              return (
+                                <div key={prefix} data-col="notice" className="relative px-4 py-4 flex flex-col items-start gap-1.5">
+                                  {row.undeclared ? (
+                                    <span aria-hidden="true" className={`w-5 h-5 rounded-full border-2 border-critical grid place-items-center ${bg}`}>
+                                      <svg className="w-3 h-3 text-critical" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeWidth={4} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </span>
+                                  ) : (
+                                    <span className={`rounded-full ${bg}`}>
+                                      <StepMarker state={row.declared ? 'done' : 'pending'} />
+                                    </span>
+                                  )}
+                                  <span className={`text-[14px] ${row.undeclared ? 'font-semibold text-critical' : 'text-ink'}`}>
+                                    {row.undeclared ? 'Not in the notice' : row.declared ? 'In the notice' : 'Not listed'}
+                                  </span>
+                                </div>
+                              )
+                            const seen = seenIn(prefix)
+                            return (
+                              <div key={prefix} data-col={prefix} className="relative px-4 py-4 flex flex-col items-start gap-1.5">
+                                {seen.length ? (
+                                  <>
+                                    <span aria-hidden="true" className={`w-5 h-5 grid place-items-center rounded-full ${bg}`}>
+                                      <span className={`rounded-full ${row.undeclared ? 'w-3.5 h-3.5 bg-critical' : 'w-3 h-3 bg-accent'}`} />
+                                    </span>
+                                    {seen.map((w) => (
+                                      <span key={w} title={w} className="font-mono text-[14px] text-ink break-all cursor-help">
+                                        {w.slice(prefix.length + 1)}
+                                        <span className="sr-only"> ({w})</span>
+                                      </span>
+                                    ))}
+                                  </>
+                                ) : (
+                                  <span className={`h-5 px-1 leading-5 text-[15px] text-muted ${bg}`}>
+                                    <span aria-hidden="true">—</span>
+                                    <span className="sr-only">Not seen in {name}</span>
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </div>
+
+            <p className="text-[14px] text-muted m-0">
+              Notice: the field is listed in the privacy notice at <span className="font-mono">/notice</span>. Database: a column
+              holding the field. API: a response returned without login. Browser: a request from the signup page to a third party
+              that carried the field. A dash means the scan did not see the field there.
               {!driftRows.some((r) => r.where.some((w) => w.startsWith('request:'))) &&
-                ' No third-party request carried a field in this scan. Trackers are reported as findings (see "Tracking script loads before any consent").'}
+                ' No third-party request was seen as a drift field in this scan, so the Browser column is empty. Trackers are reported as findings (see "Tracking script loads before any consent").'}
             </p>
           </section>
         )}

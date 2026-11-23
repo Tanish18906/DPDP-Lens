@@ -20,12 +20,13 @@ This replaces the numbers in the script in docs/11. Everything below was run end
 | 1:15 | Diff and three ticks appear (Re-scan passed, Tests passed, Verified) | "Re-scan passed, tests passed, verified. The original code is untouched." |
 | 1:30 | Point at the score: the big number counts up to 18, next to it "Score change 0 to 18" | "18 points, proven, not claimed. The score is floored at 0, so the real swing is 20." |
 | 1:35 | Click **Notice vs Runtime** | "The notice lists name, email and phone. The app also handles date of birth, Aadhaar and parent PAN. 3 of 6 fields the app handles are not in its privacy notice. That gap is what a regulator cares about." |
+| 1:50 | Click **Data Flow** (optional, 5 seconds) | "One lane per field. Red lanes start at a cross: Aadhaar, date of birth and parent PAN sit in the database and come out of the API without login, and the notice never mentions them." |
 | 1:55 | | "Readiness report, not a certificate. Thank you." |
 
 If there is time, or a judge asks: fix the next ones live, about 3 seconds each. In click order after V1 (0 to 18): V2 IDOR 38, V3 logs 48, V5 tracker 58, V6 consent 63, V7 erasure 73, V8 minors 83. The Findings tab then shows 3 left open (plaintext columns, notice drift, missing contact).
 
 ## Facts to say correctly
-- The tracker is shown as its own finding ("Tracking script loads before any consent"), not as a field in the Notice vs Runtime tab. Do not say the drift tab shows the tracker. In live mode the Third party column is empty on purpose (a caption says trackers are reported as findings).
+- The tracker is shown as its own finding ("Tracking script loads before any consent"), not as a field in the Notice vs Runtime tab. Do not say the drift tab shows the tracker. In live mode the Data Flow Browser column is empty on purpose (the footnote says no third-party request was seen as a drift field and trackers are reported as findings).
 - The sample data mode has its own numbers (score 45, a `facebook.com` request in the drift tab) and is labelled "Sample Data Mode". Do not mix them up with live numbers.
 - 7 findings have a verified fix (V1, V2, V3, V5, V6, V7, V8). Plaintext columns (V4), the notice drift and the missing contact show a disabled "No fix template yet" button. Fixing all seven moves the score 0 to 83. Two fixes are partial: V8 only requires a well-formed parent PAN (the parent is not verified), V6 fixes the box but not the notice.
 - Under-18 signup without parental consent (V8) is detected (high, Act s9(1), Rule 10) but has no verified fix yet.
@@ -49,7 +50,7 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - Chrome or Chromium must be installed for the browser findings. Not tested without it; expect the browser findings to be missing, like with the frontend down.
 
 ## How to run the gates
-`scripts/run_gates.sh` runs six Playwright gates (83 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
+`scripts/run_gates.sh` runs six Playwright gates (85 checks) against the demo stack and prints PASS or FAIL per gate. It exits 1 if any gate fails. Run it before every demo and after every change to the engine or the dashboard (about 70 seconds).
 
     scripts/run_gates.sh
 
@@ -57,7 +58,7 @@ Restart the engine alone: `cd engine && ../.venv/bin/python -m uvicorn dpdp_lens
 - All 4 already up: it reuses them. A mix of up and down ports: it stops and says so.
 - It re-seeds `demo.db` at the end. A single gate can be run alone, for example `.venv/bin/python scripts/gates/gate_rehearsal.py` (stack must be up).
 - Settings: `DASH_URL` (default http://localhost:5174), `ENGINE_URL` (default http://localhost:8100), `SHOT_DIR` (default `docs/fallback-shots`).
-- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 0 to 83), `children`, `data_flow` (the layer columns of the Notice vs Runtime table), `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified, the Use cached result link).
+- The gates are: `rehearsal` (the demo path with timings), `all_fixes` (7 live fixes, score 0 to 83), `children`, `data_flow` (the Data Flow field lanes), `offline` (engine unreachable, sample mode), `fix_states` (cached label, fix error, unverified, the Use cached result link).
 - The `offline` and `fix_states` gates block or rewrite requests in the browser. They never stop a server.
 - The numbers in `scripts/gates/common.py` are the demo facts (10 findings, score 0, the fix order). If the checks or scores change, update them there.
 - A run rewrites the screenshots in `docs/fallback-shots/`. `fix-cached-label`, `fix-error-banner` and `fix-unverified` show simulated states (the engine's answer is rewritten in the browser), not a real failure.
