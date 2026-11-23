@@ -27,6 +27,7 @@ class FakeSlack:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
         self.fail_next: list[Exception] = []
+        self.fail_webhook: list[int] = []
         self.n = 0
 
     def _rec(self, name, kw):
@@ -50,6 +51,19 @@ class FakeSlack:
     def views_open(self, **kw):
         self._rec("view", kw)
         return {"ok": True}
+
+    def webhook(self, url):
+        """Stands in for a response_url: records what was sent to it. `fail_webhook` holds status codes to answer first (429 retry tests)."""
+        fake = self
+
+        class Hook:
+            def send(self, **kw):
+                if fake.fail_webhook:
+                    return SimpleNamespace(status_code=fake.fail_webhook.pop(0), headers={"Retry-After": "1"})
+                fake._rec("respond", {"url": url, **kw})
+                return SimpleNamespace(status_code=200, headers={})
+
+        return Hook()
 
     def of(self, name):
         return [kw for n, kw in self.calls if n == name]
@@ -303,5 +317,5 @@ def make_ctx(approvers=(APPROVER,), fix_repos=("acme/tutornest",), channels=(CHA
     cfg = Config(engine_url=engine_url, dashboard_url="http://dash.test", api_token=token, channel=channels[0],
                  allowed_channels=frozenset(channels), approvers=frozenset(approvers), fix_repos=frozenset(fix_repos))
     slack = FakeSlack()
-    ctx = Ctx(cfg, Engine(cfg.engine_url, cfg.api_token), slack, Poster(slack, interval=0, sleep=lambda s: None), sleep=lambda s: None)
+    ctx = Ctx(cfg, Engine(cfg.engine_url, cfg.api_token), slack, Poster(slack, interval=0, sleep=lambda s: None, webhook=slack.webhook), sleep=lambda s: None)
     return ctx, slack, st

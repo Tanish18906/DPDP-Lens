@@ -1,5 +1,6 @@
 """What happens after a scan: wait for it, post the summary, post one card per new finding, keep cards in step with the engine."""
 import logging
+import secrets
 import time
 
 from . import cards
@@ -10,11 +11,30 @@ log = logging.getLogger("dpdp_lens.slackbot")
 SCAN_WAIT = 300  # seconds to wait for a clone and scan before telling the channel that it timed out
 
 
+class Pages:
+    """The ephemeral pages of /dpdp findings, by page id (the id is in each row's block_id). A click rebuilds its whole page from here,
+    because a response_url replaces a whole message. Capped, oldest dropped."""
+
+    def __init__(self, cap: int = 300):
+        self._d, self.cap = {}, cap
+
+    def add(self, page: dict) -> str:
+        pid = secrets.token_hex(4)
+        self._d[pid] = page
+        while len(self._d) > self.cap:
+            self._d.pop(next(iter(self._d)))
+        return pid
+
+    def get(self, pid: str):
+        return self._d.get(pid)
+
+
 class Ctx:
     """Everything a handler needs. `slack` is a Slack WebClient (or a fake in tests)."""
 
     def __init__(self, cfg, engine, slack, poster, sleep=time.sleep):
         self.cfg, self.engine, self.slack, self.poster, self.sleep = cfg, engine, slack, poster, sleep
+        self.pages = Pages()  # the /dpdp findings messages still open (memory only: a restart makes an old list say "run it again")
         self.alerted: set[int] = set()  # repo ids whose health alert is out and not yet followed by a recovery (memory only)
         for secret in (cfg.api_token, cfg.bot_token, cfg.app_token):
             add_secret(secret)

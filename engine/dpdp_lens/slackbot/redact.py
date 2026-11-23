@@ -4,7 +4,7 @@ import logging
 import os
 import re
 
-_TOKEN = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|gh[pousr]_\w+|github_pat_\w+|eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{6,}")
+_TOKEN = re.compile(r"xox[a-zA-Z]-[\w-]+|xapp-[\w-]+|gh[pousr]_\w+|github_pat_\w+|eyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]{6,}|https://hooks\.slack\.com/\S+")
 _ENV = ("DPDP_API_TOKEN", "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "GITHUB_TOKEN")
 _extra: set[str] = set()
 

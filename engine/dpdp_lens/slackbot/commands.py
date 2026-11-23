@@ -2,7 +2,7 @@
 `reply(text, blocks=None)` sends an ephemeral answer to the person who typed the command."""
 import logging
 
-from . import cards, flow
+from . import cards, flow, rows
 from .api import EngineError
 from .redact import redact
 
@@ -96,26 +96,13 @@ def _status(ctx, args, user, channel, reply):
     reply("\n".join(lines))
 
 
-def _all_records(ctx, repo_id: int, status: str | None) -> list[dict]:
-    out, total = [], None
-    while total is None or len(out) < total:
-        page = ctx.engine.findings(repo_id, status, 500, len(out))
-        total = page["total"]
-        out += page["items"]
-        if not page["items"]:
-            break
-    return out
-
-
 def _findings(ctx, args, user, channel, reply):
     modes = [a.lower() for a in args if a.lower() in ("open", "all")]
     if len(modes) > 1 or any(a.lower() not in ("open", "all") and "/" not in a for a in args):
         return reply("Usage: `/dpdp findings [open|all] [owner/repo]`")
     mode = modes[0] if modes else "open"
     repo = _pick_repo(ctx, [a for a in args if "/" in a], channel)
-    recs = _all_records(ctx, repo["id"], None) if mode == "all" else \
-        [r for s in ("open", "in_progress") for r in _all_records(ctx, repo["id"], s)]  # suppressed and fixed are not "open"
-    reply(*cards.findings_list(repo["full_name"], recs, mode, ctx.engine.health(repo["id"]), ctx.cfg.dashboard_url))
+    rows.send_list(ctx, user, channel, repo["full_name"], rows.records(ctx, repo["id"], mode), mode, ctx.engine.health(repo["id"]), reply)
 
 
 def _report(ctx, args, user, channel, reply):

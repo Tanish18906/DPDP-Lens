@@ -38,7 +38,7 @@ def finding_card(rec: dict, dashboard_url: str, can_fix: bool) -> tuple[str, lis
     hid, sev = rec["human_id"], rec["severity"]
     emoji, label = SEVERITY.get(sev, (":white_circle:", str(sev).upper()))
     status = STATUS.get(rec["status"], rec["status"])
-    head = f"<{dashboard_url.rstrip('/')}/?finding={hid}|{hid}>   {emoji} *{label}*   ·   Status: *{status}*"
+    head = f"{hid}   {emoji} *{label}*   ·   Status: *{status}*"  # plain id: acting happens in Slack, the dashboard link is only in View Details
     context = [f"`{esc(_where(rec['location']))}`", f"{esc(rec['repo'])}@{esc(rec['branch'] or 'default branch')}",
                PROOF.get(rec["proof"], "Static check")]
     if rec["status"] != "open" and rec.get("status_reason"):
@@ -56,10 +56,45 @@ def finding_card(rec: dict, dashboard_url: str, can_fix: bool) -> tuple[str, lis
     return f"{hid} {label} {status}: {rec['title']}", blocks
 
 
-def details(rec: dict) -> tuple[str, list]:
-    """Thread reply for View Details. `rec` is GET /findings/{id}: the record plus the last finding JSON."""
+def fix_summary(hid: str, out: dict) -> tuple[list[str], bool]:
+    """The lines about a fix run, from the engine's own answer (POST /findings/{id}/fix). Returns (lines, verified). VERIFIED only when the
+    engine says fix.verified is true AND the finding is verified_fixed. A cached replay is labelled as one."""
+    fix = out["finding"]["fix"]
+    verified = fix.get("verified") is True and out["finding"]["status"] == "verified_fixed"
+    if verified:
+        how = "Cached verified patch (replay)" if out["mode"] == "cached_golden" else "VERIFIED by a live sandbox run"
+        if out.get("fallback_reason"):
+            how += f" (the live run could not start: {out['fallback_reason']})"
+        lines = [f":white_check_mark: *{hid}: {how}*"]
+    else:
+        lines = [f":x: *{hid}: Not verified*"]
+    lines.append(f"Re-scan of the fixed copy: {_yn(fix.get('rescan_passed'))} · App tests: {_yn(fix.get('tests_passed'))}")
+    if fix.get("score_before") is not None and fix.get("score_after") is not None:
+        lines.append(f"Score {fix['score_before']} to {fix['score_after']}")
+    return lines, verified
+
+
+def _yn(v) -> str:
+    return "passed" if v is True else "failed" if v is False else "not run"
+
+
+def fix_scope_lines(fix: dict, verified: bool) -> list[str]:
+    """Two lines: what the run verified and what it did not. Built from the engine's fix fields, nothing else."""
+    if verified:
+        first = (f"*Verified:* the re-scan of the fixed sandbox copy no longer finds this ({_yn(fix.get('rescan_passed'))}), "
+                 f"and the repo's own tests: {_yn(fix.get('tests_passed'))}.")
+    else:
+        first = "*Not verified:* the fix did not pass the re-scan and the tests, so this finding stays open."
+    return [first, "*Not verified, you still must:* your repository itself was not changed. Apply the diff, review it, run your own tests and deploy. "
+                   "Other findings are not affected."]
+
+
+def details(rec: dict, dashboard_url: str = "", fix_button: bool = False) -> tuple[str, list]:
+    """The reply for View Details (a thread reply under a card, or an ephemeral message under a list). `rec` is GET /findings/{id}: the
+    record plus the last finding JSON. fix_button adds Fix and verify (the caller decides: approver, repo allows, fix available).
+    dashboard_url adds a small "Open in dashboard" line at the bottom, never the main action."""
     f = rec["finding"]
-    parts = [f"*{rec['human_id']}: {esc(f['title'])}*", esc(f.get("explanation", ""))]
+    parts = [f"*{rec['human_id']}: {esc(f['title'])}*  ·  {PROOF.get(rec.get('proof'), 'Static check')}", esc(f.get("explanation", ""))]
     if f.get("severity_reason"):
         parts.append(f"_Why {rec['severity']}:_ {esc(f['severity_reason'])}")
     if f.get("clauses"):
@@ -71,7 +106,19 @@ def details(rec: dict) -> tuple[str, list]:
     parts.append(evidence)
     if f.get("recommendation"):
         parts.append(f"*Recommendation:* {esc(f['recommendation'])}")
-    return f"{rec['human_id']} details", [_section(p) for p in parts if p.strip()]
+    fix = f.get("fix") or {}
+    if fix.get("verified") or fix.get("rescan_passed") is not None or fix.get("tests_passed") is not None:  # a fix was run on this finding
+        verified = fix.get("verified") is True and rec["status"] == "fixed"
+        parts.append("\n".join([":white_check_mark: *Verified fix*" if verified else ":x: *Not verified*",
+                               f"Re-scan of the fixed copy: {_yn(fix.get('rescan_passed'))} · App tests: {_yn(fix.get('tests_passed'))}",
+                               *fix_scope_lines(fix, verified)]))
+    blocks = [_section(p) for p in parts if p.strip()]
+    if fix_button:
+        blocks.append({"type": "actions", "block_id": f"det:{rec['human_id']}", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "Fix and verify"}, "action_id": "dpdp_row_fix", "value": rec["human_id"]}]})
+    if dashboard_url:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"<{dashboard_url.rstrip('/')}/?finding={rec['human_id']}|Open in dashboard>"}]})
+    return f"{rec['human_id']} details", blocks
 
 
 def summary(repo: str, delta: dict, errors: list[str] = ()) -> tuple[str, list]:
@@ -98,53 +145,65 @@ def summary(repo: str, delta: dict, errors: list[str] = ()) -> tuple[str, list]:
     return lines[0] if not complete else f"{repo}: scan {delta['scan_id']} complete, health {label}", [_section("\n".join(lines))]
 
 
-FINDINGS_MAX_LINES = 50
 SUPPRESSED = ("false_positive", "wont_fix")
 LIST_ORDER = ("open", "in_progress", "fixed", "false_positive", "wont_fix")
+MAX_BLOCKS = 50  # Slack's limit for one message
 
 
-def findings_list(repo: str, recs: list[dict], mode: str, health: dict, dashboard_url: str) -> tuple[str, list]:
-    """/dpdp findings. `recs` are the FindingRecords to list (already filtered: open and in progress for "open", every status for "all").
-    The first line says so when the last scan was incomplete or failed, or health is Unknown: such a list is never read as clean.
-    At most 50 finding lines. Suppressed ones (false positive, won't fix) only ever appear under "all", labelled."""
-    base = dashboard_url.rstrip("/")
-    lines, unsure = [], False
+def findings_header(repo: str, count: int, mode: str, health: dict) -> list[str]:
+    """First lines of /dpdp findings. A scan that was incomplete or failed, or Unknown health, comes first and the list never reads clean."""
+    lines = []
     if health.get("last_scan_status") not in ("complete", None, "") or health.get("status") == "unknown":
         why = {"incomplete": "the last scan was incomplete, so this list may be partial",
                "failed": "the last scan failed, so this list may be out of date"}.get(health.get("last_scan_status"), "health is Unknown, so this list may be partial or stale")
         lines.append(f":grey_question: *Not a clean result: {why}.*")
-        unsure = True
-    word = "Open findings" if mode == "open" else "All findings"
-    lines.append(f"*{esc(repo)}* · {word}: {len(recs)}")
-    if not recs:
+    unsure = bool(lines)
+    lines.append(f"*{esc(repo)}* · {'Open findings' if mode == 'open' else 'All findings'}: {count}")
+    if not count:
         lines.append("No open findings are stored for this repo." if mode == "open" else "No findings are stored for this repo.")
         if unsure:
             lines.append("That is not a pass: the scan did not finish cleanly.")
-        return lines[0], [_section("\n".join(lines))]
-    order = lambda r: (SEVERITY_ORDER.get(r["severity"], 9), r["human_id"])  # noqa: E731
-    body, shown = [], 0
-    for status in LIST_ORDER:
-        group = sorted((r for r in recs if r["status"] == status), key=order)
-        if not group or shown >= FINDINGS_MAX_LINES:
-            continue
-        if mode == "all":
-            body.append(f"*{STATUS[status]}*" + (" (suppressed: not counted in health)" if status in SUPPRESSED else "") + f" · {len(group)}")
-        for r in group[: FINDINGS_MAX_LINES - shown]:
-            emoji, label = SEVERITY.get(r["severity"], (":white_circle:", str(r["severity"]).upper()))
-            tag = f"{STATUS.get(r['status'], r['status'])}" + (" (suppressed)" if r["status"] in SUPPRESSED else "")
-            body.append(f"{emoji} {label} <{base}/?finding={r['human_id']}|{r['human_id']}> {esc(cut(r['title'], 80))} · {esc(_where(r['location']))} · {tag}")
-            shown += 1
-    if len(recs) > shown:
-        body.append(f"…and {len(recs) - shown} more, see the dashboard: {base}/")
-    # a Slack section holds 3000 characters: split the lines over several
-    blocks, chunk = [], []
-    for line in lines + body:
-        if sum(len(x) + 1 for x in chunk) + len(line) > 2800:
-            blocks.append(_section("\n".join(chunk)))
-            chunk = []
-        chunk.append(line)
-    blocks.append(_section("\n".join(chunk)))
-    return f"{repo}: {len(recs)} findings", blocks
+    return lines
+
+
+def group_heading(status: str, n: int) -> str:
+    return f"*{STATUS[status]}*" + (" (suppressed: not counted in health)" if status in SUPPRESSED else "") + f" · {n}"
+
+
+def finding_row(rec: dict, pid: str, fix_button: bool) -> list[dict]:
+    """One interactive row of /dpdp findings: three blocks. The id is plain text. Change Status is shown to everyone and refused for a
+    non approver (same as the cards). Fix and verify only when `fix_button` (fix available, repo allows it, requester is an approver)."""
+    hid = rec["human_id"]
+    emoji, label = SEVERITY.get(rec["severity"], (":white_circle:", str(rec["severity"]).upper()))
+    suppressed = " (suppressed)" if rec["status"] in SUPPRESSED else ""
+    elements = [{"type": "button", "text": {"type": "plain_text", "text": "View Details"}, "action_id": "dpdp_row_details", "value": hid},
+                {"type": "static_select", "action_id": "dpdp_row_status", "placeholder": {"type": "plain_text", "text": "Change Status"},
+                 "options": [_opt(hid, st) for st in SELECTABLE]}]
+    if rec["status"] in SELECTABLE:
+        elements[1]["initial_option"] = _opt(hid, rec["status"])
+    if fix_button and rec["status"] != "fixed":
+        elements.append({"type": "button", "text": {"type": "plain_text", "text": "Fix and verify"}, "action_id": "dpdp_row_fix", "value": hid})
+    return [_section(f"{emoji} *{label}* · {hid}\n*{esc(cut(rec['title'], 150))}*"),
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"`{esc(cut(_where(rec['location']), 200))}` · Status: *{STATUS.get(rec['status'], rec['status'])}*{suppressed}"}]},
+            {"type": "actions", "block_id": f"row:{pid}:{hid}", "elements": elements}]
+
+
+def whole_lines(text: str, limit: int) -> tuple[str, int]:
+    """The longest run of whole lines from the start of `text` that fits `limit` characters, and how many lines were left out. A line is
+    never cut in the middle: a line longer than the limit is left out with the rest."""
+    lines, used, kept = text.split("\n"), 0, []
+    for line in lines:
+        if used + len(line) + 1 > limit:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    return "\n".join(kept), len(lines) - len(kept)
+
+
+def diff_reply(hid: str, diff: str, limit: int = 2600) -> tuple[str, list]:
+    body, left = whole_lines((diff or "(no diff returned)").replace("```", "'''"), limit)
+    note = f"\n_{left} more line{'s' if left != 1 else ''} not shown (nothing is cut mid-line): the full diff is in the engine's answer._" if left else ""
+    return f"{hid} diff", [_section(f"*Diff* (applied to a sandbox copy only)\n```{body}```{note}")]
 
 
 def diff(repo: str, d: dict, dashboard_url: str, errors: list[str] = ()) -> tuple[str, list]:
@@ -212,11 +271,6 @@ def recovery(repo: str, health: dict) -> tuple[str, list]:
     emoji, label = HEALTH.get(health["status"], HEALTH["unknown"])
     lines = [f":{emoji}: *{esc(repo)}: health recovered, now {label}*"] + [f"• {esc(cut(r, 200))}" for r in health["reasons"][:3]]
     return f"{repo}: health recovered, now {label}", [_section("\n".join(lines))]
-
-
-def diff_reply(hid: str, diff: str) -> tuple[str, list]:
-    body = cut((diff or "(no diff returned)").replace("```", "'''"), 2700)
-    return f"{hid} diff", [_section(f"*Diff* (applied to a sandbox copy only)\n```{body}```")]
 
 
 def reason_modal(hid: str, status: str, meta: str) -> dict:

@@ -39,7 +39,7 @@ def view_details(ctx, user: str, channel: str, ts: str, hid: str) -> None:
     if not _gate(ctx, user, channel, approver=False):
         return
     try:
-        text, blocks = cards.details(ctx.engine.finding(hid))
+        text, blocks = cards.details(ctx.engine.finding(hid), ctx.cfg.dashboard_url)
     except EngineError as e:
         text, blocks = f"Could not load {hid}: {e.detail}", None
     ctx.poster.post(channel, text, blocks, thread_ts=ts)
@@ -73,9 +73,13 @@ def submit_reason(ctx, user: str, meta: str, reason: str) -> str | None:
     if not 1 <= len(reason) <= 300:
         return "Give a reason of 1 to 300 characters."
     try:
-        ctx.engine.set_status(m["h"], m["s"], reason, user)
+        rec = ctx.engine.set_status(m["h"], m["s"], reason, user)
     except EngineError as e:
         return e.detail  # for example: the reason must not contain personal data
+    if m.get("u"):  # the modal was opened from a row of /dpdp findings: update that row and the card
+        from .rows import update_row  # late import: rows.py imports this module
+        update_row(ctx, m.get("p", ""), m["u"], rec)
+        return None
     try:
         ctx.refresh_card(m["h"])
     except EngineError as e:

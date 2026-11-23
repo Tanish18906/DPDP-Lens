@@ -115,7 +115,7 @@ REC = {"human_id": "DPDP-014", "repo": "acme/tutornest", "branch": "main", "chec
 def test_card_snapshot():
     text, blocks = cards.finding_card(REC, "http://dash.test/", can_fix=True)
     assert text == "DPDP-014 HIGH Open: Personal data in a log"
-    assert blocks[0]["text"]["text"] == "<http://dash.test/?finding=DPDP-014|DPDP-014>   :large_orange_circle: *HIGH*   ·   Status: *Open*"
+    assert blocks[0]["text"]["text"] == "DPDP-014   :large_orange_circle: *HIGH*   ·   Status: *Open*"  # block 12: the id is plain text, no dashboard link
     assert blocks[1]["text"]["text"] == "*Personal data in a log*"
     assert [e["text"] for e in blocks[2]["elements"]] == ["`backend/app/main.py:87`", "acme/tutornest@main", "Static check"]
     acts = blocks[3]["elements"]

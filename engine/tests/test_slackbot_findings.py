@@ -1,4 +1,5 @@
-"""Block 10: /dpdp findings and the "still open" line in the scan summary, against the fake Slack client and the fake engine."""
+"""Blocks 10 and 12: /dpdp findings as interactive ephemeral rows (fake Slack client, fake engine). The first version of this file tested a
+read-only list with dashboard links; block 12 replaced it with rows, so each earlier check is kept in its new form."""
 import json
 
 import pytest
@@ -20,10 +21,6 @@ class Reply:
     def __call__(self, text, blocks=None):
         self.sent.append((text, blocks))
 
-    @property
-    def text(self):
-        return "\n".join(b["text"]["text"] if blocks else text for text, blocks in self.sent for b in (blocks or [None]))
-
 
 def run(ctx, text, user=OTHER):
     reply = Reply()
@@ -31,35 +28,65 @@ def run(ctx, text, user=OTHER):
     return reply
 
 
-def connected():
-    ctx, slack, st = make_ctx()
+def connected(**kw):
+    ctx, slack, st = make_ctx(**kw)
     run(ctx, "connect acme/tutornest", APPROVER)  # three open findings: critical, high, medium
     return ctx, slack, st
 
 
-def add(st, n, severity="medium", status="open", title="Extra finding"):
+def add(st, n, severity="medium", status="open", title="Extra finding", fix=False):
     for i in range(n):
         hid = f"DPDP-{len(st.findings) + 1:03d}"
-        st.findings[hid] = dict(check="log_pii", severity=severity, proof="static", layer="code", title=f"{title} {i}", fix=False, file=f"app/m{i}.py",
+        st.findings[hid] = dict(check="log_pii", severity=severity, proof="static", layer="code", title=f"{title} {i}", fix=fix, file=f"app/m{i}.py",
                                 line=i + 1, explanation="x", sample="a***@x.com", human_id=hid, status=status, reason="", by="system", slack=None)
 
 
-def lines(reply):
-    return [x for x in reply.text.split("\n") if "?finding=" in x]
+def pages(r, slack):
+    """Every message of one /dpdp findings answer: the command's own reply first, then the further ephemeral pages."""
+    return [blocks for _, blocks in r.sent] + [c["blocks"] for c in slack.of("ephemeral")]
 
 
-def test_a_normal_list_is_critical_first_with_links_titles_locations_and_status():
+def rows(blocks_list):
+    """(human_id, [action ids]) of every row, in order, over all pages."""
+    out = []
+    for blocks in blocks_list:
+        for b in blocks:
+            if b["type"] == "actions" and b["block_id"].startswith("row:"):
+                out.append((b["block_id"].split(":")[2], [e["action_id"] for e in b["elements"]]))
+    return out
+
+
+def texts(blocks_list):
+    return "\n".join(b["text"]["text"] if b["type"] == "section" else " ".join(e["text"] for e in b["elements"] if "text" in e and isinstance(e["text"], str))
+                     for blocks in blocks_list for b in blocks if b["type"] in ("section", "context"))
+
+
+def test_rows_are_critical_first_plain_ids_with_title_location_status_and_actions():
     ctx, slack, st = connected()
-    calls = len(slack.calls)
     r = run(ctx, "findings")
-    got = lines(r)
-    assert [x.split()[1] for x in got] == ["CRITICAL", "HIGH", "MEDIUM"]  # sorted by severity, not by id
-    first = got[0]
-    assert first.startswith(":red_circle: CRITICAL <http://dash.test/?finding=DPDP-003|DPDP-003> Personal data open to anyone")
-    assert "· /api/students ·" in first and first.endswith("· Open")
-    assert "backend/app/main.py:87" in got[1] and ":large_orange_circle:" in got[1] and ":large_yellow_circle:" in got[2]
-    assert "Open findings: 3" in r.text and "Not a clean result" not in r.text
-    assert len(slack.calls) == calls  # an ephemeral reply, nothing posted to the channel
+    got = rows(pages(r, slack))
+    assert [h for h, _ in got] == ["DPDP-003", "DPDP-001", "DPDP-002"]  # critical, high, medium: not by id
+    text = texts(pages(r, slack))
+    assert ":red_circle: *CRITICAL* · DPDP-003\n*Personal data open to anyone*" in text and "`/api/students` · Status: *Open*" in text
+    assert "`backend/app/main.py:87` · Status: *Open*" in text and ":large_orange_circle: *HIGH* · DPDP-001" in text
+    assert "?finding=" not in json.dumps(pages(r, slack)) and "http://dash.test" not in json.dumps(pages(r, slack))  # no dashboard link in the list
+    assert all(a[:2] == ["dpdp_row_details", "dpdp_row_status"] for _, a in got)
+    select = pages(r, slack)[0][3]["elements"][1]
+    assert [o["text"]["text"] for o in select["options"]] == ["Open", "In Progress", "False Positive", "Won't Fix"] and select["initial_option"]["value"] == "DPDP-003|open"
+    posted = len(slack.of("post"))
+    run(ctx, "findings")
+    assert len(slack.of("post")) == posted  # the list is ephemeral: nothing is posted to the channel
+
+
+def test_fix_and_verify_only_for_an_approver_a_fixable_finding_and_a_repo_that_allows_it():
+    ctx, slack, st = connected()
+    approver = dict(rows(pages(run(ctx, "findings", APPROVER), slack)))
+    assert "dpdp_row_fix" in approver["DPDP-001"] and "dpdp_row_fix" in approver["DPDP-003"] and "dpdp_row_fix" not in approver["DPDP-002"]  # 002 has no fix
+    other = Reply()
+    commands.run_command(ctx, "findings", OTHER, CHANNEL, other)
+    assert all("dpdp_row_fix" not in a for _, a in rows(pages(other, slack)[:1]))  # not an approver
+    ctx2, slack2, st2 = connected(fix_repos=())  # a repo that does not allow fixing
+    assert all("dpdp_row_fix" not in a for _, a in rows(pages(run(ctx2, "findings", APPROVER), slack2)))
 
 
 def test_open_is_the_default_and_lists_in_progress_but_not_fixed_or_suppressed():
@@ -67,9 +94,10 @@ def test_open_is_the_default_and_lists_in_progress_but_not_fixed_or_suppressed()
     st.findings["DPDP-001"]["status"] = "in_progress"
     st.findings["DPDP-002"]["status"] = "false_positive"
     st.findings["DPDP-003"]["status"] = "fixed"
-    got = lines(run(ctx, "findings"))
-    assert len(got) == 1 and "DPDP-001" in got[0] and got[0].endswith("In Progress")
-    assert lines(run(ctx, "findings open")) == got
+    r = run(ctx, "findings")
+    assert [h for h, _ in rows(pages(r, slack))] == ["DPDP-001"] and "Status: *In Progress*" in texts(pages(r, slack))
+    assert [h for h, _ in rows(pages(run(ctx, "findings open"), slack))] == ["DPDP-001"]  # "open" is the default
+    assert "suppressed" not in texts(pages(r, slack))
 
 
 def test_all_groups_by_status_and_labels_suppressed_ones():
@@ -79,21 +107,13 @@ def test_all_groups_by_status_and_labels_suppressed_ones():
     st.findings["DPDP-003"]["status"] = "fixed"
     add(st, 1, "low")
     r = run(ctx, "findings all")
-    text = r.text
-    heads = [x for x in text.split("\n") if x.startswith("*") and "·" in x and "?finding" not in x][1:]
+    text = texts(pages(r, slack))
+    heads = [x for x in text.split("\n") if x.startswith("*") and x.endswith(("· 1", "· 2")) and "CRITICAL" not in x]
     assert [h.split("*")[1] for h in heads] == ["Open", "Fixed", "False Positive", "Won't Fix"]
-    assert "(suppressed: not counted in health)" in text
-    suppressed = [x for x in lines(r) if "DPDP-001" in x or "DPDP-002" in x]
-    assert len(suppressed) == 2 and all(x.endswith("(suppressed)") for x in suppressed)
-    assert "(suppressed)" not in [x for x in lines(r) if "DPDP-003" in x][0]
-    assert len(lines(r)) == 4
-
-
-def test_suppressed_findings_are_never_listed_under_open():
-    ctx, slack, st = connected()
-    st.findings["DPDP-001"]["status"] = "wont_fix"
-    r = run(ctx, "findings")
-    assert "DPDP-001" not in r.text and "suppressed" not in r.text and len(lines(r)) == 2
+    assert "(suppressed: not counted in health)" in text and text.count("Status: *False Positive* (suppressed)") == 1 and text.count("Status: *Won't Fix* (suppressed)") == 1
+    assert "Status: *Fixed* (suppressed)" not in text and "Status: *Open* (suppressed)" not in text
+    assert [h for h, _ in rows(pages(r, slack))] == ["DPDP-004", "DPDP-003", "DPDP-001", "DPDP-002"]  # grouped: open, fixed, false positive, won't fix
+    assert "dpdp_row_fix" not in dict(rows(pages(r, slack)))["DPDP-003"]  # a fixed finding has no fix button
 
 
 def test_an_empty_list_is_said_plainly():
@@ -101,34 +121,39 @@ def test_an_empty_list_is_said_plainly():
     for f in st.findings.values():
         f["status"] = "fixed"
     r = run(ctx, "findings")
-    assert "No open findings are stored for this repo." in r.text and lines(r) == [] and "Not a clean result" not in r.text
+    assert "No open findings are stored for this repo." in texts(pages(r, slack)) and rows(pages(r, slack)) == []
     st.findings.clear()
-    assert "No findings are stored for this repo." in run(ctx, "findings all").text
+    assert "No findings are stored for this repo." in texts(pages(run(ctx, "findings all"), slack))
 
 
-def test_over_50_shows_50_lines_critical_first_and_says_how_many_more():
+def test_a_long_list_is_paged_in_messages_of_at_most_50_blocks_and_nothing_is_dropped():
     ctx, slack, st = connected()
-    add(st, 57, "low", title="A long enough title to make the lines add up")
-    r = run(ctx, "findings")
-    got = lines(r)
-    assert len(got) == 50 and "CRITICAL" in got[0] and "HIGH" in got[1] and "MEDIUM" in got[2] and all("LOW" in x for x in got[3:])
-    assert "and 10 more, see the dashboard" in r.text
-    assert all(len(b["text"]["text"]) <= 3000 for _, blocks in r.sent for b in blocks)  # a Slack section holds 3000 characters
-    assert len(r.sent[0][1]) <= 50
-    allr = run(ctx, "findings all")
-    assert len(lines(allr)) == 50 and "and 10 more, see the dashboard" in allr.text
+    add(st, 57, "low", title="A long enough title to make the page add up")
+    reply = Reply()
+    commands.run_command(ctx, "findings", APPROVER, CHANNEL, reply)
+    allpages = pages(reply, slack)
+    assert len(allpages) == 4 and all(len(p) <= 50 for p in allpages)  # 60 rows, 3 blocks each, 16 rows per page
+    got = rows(allpages)
+    assert len(got) == 60 and len({h for h, _ in got}) == 60  # every finding exactly once: never silently truncated
+    assert [h for h, _ in got][:3] == ["DPDP-003", "DPDP-001", "DPDP-002"]  # critical first across pages
+    assert len(reply.sent) == 1 and len(slack.of("ephemeral")) == 3 and all(c["user"] == APPROVER for c in slack.of("ephemeral"))
+    assert "Page 1 of 4" in texts(allpages[:1]) and "Page 4 of 4" in texts(allpages[3:])
+    assert "and 10 more" not in texts(allpages)
+    for p in allpages:
+        assert all(len(b["text"]["text"]) <= 3000 for b in p if b["type"] == "section")
 
 
-def test_an_incomplete_scan_says_so_in_the_first_line_and_never_reads_clean():
+def test_the_list_header_lines_say_incomplete_failed_or_unknown_before_any_row():
     ctx, slack, st = make_ctx()
     st.complete = False
     run(ctx, "connect acme/tutornest", APPROVER)
     r = run(ctx, "findings")
-    first = r.text.split("\n")[0]
-    assert "Not a clean result" in first and "incomplete" in first and "partial" in first
+    first = r.sent[0][1][0]["text"]["text"]
+    assert first.splitlines()[0].startswith(":grey_question: *Not a clean result:") and "incomplete" in first and "partial" in first
+    assert r.sent[0][1].index(next(b for b in r.sent[0][1] if b["type"] == "actions")) > 0  # rows come after the warning
     st.findings.clear()
     empty = run(ctx, "findings")
-    assert empty.text.split("\n")[0] == first and "not a pass" in empty.text and empty.sent[0][0] == first  # even the plain text starts with the warning
+    assert empty.sent[0][1][0]["text"]["text"].splitlines()[0] == first.splitlines()[0] and "not a pass" in empty.sent[0][1][0]["text"]["text"]
 
 
 @pytest.mark.parametrize("health, word", [
@@ -137,41 +162,37 @@ def test_an_incomplete_scan_says_so_in_the_first_line_and_never_reads_clean():
 def test_a_failed_scan_or_unknown_health_warns_first(health, word):
     ctx, slack, st = connected()
     st.health = health
-    first = run(ctx, "findings").text.split("\n")[0]
+    first = run(ctx, "findings").sent[0][1][0]["text"]["text"].splitlines()[0]
     assert "Not a clean result" in first and word in first
 
 
 def test_a_bad_argument_gets_the_usage_and_help_lists_the_command():
     ctx, slack, st = connected()
-    assert "Usage: `/dpdp findings" in run(ctx, "findings everything").text
-    assert "Usage" in run(ctx, "findings open all").text
-    assert "/dpdp findings [open|all]" in run(ctx, "help").text
+    assert "Usage: `/dpdp findings" in run(ctx, "findings everything").sent[0][0]
+    assert "Usage" in run(ctx, "findings open all").sent[0][0]
+    assert "/dpdp findings [open|all]" in run(ctx, "help").sent[0][0]
 
 
 def test_findings_needs_a_repo_in_the_channel():
     ctx, slack, st = make_ctx()
-    assert "none is connected yet" in run(ctx, "findings").text
+    assert "none is connected yet" in run(ctx, "findings").sent[0][0]
 
 
-def test_no_raw_personal_data_in_any_payload_text():
+def test_no_raw_personal_data_or_token_in_any_payload():
     ctx, slack, st = connected()
-    add(st, 3, "high", title="Aadhaar 2345 6789 0123 logged")  # a title is the engine's own text: the masking happens there, but the bot adds nothing raw
-    for f in st.findings.values():
-        f["title"] = "Personal data in a log"
-    replies = [run(ctx, "findings"), run(ctx, "findings all")]
-    everything = json.dumps(replies[0].sent) + json.dumps(replies[1].sent) + slack.texts()
-    assert not PII.search(everything)
+    add(st, 3, "high", title="Aadhaar logged")
+    everything = json.dumps([pages(run(ctx, "findings"), slack), pages(run(ctx, "findings all"), slack)]) + slack.texts()
+    assert not PII.search(everything) and "xoxb" not in everything and "ghs_" not in everything
 
 
 def test_the_scan_summary_counts_open_findings_and_points_to_the_command():
     ctx, slack, st = make_ctx()
     run(ctx, "connect acme/tutornest", APPROVER)
-    summary = slack.of("post")[1]["blocks"][0]["text"]["text"]
-    assert "3 findings still open: /dpdp findings" in summary
+    assert "3 findings still open: /dpdp findings" in slack.of("post")[1]["blocks"][0]["text"]["text"]
     posts = len(slack.of("post"))
-    run(ctx, "scan", APPROVER)  # nothing changed: a summary, and no card for an unchanged finding (dedup)
+    run(ctx, "scan", APPROVER)  # nothing changed: a summary and no card for an unchanged finding (dedup)
     again = slack.of("post")[posts:]
-    assert len(again) == 2 and "3 findings still open: /dpdp findings" in again[1]["blocks"][0]["text"]["text"]  # "Scanning" line plus the summary
+    assert len(again) == 2 and "3 findings still open: /dpdp findings" in again[1]["blocks"][0]["text"]["text"]
 
 
 def test_the_summary_line_is_singular_for_one_and_absent_for_none():

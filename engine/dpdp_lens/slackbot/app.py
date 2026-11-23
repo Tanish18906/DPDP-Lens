@@ -5,7 +5,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from . import actions, commands
+from . import actions, commands, rows
 from .api import Engine
 from .config import Config
 from .flow import Ctx
@@ -58,6 +58,23 @@ def register(app, ctx: Ctx, pool: ThreadPoolExecutor) -> None:
         picked = (body.get("state", {}).get("values", {}).get("repo_pick", {}).get("dpdp_repo_pick", {}).get("selected_option") or {}).get("value", "")
         reply = lambda text, blocks=None: respond(text=text, blocks=blocks, replace_original=False, response_type="ephemeral")  # noqa: E731
         pool.submit(safe, actions.connect_picked, ctx, body["user"]["id"], body["channel"]["id"], picked, reply)
+
+    @app.action("dpdp_row_details")
+    def on_row_details(ack, body, action):
+        ack()
+        pool.submit(safe, rows.row_details, ctx, body["user"]["id"], body["channel"]["id"], action["value"], body["response_url"])
+
+    @app.action("dpdp_row_status")
+    def on_row_status(ack, body, action, client):
+        ack()
+        pid = action["block_id"].split(":")[1] if action.get("block_id", "").startswith("row:") else ""
+        rows.row_status(ctx, body["user"]["id"], body["channel"]["id"], pid, action["selected_option"]["value"], body["trigger_id"], client.views_open, body["response_url"])
+
+    @app.action("dpdp_row_fix")
+    def on_row_fix(ack, body, action):
+        ack()
+        pid = action["block_id"].split(":")[1] if action.get("block_id", "").startswith("row:") else ""  # "det:..." is a details message
+        pool.submit(safe, rows.row_fix, ctx, body["user"]["id"], body["channel"]["id"], pid, action["value"], body["response_url"])
 
     @app.action("dpdp_fix")
     def on_fix(ack, body, action):

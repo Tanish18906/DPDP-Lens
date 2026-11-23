@@ -5,9 +5,15 @@ import time
 from slack_sdk.errors import SlackApiError
 
 
+def _webhook(url: str):
+    from slack_sdk.webhook import WebhookClient
+    return WebhookClient(url)
+
+
 class Poster:
-    def __init__(self, client, interval: float = 1.0, sleep=time.sleep, clock=time.monotonic, retries: int = 5):
+    def __init__(self, client, interval: float = 1.0, sleep=time.sleep, clock=time.monotonic, retries: int = 5, webhook=None):
         self.client, self.interval, self.sleep, self.clock, self.retries = client, interval, sleep, clock, retries
+        self.webhook = webhook or _webhook  # url -> an object with send(**kw), for response_url calls (tests inject a fake)
         self._locks: dict[str, threading.Lock] = {}
         self._last: dict[str, float] = {}
         self._guard = threading.Lock()
@@ -40,6 +46,23 @@ class Poster:
             finally:
                 self._last[channel] = self.clock()
         return res["ts"]
+
+    def respond(self, url: str, text: str, blocks=None, replace: bool = False) -> None:
+        """Answer an interaction through its response_url, ephemeral to the person who clicked. replace=True replaces the message the click
+        came from (the row list, the details message), replace=False adds a new ephemeral message. A response_url allows 5 answers in
+        30 minutes, so callers send few. A 429 is retried after Retry-After, like every other Slack write."""
+        for attempt in range(self.retries + 1):
+            res = self.webhook(url).send(text=text, blocks=blocks, response_type="ephemeral", replace_original=replace)
+            if getattr(res, "status_code", 200) != 429 or attempt == self.retries:
+                if getattr(res, "status_code", 200) >= 400:
+                    raise RuntimeError(f"Slack answered {res.status_code} on a response_url")
+                return
+            headers = {str(k).lower(): v for k, v in (getattr(res, "headers", None) or {}).items()}
+            try:
+                wait = float(headers.get("retry-after", 1))
+            except (TypeError, ValueError):
+                wait = 1.0
+            self.sleep(max(wait, 1.0))
 
     def update(self, channel: str, ts: str, text: str, blocks=None) -> None:
         self._call(self.client.chat_update, channel=channel, ts=ts, text=text, blocks=blocks)
