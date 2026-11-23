@@ -76,6 +76,12 @@ def register(app, ctx: Ctx, pool: ThreadPoolExecutor) -> None:
         pid = action["block_id"].split(":")[1] if action.get("block_id", "").startswith("row:") else ""  # "det:..." is a details message
         pool.submit(safe, rows.row_fix, ctx, body["user"]["id"], body["channel"]["id"], pid, action["value"], body["response_url"])
 
+    @app.action("dpdp_row_pr")
+    def on_row_pr(ack, body, action):
+        ack()
+        pid = action["block_id"].split(":")[1] if action.get("block_id", "").startswith("row:") else ""  # "pr:..." and "det:..." are result messages
+        pool.submit(safe, rows.row_pr, ctx, body["user"]["id"], body["channel"]["id"], pid, action["value"], body["response_url"])
+
     @app.action("dpdp_fix")
     def on_fix(ack, body, action):
         ack()

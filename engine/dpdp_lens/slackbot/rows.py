@@ -37,6 +37,11 @@ def fix_button(ctx, user: str, rec: dict) -> bool:
     return bool(ctx.is_approver(user) and ctx.can_fix(rec["repo"]) and rec.get("fix_available") and rec["status"] != "fixed")
 
 
+def pr_button(ctx, user: str, rec: dict) -> bool:
+    """Open pull request: only for an approver, and only when the engine says one is allowed (switch on, fix repo, GitHub App, verified fix)."""
+    return bool(ctx.is_approver(user) and rec.get("pr_available") and not rec.get("pr_url"))
+
+
 def build_pages(ctx, user: str, channel: str, repo: str, recs: list[dict], mode: str, health: dict) -> list[dict]:
     """Page specs of at most 50 blocks each. A page is {user, channel, units, recs}; a unit is ("raw", [blocks]) or ("row", human_id)."""
     order = lambda r: (cards.SEVERITY_ORDER.get(r["severity"], 9), r["human_id"])  # noqa: E731
@@ -71,7 +76,8 @@ def build_pages(ctx, user: str, channel: str, repo: str, recs: list[dict], mode:
 def render(ctx, pid: str, page: dict) -> tuple[str, list]:
     blocks = []
     for kind, payload in page["units"]:
-        blocks += payload if kind == "raw" else cards.finding_row(page["recs"][payload], pid, fix_button(ctx, page["user"], page["recs"][payload]))
+        blocks += payload if kind == "raw" else cards.finding_row(page["recs"][payload], pid, fix_button(ctx, page["user"], page["recs"][payload]),
+                                                                  pr_button(ctx, page["user"], page["recs"][payload]))
     assert len(blocks) <= cards.MAX_BLOCKS
     return f"{page['repo']}: {len(page['recs'])} findings on this page ({page['n']} of {page['of']})", blocks
 
@@ -117,7 +123,7 @@ def row_details(ctx, user: str, channel: str, hid: str, url: str) -> None:
         rec = ctx.engine.finding(hid)
     except EngineError as e:
         return ctx.poster.respond(url, f"Could not load {hid}: {e.detail}")
-    ctx.poster.respond(url, *cards.details(rec, ctx.cfg.dashboard_url, fix_button(ctx, user, rec)))
+    ctx.poster.respond(url, *cards.details(rec, ctx.cfg.dashboard_url, fix_button(ctx, user, rec), pr_button(ctx, user, rec)))
 
 
 def row_status(ctx, user: str, channel: str, pid: str, value: str, trigger_id: str, open_view, url: str) -> None:
@@ -155,6 +161,8 @@ def row_fix(ctx, user: str, channel: str, pid: str, hid: str, url: str) -> None:
     blocks = [cards._section("\n".join(lines))]
     if fix.get("diff"):
         blocks += cards.diff_reply(hid, fix["diff"])[1]
+    if verified and out.get("mode") != "cached_golden" and rec and pr_button(ctx, user, rec):  # a pull request only for a live verified fix
+        blocks.append({"type": "actions", "block_id": f"pr:{hid}", "elements": [cards.pr_button(hid)]})
     ctx.poster.respond(url, lines[0], blocks)
     if rec is None:
         return
@@ -166,3 +174,24 @@ def row_fix(ctx, user: str, channel: str, pid: str, hid: str, url: str) -> None:
             ctx.refresh_card(hid, rec)
         except EngineError as e:
             log.warning("details of %s not refreshed: %s", hid, redact(e.detail))
+
+
+def row_pr(ctx, user: str, channel: str, pid: str, hid: str, url: str) -> None:
+    """Open pull request, from a row, a fix result or a details message. Approvers only. The engine decides (switch, fix repo, GitHub App,
+    verified live fix) and answers with the link, or with a plain reason that is shown as it is."""
+    if not _gate(ctx, user, channel):
+        return
+    ctx.poster.respond(url, f"Opening a pull request for {hid}: a branch is pushed and a pull request opened. Nothing is merged.")
+    try:
+        out = ctx.engine.open_pr(hid, user)
+    except EngineError as e:
+        return ctx.poster.respond(url, f":x: The pull request for {hid} was not created: {e.detail}")
+    ctx.poster.respond(url, *cards.pr_result(hid, out))
+    rec = out.get("record")
+    if rec and pid:
+        update_row(ctx, pid, url, rec)
+    elif rec:
+        try:
+            ctx.refresh_card(hid, rec)
+        except EngineError as e:
+            log.warning("card of %s not refreshed: %s", hid, redact(e.detail))

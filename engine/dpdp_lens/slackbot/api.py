@@ -67,6 +67,9 @@ class Engine:
 
     def report_link(self, repo_id, actor): return self._call("POST", f"/repos/{repo_id}/report-link", body={"actor": actor}, write=True)
 
+    def open_pr(self, human_id, actor):
+        return self._call("POST", f"/findings/{human_id}/pr", body={"actor": actor}, write=True, timeout=60)
+
     def baseline(self, repo_id, actor): return self._call("POST", f"/repos/{repo_id}/baseline", body={"actor": actor}, write=True)
 
     def watch(self, repo_id, minutes, actor):
