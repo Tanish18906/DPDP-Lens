@@ -1,0 +1,30 @@
+# Demo environment for scripts/demo_up.sh. Copy to scripts/demo_env (git-ignored) and fill in the real values there.
+# Plain KEY=VALUE lines, no quotes, no spaces around the = sign. Never commit scripts/demo_env.
+
+# Engine API token. Every change (status, scan, fix) needs it. Make one: python -c "import secrets; print(secrets.token_urlsafe(24))"
+DPDP_API_TOKEN=REPLACE_WITH_A_LONG_RANDOM_TOKEN
+# The dashboard sends this token with its changes. It must be the same value as DPDP_API_TOKEN. Demo only: a Vite variable is bundled into the page.
+VITE_DPDP_TOKEN=REPLACE_WITH_THE_SAME_TOKEN
+
+# Repositories that may be connected (owner/name, comma separated). Empty means none.
+DPDP_ALLOWED_REPOS=Tanish18906/acme-tutornest
+# Repositories whose code a live Fix and verify may run. Empty means none.
+DPDP_FIX_REPOS=Tanish18906/acme-tutornest
+# A GitHub token that can read the repo (needed for a private repo, harmless for a public one).
+GITHUB_TOKEN=REPLACE_WITH_A_GITHUB_TOKEN
+
+# Slack app: Bot User OAuth Token (xoxb-...), App-Level Token with connections:write (xapp-...).
+SLACK_BOT_TOKEN=xoxb-REPLACE_ME
+SLACK_APP_TOKEN=xapp-REPLACE_ME
+# Channel ID (C0123ABCD, not the name) where cards are posted, and the member IDs (U0123ABCD) who may approve a fix, comma separated.
+SLACK_CHANNEL=C0REPLACEME
+SLACK_APPROVERS=U0REPLACEME
+
+# Where the engine keeps its findings and audit log. Default: .dpdp-state/dpdp.db in the repo.
+DPDP_DB=
+# 0 turns the scheduled re-scan off. Leave it empty to keep /dpdp watch working.
+DPDP_MONITOR=
+
+# Where the pieces find each other. These are the defaults.
+ENGINE_URL=http://127.0.0.1:8100
+DASHBOARD_URL=http://localhost:5174
