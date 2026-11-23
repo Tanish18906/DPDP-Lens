@@ -22,7 +22,7 @@ def fake_scan(target, repo, db, scan_id):
                       counts=compute_counts(fs), findings=fs)
 
 
-GOOD = Fix(available=True, diff="--- a\n+++ b\n", verified=True, rescan_passed=True, tests_passed=True, score_after=90)
+GOOD = Fix(available=True, diff="--- a\n+++ b\n", verified=True, rescan_passed=True, tests_passed=True, score_after=95)
 
 
 def live_ok(finding, repo, db, **kw):
@@ -62,10 +62,10 @@ def test_live_fix_updates_the_stored_scan(tmp_path, golden):
     r = fix(c)
     body = r.json()
     assert r.status_code == 200 and body["mode"] == "live" and body["fallback_reason"] is None
-    assert (body["score_before"], body["score_after"]) == (70, 90)  # 100 - 20 - 10, then critical gone
+    assert (body["score_before"], body["score_after"]) == (85, 95)  # 100 - 10 - 5, then critical gone
     assert body["finding"]["status"] == "verified_fixed" and body["finding"]["fix"]["verified"] is True
     stored = c.get("/scan/S-001").json()
-    assert stored["score"] == 90 and stored["counts"]["critical"] == 0
+    assert stored["score"] == 95 and stored["counts"]["critical"] == 0
     assert next(f for f in stored["findings"] if f["id"] == "F-001")["status"] == "verified_fixed"
     assert fix(c).status_code == 409  # already fixed
 
@@ -84,20 +84,20 @@ def test_live_failure_falls_back_to_golden_and_says_so(tmp_path, golden, exc, ex
     body = fix(c).json()
     assert body["mode"] == "cached_golden" and body["fallback_reason"] == expected
     assert body["finding"]["fix"]["diff"] == "--- golden\n" and body["finding"]["status"] == "verified_fixed"
-    assert (body["score_before"], body["score_after"]) == (70, 90)  # scored against the actual scan
+    assert (body["score_before"], body["score_after"]) == (85, 95)  # scored against the actual scan
 
 
 def test_live_failure_without_golden_is_a_502(tmp_path):
     c = client(tmp_path, raises(RuntimeError("boom")), tmp_path / "none")
     r = fix(c)
     assert r.status_code == 502 and "boom" in r.json()["detail"] and "no cached golden" in r.json()["detail"]
-    assert c.get("/scan/S-001").json()["score"] == 70  # unchanged
+    assert c.get("/scan/S-001").json()["score"] == 85  # unchanged
 
 
 def test_cached_mode_replays_golden_without_a_reason(tmp_path, golden):
     c = client(tmp_path, raises(AssertionError("live must not run")), golden)
     body = fix(c, mode="cached").json()
-    assert body["mode"] == "cached_golden" and body["fallback_reason"] is None and body["score_after"] == 90
+    assert body["mode"] == "cached_golden" and body["fallback_reason"] is None and body["score_after"] == 95
 
 
 def test_cached_mode_without_golden_is_404(tmp_path):
@@ -109,15 +109,15 @@ def test_patch_error_is_422_and_never_falls_back(tmp_path, golden):
     r = fix(c)
     assert r.status_code == 422 and "snippet not found" in r.json()["detail"]
     stored = c.get("/scan/S-001").json()
-    assert stored["score"] == 70 and next(f for f in stored["findings"] if f["id"] == "F-001")["status"] == "open"
+    assert stored["score"] == 85 and next(f for f in stored["findings"] if f["id"] == "F-001")["status"] == "open"
 
 
 def test_unverified_live_result_is_returned_honestly(tmp_path, golden):
-    bad = Fix(available=True, diff="d", verified=False, rescan_passed=False, tests_passed=True, score_after=70)
+    bad = Fix(available=True, diff="d", verified=False, rescan_passed=False, tests_passed=True, score_after=85)
     c = client(tmp_path, lambda *a, **k: Verification(fix=bad, rescan=None, tests_output=""), golden)
     body = fix(c).json()
     assert body["mode"] == "live" and body["finding"]["status"] == "open" and body["finding"]["fix"]["verified"] is False
-    assert body["score_after"] == 70 and c.get("/scan/S-001").json()["score"] == 70
+    assert body["score_after"] == 85 and c.get("/scan/S-001").json()["score"] == 85
 
 
 def test_fix_error_cases(tmp_path, golden):
@@ -133,14 +133,14 @@ def test_fix_end_to_end_through_the_api(target, target_db, tmp_path):
     c.post("/scan", json={"target_url": target, "repo_path": str(BACKEND), "db_path": str(target_db)})
     scan = c.get("/scan/S-001").json()
     v1 = next(f for f in scan["findings"] if f["check"] == "api_pii_exposure")
-    assert scan["score"] == 13 and v1["fix"]["available"] is True
+    assert scan["score"] == 57 and v1["fix"]["available"] is True
     r = fix(c, v1["id"])
     body = r.json()
     assert r.status_code == 200 and body["mode"] == "live" and body["fallback_reason"] is None
     assert body["finding"]["status"] == "verified_fixed"
     assert body["finding"]["fix"]["rescan_passed"] and body["finding"]["fix"]["tests_passed"] and "get_admin_user" in body["finding"]["fix"]["diff"]
-    assert (body["score_before"], body["score_after"]) == (13, 33) == (body["finding"]["fix"]["score_before"], body["finding"]["fix"]["score_after"])
-    assert c.get("/scan/S-001").json()["score"] == 33
+    assert (body["score_before"], body["score_after"]) == (57, 67) == (body["finding"]["fix"]["score_before"], body["finding"]["fix"]["score_after"])
+    assert c.get("/scan/S-001").json()["score"] == 67
     assert (tmp_path / "golden" / "V1.json").exists()
 
 
@@ -149,9 +149,9 @@ def test_two_fixes_on_one_scan_score_cumulatively(target, target_db, tmp_path):
     c.post("/scan", json={"target_url": target, "repo_path": str(BACKEND), "db_path": str(target_db)})
     ids = {f["check"]: f["id"] for f in c.get("/scan/S-001").json()["findings"]}
     first, second = fix(c, ids["api_pii_exposure"]).json(), fix(c, ids["log_pii"]).json()
-    assert (first["score_before"], first["score_after"]) == (13, 33)
-    assert (second["score_before"], second["score_after"]) == (33, 43)
-    assert second["finding"]["fix"]["verified"] and second["finding"]["fix"]["score_after"] == 43  # not the V3-only re-scan (23)
+    assert (first["score_before"], first["score_after"]) == (57, 67)
+    assert (second["score_before"], second["score_after"]) == (67, 72)
+    assert second["finding"]["fix"]["verified"] and second["finding"]["fix"]["score_after"] == 72  # not the V3-only re-scan (62)
     stored = c.get("/scan/S-001").json()
-    assert stored["score"] == 43 and stored["counts"] == {"critical": 1, "high": 3, "medium": 1, "low": 1}
+    assert stored["score"] == 72 and stored["counts"] == {"critical": 1, "high": 3, "medium": 1, "low": 1}
     assert {(tmp_path / "golden" / n).exists() for n in ("V1.json", "V3.json")} == {True}

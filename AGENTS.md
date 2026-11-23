@@ -109,7 +109,7 @@ Ports: target backend 8000, target frontend 5173, engine API 8100, dashboard 517
       }
     }
 
-Score = 100 minus weights (critical 20, high 10, medium 5, low 2), floor at 0.
+Score = 100 minus weights (critical 10, high 5, medium 2, low 1), floor at 0.
 The dashboard builds against contract/sample-scan.json and never waits for the engine.
 
 ## 5. Engine API (FastAPI, port 8100, CORS open for localhost)

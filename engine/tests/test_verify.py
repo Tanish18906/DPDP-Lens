@@ -30,11 +30,11 @@ def uvicorn_count():
 
 def test_v1_fix_is_verified(tmp_path, fresh_db):
     golden, tree_before, dirs_before, procs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs(), uvicorn_count()
-    result = verify_fix(V1_FINDING, BACKEND, fresh_db, score_before=13, golden_dir=golden)
+    result = verify_fix(V1_FINDING, BACKEND, fresh_db, score_before=57, golden_dir=golden)
     fix = result.fix
     assert fix.verified and fix.rescan_passed and fix.tests_passed
     assert "get_admin_user" in fix.diff and fix.diff.startswith("--- a/app/main.py\n+++ b/app/main.py")
-    assert (fix.score_before, fix.score_after) == (13, 33)  # re-scan: V1 gone, six other findings stay
+    assert (fix.score_before, fix.score_after) == (57, 67)  # re-scan: V1 gone, six other findings stay
     assert [f.check for f in result.rescan.findings] == [
         "api_idor", "db_plaintext_pii", "log_pii", "erasure_incomplete", "children_no_parental_consent", "missing_contact",
         "notice_drift"]
@@ -60,12 +60,12 @@ V3_FINDING = Finding(
 
 def test_v3_fix_is_verified_and_the_log_holds_no_personal_data(tmp_path, fresh_db):
     golden, tree_before, dirs_before = tmp_path / "golden", tree_hash(TARGET_APP), temp_dirs()
-    result = verify_fix(V3_FINDING, BACKEND, fresh_db, score_before=13, golden_dir=golden)
+    result = verify_fix(V3_FINDING, BACKEND, fresh_db, score_before=57, golden_dir=golden)
     fix = result.fix
     assert fix.verified and fix.rescan_passed and fix.tests_passed
     assert '+    logger.info("signup ok user_id=%s", student_id)' in fix.diff
     assert '-    logger.info("signup email=%s aadhaar=%s", req.email, req.aadhaar)' in fix.diff
-    assert (fix.score_before, fix.score_after) == (13, 23)  # log_pii (high) gone, the six others stay
+    assert (fix.score_before, fix.score_after) == (57, 62)  # log_pii (high) gone, the six others stay
     assert [f.check for f in result.rescan.findings] == [
         "api_pii_exposure", "api_idor", "db_plaintext_pii", "erasure_incomplete", "children_no_parental_consent",
         "missing_contact", "notice_drift"]

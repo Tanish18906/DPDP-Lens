@@ -41,5 +41,30 @@
   "notice_drift": [
     {"ref": "Act s5", "note": "notice"},
     {"ref": "Rule 3", "note": "notice itemises the personal data and specific purposes"}
+  ],
+  "config_secret_committed": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_env_in_image": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_container_root": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_cors_wildcard": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"}
+  ],
+  "config_debug_enabled": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(g)", "note": "effective technical and organisational measures"}
+  ],
+  "config_db_exposed": [
+    {"ref": "Act s8(5)", "note": "reasonable security safeguards"},
+    {"ref": "Rule 6(1)(b)", "note": "access control"}
   ]
 }

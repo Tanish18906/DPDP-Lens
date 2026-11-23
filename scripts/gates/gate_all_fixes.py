@@ -22,12 +22,12 @@ with sync_playwright() as p:
         g.check(f"{gid}: badges green and diff shown", c.badges_green(page) and bool(fx["diff"]))
         g.check(f"{gid}: row says Verified fixed", "Verified fixed" in c.row(page, title).inner_text())
     s = c.summary(page)
-    g.check("final: gauge 83, history 0 to 83", " 83 " in f" {s} " and "0 to 83" in s, s[:120])
+    g.check(f"final: gauge {c.FINAL_SCORE}, history {c.START_SCORE} to {c.FINAL_SCORE}", f" {c.FINAL_SCORE} " in f" {s} " and f"{c.START_SCORE} to {c.FINAL_SCORE}" in s, s[:120])
     left = [r.inner_text().split("\n") for r in page.locator('[id^="finding-row-"]').all() if "Verified fixed" not in r.inner_text()]
-    g.check("3 findings left open (db plaintext, drift, contact)", len(left) == 3, str(left))
+    g.check(f"{c.LEFT_OPEN} findings left open (the ones with no fix template)", len(left) == c.LEFT_OPEN, str(left))
     t = c.body(page)
-    g.check("summary: all 7 verified, score 0 to 83, 3 manual",
-            "All 7 findings with a fix template are verified" in t and "Score 0 to 83." in t and "3 findings still need a manual change." in t)
+    g.check(f"summary: all 7 verified, score {c.START_SCORE} to {c.FINAL_SCORE}, {c.LEFT_OPEN} manual",
+            "All 7 findings with a fix template are verified" in t and f"Score {c.START_SCORE} to {c.FINAL_SCORE}." in t and f"{c.LEFT_OPEN} findings still need a manual change." in t)
     c.shot(page, "all-fixes-after-7", top=True)
     g.check("no console errors", not c.real_errors(errs), "; ".join(errs))
     b.close()

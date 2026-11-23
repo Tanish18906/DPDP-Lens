@@ -17,11 +17,12 @@ VIEWPORT = {"width": 1366, "height": 768}
 FIXED = "Verified. Re-scan passed and the app's tests still pass."
 
 # Demo facts on the seeded demo app with the frontend running: a full scan, then each fix in click order.
-START_FINDINGS, START_SCORE = 10, 0
+START_FINDINGS, START_SCORE = 18, 19  # weights 10/5/2/1: 2 critical, 10 high, 5 medium, 1 low = penalty 81
 FIX_ORDER = [  # (row title, fix id, score after, cumulative on one scan)
-    ("Public API endpoint", "V1", 18), ("Any logged-in user can read", "V2", 38), ("Personal data written to logs", "V3", 48),
-    ("Tracking script loads before any consent", "V5", 58), ("Consent box is pre-ticked", "V6", 63),
-    ("Personal data is still stored after deletion", "V7", 73), ("Under-18 signup accepted", "V8", 83)]
+    ("Public API endpoint", "V1", 29), ("Any logged-in user can read", "V2", 39), ("Personal data written to logs", "V3", 44),
+    ("Tracking script loads before any consent", "V5", 49), ("Consent box is pre-ticked", "V6", 51),
+    ("Personal data is still stored after deletion", "V7", 56), ("Under-18 signup accepted", "V8", 61)]
+FINAL_SCORE, LEFT_OPEN = 61, 11  # after all 7 fixes: 18 findings minus 7
 
 
 class Gate:

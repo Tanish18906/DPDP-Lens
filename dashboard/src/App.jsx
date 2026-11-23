@@ -12,13 +12,6 @@ const SEVERITY_ORDER = {
   low: 4
 }
 
-const SEVERITY_WEIGHTS = {
-  critical: 20,
-  high: 10,
-  medium: 5,
-  low: 2
-}
-
 // Severity is always shown with its word, never colour alone. Full class names so Tailwind finds them.
 const SEVERITY_STYLES = {
   critical: { bar: 'bg-critical', text: 'text-critical', label: 'Critical' },
@@ -563,7 +556,8 @@ export default function App() {
 
   const finishFix = (finding) => {
     const scoreBefore = scanData.score
-    const scoreAfter = Math.min(100, scoreBefore + (SEVERITY_WEIGHTS[finding.severity] || 10))
+    // Sample mode only: the sample's own fix.score_after says what fixing this finding adds. The weights live in the engine.
+    const scoreAfter = Math.min(100, scoreBefore + Math.max(0, (finding.fix.score_after ?? sampleScan.score) - sampleScan.score))
     animateScore(scoreBefore, scoreAfter)
 
     setScanData((prev) => {

@@ -10,7 +10,7 @@ Finding fields: id, check, layer (db, code, api, browser, notice, config, fronte
 notice_drift: declared[], observed[{field, where[]}], undeclared[].
 
 ## Scoring
-Score = 100 minus weights over OPEN findings only: critical 20, high 10, medium 5, low 2. Floor 0. A finding with status verified_fixed costs nothing, so the score rises after a verified fix. counts also count open findings only.
+Score = 100 minus weights over OPEN findings only: critical 10, high 5, medium 2, low 1 (`SEVERITY_WEIGHTS` in models.py, the only place). Floor 0. A finding with status verified_fixed costs nothing, so the score rises after a verified fix. counts also count open findings only.
 
 ## Masking rules for evidence
 - Aadhaar: XXXX XXXX 1234

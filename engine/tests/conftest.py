@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from dpdp_lens import config
+from dpdp_lens import config, runner
 
 BACKEND = Path(__file__).resolve().parents[2] / "target-app" / "backend"
 FRONTEND = BACKEND.parent / "frontend"
@@ -59,6 +59,21 @@ def run_target(tmp: Path):
 def no_frontend(monkeypatch):
     """A frontend left running on :5173 must not change test results. Tests that need one pass its URL."""
     monkeypatch.setattr(config, "FRONTEND_URL", None)
+
+
+REAL_LATE_SCANNERS = list(runner.LATE_SCANNERS)
+
+
+@pytest.fixture(autouse=True)
+def no_late_scanners(monkeypatch):
+    """The config scan reads the real target-app files, so it would change every full scan count. Tests that want it
+    use the with_late_scanners fixture."""
+    monkeypatch.setattr(runner, "LATE_SCANNERS", [])
+
+
+@pytest.fixture
+def with_late_scanners(monkeypatch):
+    monkeypatch.setattr(runner, "LATE_SCANNERS", REAL_LATE_SCANNERS)
 
 
 @pytest.fixture

@@ -118,7 +118,7 @@ def test_unreadable_notice_leaves_the_block_null_and_the_scan_alive(monkeypatch,
 
     monkeypatch.setattr(notice_drift, "build", broken)
     r = runner.run_scan(target, str(BACKEND), str(target_db))
-    assert r.notice_drift is None and len(r.findings) == 7 and r.score == 18
+    assert r.notice_drift is None and len(r.findings) == 7 and r.score == 59
 
 
 # --- per-field detail (optional block in the contract)

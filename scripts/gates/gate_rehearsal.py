@@ -30,7 +30,7 @@ with sync_playwright() as p:
             "Does your app do what its privacy notice says?" in c.body(page) and page.get_by_role("button", name="Run scan").count() == 1)
     c.shot(page, "first-run")
     page.get_by_role("button", name="Run scan").click()
-    page.get_by_text(re.compile(r"Step \d+ of 9")).wait_for(timeout=4000)  # real steps from the engine, not timer text
+    page.get_by_text(re.compile(r"Step \d+ of \d+")).wait_for(timeout=4000)  # real steps from the engine, not timer text
     page.locator('section[aria-label="Scan progress"]').get_by_text(re.compile(r"^\d+(\.\d\d s| ms)$")).first.wait_for(timeout=15000)
     g.check("scan: a finished layer shows its measured duration", True)
     page.screenshot(path=str(c.SHOT_DIR / "scanning.png"))  # no count-up wait: the scan is still running
@@ -47,14 +47,14 @@ with sync_playwright() as p:
     g.check("evidence shows no raw Aadhaar, phone or email", not RAW.findall(d), str(RAW.findall(d)[:3]))
     v1 = c.fix_and_wait(page, "Public API endpoint"); lap("fix V1")
     f = v1["finding"]["fix"]
-    g.check("V1 live, verified, score 0 to 18", v1["mode"] == "live" and f["verified"] and (v1["score_before"], v1["score_after"]) == (0, 18),
+    g.check("V1 live, verified, score 19 to 29", v1["mode"] == "live" and f["verified"] and (v1["score_before"], v1["score_after"]) == (19, 29),
             f'{v1["mode"]} {v1["score_before"]}->{v1["score_after"]}')
     g.check("V1 badges green", c.badges_green(page))
     d = c.detail(page).inner_text()
     g.check("V1 verification log from the live run: 5 timed steps, port, pytest passed",
             "verification log" in d.lower() and "127.0.0.1:" in d and len(re.findall(r"\d+(?:\.\d\d s| ms)", d)) >= 6
             and re.search(r"\d+ passed", d) is not None and "finding gone" in d, d[d.lower().find("verification log"):].replace("\n", " | "))
-    g.check("V1 VERIFIED mark with score 0 to 18", "VERIFIED" in c.detail(page).inner_text() and "0 to 18" in c.detail(page).inner_text())
+    g.check("V1 VERIFIED mark with score 19 to 29", "VERIFIED" in c.detail(page).inner_text() and "19 to 29" in c.detail(page).inner_text())
     c.shot(page, "rehearsal-2-v1-fixed")
     c.detail(page).evaluate("e => e.scrollTop = e.scrollHeight")
     c.shot(page, "fix-verification-log")
@@ -68,13 +68,13 @@ with sync_playwright() as p:
     page.get_by_role("list", name="Fields by layer").wait_for(); lap("data flow view")
     page.get_by_role("button", name="Findings").click()
     v3 = c.fix_and_wait(page, "Personal data written to logs"); lap("fix V3")
-    g.check("V3 live, verified, 18 to 28", v3["mode"] == "live" and v3["finding"]["fix"]["verified"] and (v3["score_before"], v3["score_after"]) == (18, 28),
+    g.check("V3 live, verified, 29 to 34", v3["mode"] == "live" and v3["finding"]["fix"]["verified"] and (v3["score_before"], v3["score_after"]) == (29, 34),
             f'{v3["mode"]} {v3["score_before"]}->{v3["score_after"]}')
     v5 = c.fix_and_wait(page, "Tracking script loads before any consent"); lap("fix V5")
-    g.check("V5 live, verified, 28 to 38", v5["mode"] == "live" and v5["finding"]["fix"]["verified"] and (v5["score_before"], v5["score_after"]) == (28, 38),
+    g.check("V5 live, verified, 34 to 39", v5["mode"] == "live" and v5["finding"]["fix"]["verified"] and (v5["score_before"], v5["score_after"]) == (34, 39),
             f'{v5["mode"]} {v5["score_before"]}->{v5["score_after"]}')
     s = c.summary(page)
-    g.check("gauge 38, history 0 to 38", " 38 " in f" {s} " and "0 to 38" in s, s[:120])
+    g.check("gauge 39, history 19 to 39", " 39 " in f" {s} " and "19 to 39" in s, s[:120])
     c.shot(page, "rehearsal-4-after-3-fixes", top=True)
     page.get_by_role("button", name="Export report").click()
     items = page.get_by_role("menuitem").all()
@@ -90,7 +90,7 @@ with sync_playwright() as p:
     text = subprocess.run([tool, "-layout", str(pdf_path), "-"], capture_output=True, text=True).stdout if tool else ""
     leaks = PDF_PII.findall(text)
     g.check("pdf: masked evidence only (no unmasked Aadhaar, PAN or phone), footer and score line present",
-            bool(tool) and not leaks and "Main duties apply from 13 May 2027" in text and "Score at scan 0, now 38" in text
+            bool(tool) and not leaks and "Main duties apply from 13 May 2027" in text and "Score at scan 19, now 39" in text
             and "XXXX XXXX" in text, "pdftotext not found, install poppler-utils" if not tool else str(leaks[:3]))
     with page.context.expect_page() as pop:
         page.get_by_role("menuitem", name="HTML").click()

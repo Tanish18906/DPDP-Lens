@@ -2,7 +2,7 @@
 name = "dpdp-lens"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi", "uvicorn[standard]", "httpx", "python-stdnum", "pydantic", "playwright"]
+dependencies = ["fastapi", "uvicorn[standard]", "httpx", "python-stdnum", "pydantic", "playwright", "pyyaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

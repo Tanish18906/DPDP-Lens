@@ -30,7 +30,7 @@ logger = logging.getLogger("tutornest")
 
 app = FastAPI(title="TutorNest API", version="1.0.0")
 
-app.add_middleware(
+app.add_middleware(  # PLANTED V11: synthetic, planted for the scanner demo (wildcard origin with credentials)
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,

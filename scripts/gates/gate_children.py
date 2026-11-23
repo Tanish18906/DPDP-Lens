@@ -12,8 +12,8 @@ with sync_playwright() as p:
     c.open_live(page)
     c.run_scan(page)
     s = c.summary(page)
-    g.check("10 findings, score 0, counts 2/5/2/1", " 0 " in f" {s} " and list(c.counts(page).items()) ==
-            [("critical", "2"), ("high", "5"), ("medium", "2"), ("low", "1")], s[:110])
+    g.check("18 findings, score 19, counts 2/10/5/1", f" {c.START_SCORE} " in f" {s} " and list(c.counts(page).items()) ==
+            [("critical", "2"), ("high", "10"), ("medium", "5"), ("low", "1")], s[:110])
     r = c.row(page, "Under-18 signup accepted with no parental consent")
     g.check("new finding listed once", r.count() == 1)
     r.click()

@@ -7,7 +7,7 @@ Severity = Literal["critical", "high", "medium", "low"]
 Layer = Literal["db", "code", "api", "browser", "notice", "config", "frontend"]
 
 # AGENTS.md section 4: score = 100 minus these weights, floor at 0.
-SEVERITY_WEIGHTS: dict[str, int] = {"critical": 20, "high": 10, "medium": 5, "low": 2}
+SEVERITY_WEIGHTS: dict[str, int] = {"critical": 10, "high": 5, "medium": 2, "low": 1}
 
 
 class Clause(BaseModel):
