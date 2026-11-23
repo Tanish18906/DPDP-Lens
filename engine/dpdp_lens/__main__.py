@@ -7,13 +7,14 @@ import sys
 from pathlib import Path
 
 from . import checks_doc, ci
+from . import eval as accuracy
 from .models import ScanResult
 from .report import render_report
 from .runner import run_scan
 from .sarif import to_sarif
 
 SEV_ORDER = ["critical", "high", "medium", "low"]  # most severe first
-MODULES = [ci]  # commands that bring their own parser and run function
+MODULES = [ci, accuracy]  # commands that bring their own parser and run function
 SAMPLE = Path(__file__).resolve().parents[2] / "contract" / "sample-scan.json"
 
 

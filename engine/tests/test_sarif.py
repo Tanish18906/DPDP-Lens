@@ -31,6 +31,7 @@ def test_sarif_shape_and_one_result_per_open_finding():
     assert run["tool"]["driver"]["name"] == "DPDP Lens"
     open_ids = [f.id for f in SAMPLE.findings if f.status == "open" and f.evidence.location.file]  # live findings have no file and stay out
     assert [r["properties"]["findingId"] for r in run["results"]] == open_ids
+    assert 0 < len(open_ids) < len([f for f in SAMPLE.findings if f.status == "open"])  # the file filter really leaves findings out
     rule_ids = [r["id"] for r in run["tool"]["driver"]["rules"]]
     assert len(rule_ids) == len(set(rule_ids)) and {r["ruleId"] for r in run["results"]} <= set(rule_ids)
     for r in run["results"]:

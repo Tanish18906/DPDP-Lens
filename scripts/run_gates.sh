@@ -7,7 +7,7 @@ set -m  # own process group for the demo stack, so it can be stopped cleanly
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
-GATES=(rehearsal all_fixes children data_flow offline fix_states feed)
+GATES=(rehearsal all_fixes children data_flow offline fix_states feed ci)
 PORTS=(8000 5173 8100 5174)
 DEMO_PID=""
 
@@ -47,7 +47,11 @@ fi
 
 FAILED=()
 for g in "${GATES[@]}"; do
-  out="$("$PY" "$ROOT/scripts/gates/gate_$g.py" 2>&1)"
+  if [ -f "$ROOT/scripts/gates/gate_$g.sh" ]; then  # a shell gate (gate_ci.sh) or a Playwright gate (gate_*.py)
+    out="$(bash "$ROOT/scripts/gates/gate_$g.sh" 2>&1)"
+  else
+    out="$("$PY" "$ROOT/scripts/gates/gate_$g.py" 2>&1)"
+  fi
   if [ $? -eq 0 ]; then
     echo "PASS  $g  ($(echo "$out" | tail -1))"
   else
