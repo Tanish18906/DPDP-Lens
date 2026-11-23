@@ -1,0 +1,60 @@
+{
+ "checks": {
+  "config_container_root": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_cors_wildcard": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_db_exposed": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_debug_enabled": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_env_in_image": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_secret_committed": {
+   "precision": 0.6666666666666666,
+   "recall": 0.5714285714285714
+  },
+  "consent_not_recorded": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "fe_pii_in_storage": {
+   "precision": 0.75,
+   "recall": 0.75
+  },
+  "log_pii": {
+   "precision": 0.6666666666666666,
+   "recall": 0.5
+  },
+  "pii_aadhaar": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_pan": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_phone": {
+   "precision": 0.6,
+   "recall": 1.0
+  },
+  "pii_email": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_dob": {
+   "precision": 1.0,
+   "recall": 1.0
+  }
+ }
+}

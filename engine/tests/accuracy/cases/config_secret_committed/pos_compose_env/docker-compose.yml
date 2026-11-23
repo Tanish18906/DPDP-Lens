@@ -1,0 +1,5 @@
+services:
+  web:
+    image: app
+    environment:
+      - SMTP_PASSWORD=mailpass-9981-zz

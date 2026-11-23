@@ -1,0 +1,3 @@
+FROM python:3.12
+ENV SECRET_KEY=${SECRET_KEY}
+USER app

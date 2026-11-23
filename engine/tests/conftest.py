@@ -15,6 +15,9 @@ import pytest
 from dpdp_lens import config, runner
 
 BACKEND = Path(__file__).resolve().parents[2] / "target-app" / "backend"
+
+# The accuracy corpus holds files like tests/test_x.py on purpose (hard negatives for the scanners): pytest must not collect them.
+collect_ignore_glob = ["accuracy/cases/*"]
 FRONTEND = BACKEND.parent / "frontend"
 
 
