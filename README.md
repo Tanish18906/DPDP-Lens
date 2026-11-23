@@ -193,6 +193,7 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 | `POST /repos`, `GET /repos` | Connect an allowlisted repo (403 if not allowlisted, 422 for a bad name), list repos with health. |
 | `POST /repos/{id}/scan` | Shallow clone, static scan, store (202, `{scan_id}`). The scan is also reachable by the legacy `/scan/{id}`, `/report/{id}` and SARIF routes. |
 | `GET /scans/{scan_id}/delta`, `GET /repos/{id}/health`, `GET /repos/{id}/history` | New, reopened and resolved findings, healthy / changed / at_risk / unknown, scan history. |
+| `GET /repos/{id}/diff?scan_id=` | A scan (default the latest) against the baseline: new, resolved and persistent finding IDs, and `complete`. Resolved only counts checks the scan ran. 404 when there is no baseline. |
 | `POST /repos/{id}/baseline`, `POST /repos/{id}/watch` | Set the baseline explicitly (a scan never replaces it), set the re-scan interval. |
 | `GET /findings`, `GET /findings/{id}`, `PATCH /findings/{id}/status`, `PUT /findings/{id}/slack` | List with filters, detail with events, change status, link a Slack message. |
 | `POST /findings/{id}/fix?mode=live\|cached` | Fix and verify a stored finding (same loop as before, on a fresh checkout of the scanned commit). The stored scan is never edited. |
@@ -201,6 +202,30 @@ Findings of connected repos get stable IDs (DPDP-001, never reused), a triage st
 Scheduled monitoring (never "real-time" or "continuous": nothing is watched between two scans). `POST /repos/{id}/watch {minutes}` makes the engine re-scan that repo every N minutes (1 to 10080). The schedule is stored in SQLite, so a restart keeps it, and a window missed while the engine was down runs once. One scan runs at a time. A failed clone, a crash or an incomplete scan is stored as such and the repo turns "unknown"; so does a repo with no complete scan in twice its interval ("stale"). `GET /repos/{id}/health` shows `failed_streak` and `last_error`. The monitor adds two outbox kinds, written in the same transaction as the change that caused them: `scan_delta` (a scheduled scan found a new or reopened critical or high finding) and `health_changed` (health moved into or out of at_risk or unknown, so an unchanged state alerts once, not on every scan). Manual scans never queue these two kinds.
 
 Health is "unknown" whenever the latest scan is incomplete or failed, never green. Until the policy file lands (a later block), "blocking" means critical or high severity.
+
+## Slack bot
+
+The Slack bot is a separate process (`python -m dpdp_lens.slackbot`, started from `engine/`) built on slack-bolt in Socket Mode, so it needs no public URL. It talks to the engine only through the HTTP API with the `X-DPDP-Token` header. Install it with `pip install -e "engine[slack]"`. Setup steps, the Slack app manifest (paste it under Create New App, From a manifest) and a manual checklist are in [docs/slack-bot.md](docs/slack-bot.md).
+
+Commands: `/dpdp connect owner/repo [branch]`, `scan`, `status`, `diff` (latest scan against the baseline), `baseline`, `watch <minutes>|off`, `help`. Each finding gets one card with View Details, Change Status and, for repos in `DPDP_FIX_REPOS`, Fix and verify. "VERIFIED" is shown only when the engine returns `verified: true`, and a cached replay is labelled as one. An incomplete scan starts with "Scan incomplete: results are partial", a scan with no result says "Scan failed", and health reads Unknown in both cases, never green.
+
+| Env var (bot) | Meaning |
+|---------------|---------|
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | `xoxb-...` bot token and `xapp-...` app-level token (scope `connections:write`). Required. |
+| `DPDP_API_TOKEN` | Same value as the engine's. Required. |
+| `SLACK_CHANNEL` | Channel id that accepts commands and gets scheduled alerts. Required unless `SLACK_ALLOWED_CHANNELS` is set. |
+| `SLACK_ALLOWED_CHANNELS` | Comma separated channel ids that accept commands (replaces `SLACK_CHANNEL` for that purpose). |
+| `SLACK_APPROVERS` | Comma separated Slack member ids who may change a status, run a fix, set a baseline or schedule scans. Empty: nobody. |
+| `DPDP_FIX_REPOS` | Which repos get a Fix and verify button (the engine enforces it too). |
+| `ENGINE_URL`, `DASHBOARD_URL` | Defaults `http://127.0.0.1:8100` and `http://localhost:5174`. |
+
+Limits:
+- Socket Mode only, one workspace, one bot process. Commands work only in the allowed channels.
+- Only approvers can change a status, fix, set a baseline or schedule scans. Anyone in an allowed channel can read details.
+- Connected repos get the static checks only (9 of 19), so the coverage line reads "static checks only (n of 19)".
+- The "already alerted" memory is in the bot process: after a restart, a repo that is still unhealthy can get one more alert.
+- The outbox poller starts at the end of the outbox, so status changes made while the bot was down are not replayed to Slack (the next change refreshes the card).
+- Tokens come from the environment only and are removed from every log line and every error shown in Slack. Cards and replies hold masked evidence only.
 
 ## What it does NOT do
 
@@ -245,6 +270,7 @@ Claude Code with Claude models (engine, scanners, docs, dashboard wiring) and An
 | rich | MIT |
 | prompt_toolkit | BSD-3-Clause |
 | Playwright for Python | Apache-2.0 |
+| slack-bolt, slack-sdk (Slack bot, optional extra `slack`) | MIT |
 | React, React DOM | MIT |
 | Vite, `@vitejs/plugin-react` | MIT |
 | Tailwind CSS, `@tailwindcss/vite` | MIT |
