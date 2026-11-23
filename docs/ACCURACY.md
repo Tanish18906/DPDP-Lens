@@ -21,13 +21,13 @@ describe it, not code in general.
 | config_secret_committed | 13 | 1 | 1 | 16 | 93% | 93% |
 | consent_not_recorded | 3 | 0 | 0 | 4 | 100% | 100% |
 | fe_pii_in_storage | 3 | 1 | 1 | 4 | 75% | 75% |
-| log_pii | 4 | 2 | 4 | 13 | 67% | 50% |
+| log_pii | 8 | 2 | 0 | 13 | 80% | 100% |
 | pii_aadhaar | 3 | 0 | 0 | 0 | 100% | 100% |
 | pii_dob | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_email | 2 | 0 | 0 | 0 | 100% | 100% |
 | pii_pan | 3 | 0 | 0 | 0 | 100% | 100% |
 | pii_phone | 3 | 2 | 0 | 0 | 60% | 100% |
-| OVERALL (corpus) | 52 | 6 | 6 | 54 | 90% | 90% |
+| OVERALL (corpus) | 56 | 6 | 2 | 54 | 90% | 97% |
 | TutorNest static ground truth | 11 | 0 | 0 | - | 100% | 100% |
 
 ## Misses (every false positive and false negative)
@@ -38,10 +38,6 @@ describe it, not code in general.
 - `FN fe_pii_in_storage/pos_ts_email_object`
 - `FP log_pii/neg_py_email_count`
 - `FP log_pii/neg_py_test_file`
-- `FN log_pii/pos_js_console_error_template`
-- `FN log_pii/pos_js_console_log_email`
-- `FN log_pii/pos_jsx_console_log_dob`
-- `FN log_pii/pos_ts_logger_aadhaar`
 - `FP pii_phone/phone_decimal_number`
 - `FP pii_phone/phone_build_number`
 
@@ -53,3 +49,4 @@ Each row is a measured run of `python -m dpdp_lens.eval` on the corpus, after th
 |------|------------------|---------------|-------------------------------|-----------------|-------------------|---------------------------|
 | Baseline (block 06 step 1, before any change) | 84% | 81% | 67% / 57% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |
 | 1. Vendor token shapes (AWS, GitHub, Slack, Stripe) and a longer placeholder list in `config_scan` | 90% | 90% | 93% / 93% | 67% / 50% | 60% / 100% | 11 of 11 / 0 |
+| 2. `log_pii` for JavaScript and TypeScript (tokenizer that ignores comments and string text) | 90% | 97% | 93% / 93% | 80% / 100% | 60% / 100% | 11 of 11 / 0 |

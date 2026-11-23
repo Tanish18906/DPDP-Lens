@@ -61,6 +61,7 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 - Compose: a database image or a database port (5432, 3306, 27017, 6379, 1433) published without a 127.0.0.1 binding. A common default password is added to the reason (`config_db_exposed`).
 
 ### Front end, consent and location rules
+- Logs: Python `logging` and `print` calls through `ast`. JavaScript and TypeScript (`.js .jsx .ts .tsx .mjs .cjs`) `console.*` and `logger.*` calls through a small tokenizer that ignores comments and the text of strings (template `${...}` code is read). A name is personal data when one of its words (split on `_` and camelCase) is email, phone, aadhaar, pan, dob, password or token, unless its last word is count, total, sent, length, size, id, ids, type or status. JavaScript test files are skipped. Regex literals are not recognised (`log_pii`).
 - Front end: `name=` or `id=` of input, select and textarea in `.html`, `.jsx`, `.tsx`, `.js` feed the notice drift block as `frontend:<file>:<line>`.
 - Front end: `localStorage.setItem` or `sessionStorage.setItem` whose key or value names personal data (`fe_pii_in_storage`).
 - Consent: a consent table, column or model field counts as a record. Comments, strings, the front end and tests do not (`consent_not_recorded`).

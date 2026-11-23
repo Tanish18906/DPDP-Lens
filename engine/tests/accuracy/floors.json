@@ -33,8 +33,8 @@
    "recall": 0.75
   },
   "log_pii": {
-   "precision": 0.6666666666666666,
-   "recall": 0.5
+   "precision": 0.8,
+   "recall": 1.0
   },
   "pii_aadhaar": {
    "precision": 1.0,
