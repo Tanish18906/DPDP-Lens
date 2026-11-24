@@ -55,6 +55,7 @@ The demo app TutorNest contains deliberately planted dummy secrets: `target-app/
 - Fix sandbox execution requires local Python environment and runs target code with engine privileges (gated by `DPDP_FIX_REPOS`). It does not run inside an isolated Docker container or VM sandbox.
 - The audit hash chain is tamper-evident, not tamper-proof. Local database file modification can forge the chain.
 - `VITE_DPDP_TOKEN` in the browser bundle is visible to anyone with browser devtools access on localhost.
+- Reconnecting a repo that was connected before the GitHub App was installed does not update its installation, so the pull request button only appears for repos connected through the picker.
 - Single-worker concurrency: repo cloning and scanning uses a global lock (one clone and scan at a time).
 - Checks cover a specific technical subset of DPDP Act 2023 and DPDP Rules 2025. A clean scan does not constitute a legal compliance certificate.
 

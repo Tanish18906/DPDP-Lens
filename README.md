@@ -16,9 +16,9 @@ Repositories connected from Slack are scanned **static only: 16 of the 26 checks
 
 Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Protection (DPDP) Compliance Auditor). Everything runs on localhost against our own synthetic demo app.
 
-## Live link
+## Run it
 
-The product runs locally: `scripts/demo_up.sh` starts the engine on `:8100`, the dashboard on `:5174` and the Slack bot (see the quickstart below). A static dashboard preview is linked here if one is deployed.
+There is no hosted link, by design. The product runs locally with `scripts/demo_up.sh`, which starts the Slack bot, the engine on `:8100` and the dashboard on `:5174` (setup in the quickstart below). It is demoed live at the venue. We do not host a backend because it holds a GitHub App private key and Slack tokens and runs scans, so it is not exposed to the internet.
 
 ## The problem
 
