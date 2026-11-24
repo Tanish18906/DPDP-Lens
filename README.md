@@ -16,6 +16,10 @@ Repositories connected from Slack are scanned **static only: 16 of the 26 checks
 
 Built at Hack-a-Sol 5.0, IIIT Naya Raipur, Cyber track (CS-01 Full-Stack Data Protection (DPDP) Compliance Auditor). Everything runs on localhost against our own synthetic demo app.
 
+## Live link
+
+The product runs locally: `scripts/demo_up.sh` starts the engine on `:8100`, the dashboard on `:5174` and the Slack bot (see the quickstart below). A static dashboard preview is linked here if one is deployed.
+
 ## The problem
 
 The main DPDP duties apply from **13 May 2027**. Under the Act's Schedule, failing to keep reasonable security safeguards (s8(5)) can cost up to Rs 250 crore, and most startups have no privacy team. Existing tools (dcomply, Privado, Indian consent SaaS) each cover part of the problem. Our edge is cross-layer proof plus verified fixes, not "nobody scans code".
