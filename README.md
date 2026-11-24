@@ -29,7 +29,7 @@ DPDP Lens scans a running app and its source across the database, backend code, 
 - **Notice vs Runtime Truth.** Compares the personal data fields the public notice lists against the fields found in the DB and in unauthenticated API responses. Fields collected but not declared are flagged.
 - **HTML report.** `GET /report/{scan_id}` gives a self-contained, printable report.
 
-Verified fixes exist for seven of the nineteen checks (everything except plaintext columns, the notice items and the config checks). Each has a cached golden result for offline demos. Two fixes are partial and say so: the under-18 fix (V8) only requires a well-formed parent PAN, it does not verify the parent (Rule 10), and the consent fix (V6) unticks the box and drops the marketing wording, while the notice still does not list every field, so `notice_drift` stays open. On the demo app, fixing all seven moves the score from 13 to 55. The dashboard labels it clearly as "Cached golden patch mode" when it is used.
+Verified fixes: 9 of the 11 static findings in the demo repo (`Tanish18906/acme-tutornest`) have one, and so do the live and consent findings of TutorNest. Fourteen checks have a fix template (the API, log, tracker, consent, erasure and under-18 checks, `fe_pii_in_storage`, `config_secret_committed` for `.env` and compose files, and the Docker, CORS, debug and database port config checks). Two findings have none, on purpose: `config_secret_committed` in `backend/app/auth.py` (a signing key in source: rotating it is the owner's job) and `consent_not_recorded` (needs a design decision, no safe automatic patch). The Terraform, Kubernetes, bucket and security group checks, plaintext columns and the notice items have no fix either. A fix counts as verified only when the re-scan no longer finds the issue, nothing new appears, applying it twice changes nothing and the repo's own tests pass. Every fix is verified in a sandbox copy: **the repository is unchanged unless a pull request is opened** (see below). Each fix prints two lines, "Verified: ..." and "Not verified / you still must: ..."; a fix of a secret says to rotate it. Two fixes are partial and say so: the under-18 fix (V8) only requires a well-formed parent PAN, it does not verify the parent (Rule 10), and the consent fix (V6) unticks the box and drops the marketing wording, while the notice still does not list every field, so `notice_drift` stays open. Cached golden results exist for offline demos and are labelled "Cached golden patch mode".
 
 ## Architecture
 
@@ -102,12 +102,12 @@ Tests:
 | `children_no_parental_consent` | api | high | Act s9(1), Rule 10 | A signup for a 14 year old is accepted with no parent data. | yes (V8, partial) |
 | `missing_contact` | notice | low | Act s8(9), Act s8(10), Rule 9, Rule 14(3) | No page lists a data protection officer or grievance contact with an email or phone. | no |
 | `notice_drift` | notice | medium | Act s5, Rule 3 | The app handles personal data fields that the public notice does not list. | no |
-| `config_secret_committed` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A key named like a secret, password, token or API key has a literal value in a config file or source. | no |
-| `config_env_in_image` | config | high | Act s8(5), Rule 6(1)(g) | A Dockerfile copies a .env file, or sets a secret with ENV or ARG. | no |
-| `config_container_root` | config | medium | Act s8(5), Rule 6(1)(g) | A Dockerfile has no USER instruction, or the last USER is root. | no |
-| `config_cors_wildcard` | config | medium | Act s8(5), Rule 6(1)(b) | allow_origins holds "*", or the Access-Control-Allow-Origin header is *. | no |
-| `config_debug_enabled` | config | medium | Act s8(5), Rule 6(1)(g) | DEBUG is true in an env file, debug=True is in app code, or a container command uses reload. | no |
-| `config_db_exposed` | config | high | Act s8(5), Rule 6(1)(b) | A compose file publishes a database port without binding it to 127.0.0.1. | no |
+| `config_secret_committed` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A key named like a secret, password, token or API key has a literal value in a config file or source. | yes (not for source files such as auth.py) |
+| `config_env_in_image` | config | high | Act s8(5), Rule 6(1)(g) | A Dockerfile copies a .env file, or sets a secret with ENV or ARG. | yes |
+| `config_container_root` | config | medium | Act s8(5), Rule 6(1)(g) | A Dockerfile has no USER instruction, or the last USER is root. | yes |
+| `config_cors_wildcard` | config | medium | Act s8(5), Rule 6(1)(b) | allow_origins holds "*", or the Access-Control-Allow-Origin header is *. | yes |
+| `config_debug_enabled` | config | medium | Act s8(5), Rule 6(1)(g) | DEBUG is true in an env file, debug=True is in app code, or a container command uses reload. | yes |
+| `config_db_exposed` | config | high | Act s8(5), Rule 6(1)(b) | A compose file publishes a database port without binding it to 127.0.0.1. | yes |
 | `config_s3_public` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A storage bucket or ACL grants public read access to stored files. | no |
 | `config_security_group_ingress_anywhere` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A security group or firewall rule allows inbound traffic from 0.0.0.0/0 on a database or administration port. | no |
 | `config_storage_unencrypted` | config | high | Act s8(5), Rule 6(1)(a) | A database, volume, or storage resource has encryption explicitly disabled. | no |
@@ -115,15 +115,15 @@ Tests:
 | `config_k8s_privileged` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest sets privileged true, runAsUser 0, or allowPrivilegeEscalation true. | no |
 | `config_k8s_host_network` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest configures hostNetwork true, exposing node network traffic. | no |
 | `config_k8s_secret_in_env` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A Kubernetes container env entry sets a secret value as a literal string instead of referencing a Secret. | no |
-| `fe_pii_in_storage` | frontend | medium | Act s8(5), Rule 6(1)(a) | localStorage or sessionStorage setItem is called with a key or value that names personal data. | no |
-| `consent_not_recorded` | code | medium | Act s6(10), Act s6(1) | No consent table, column or model field exists in the schema or the backend source. | no |
+| `fe_pii_in_storage` | frontend | medium | Act s8(5), Rule 6(1)(a) | localStorage or sessionStorage setItem is called with a key or value that names personal data. | yes |
+| `consent_not_recorded` | code | medium | Act s6(10), Act s6(1) | No consent table, column or model field exists in the schema or the backend source. | no, on purpose |
 | `consent_no_withdrawal` | api | medium | Act s6(4), Act s6(6) | No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing. | no |
 
 Score = 100 minus weights (critical 10, high 5, medium 2, low 1), floor 0, open findings only. The weights live in one place, `SEVERITY_WEIGHTS` in `engine/dpdp_lens/models.py`.
 
 ## Scanner accuracy
 
-`cd engine && python -m dpdp_lens eval` measures the static scanners and the personal data recognizers against a labelled corpus in `engine/tests/accuracy/` (one small app per case, marked pos or neg, with hard negatives such as placeholder secrets, numbers that look like an Aadhaar or a phone number, test files and comments) and prints precision and recall per check. `--md` prints the table for docs/ACCURACY.md, `--json` the full report. A test fails when any number drops below its floor. On the current corpus: precision 97%, recall 100%, and the static scan of TutorNest finds all 11 expected findings with none extra. The corpus is small and written by us, so these numbers describe it, not code in general; live checks (API, database, browser) are not in it. [docs/ACCURACY.md](docs/ACCURACY.md) has the table, every miss and the history of each change.
+`cd engine && python -m dpdp_lens eval` measures the static scanners and the personal data recognizers against a labelled corpus in `engine/tests/accuracy/` (one small app per case, marked pos or neg, with hard negatives such as placeholder secrets, numbers that look like an Aadhaar or a phone number, test files and comments) and prints precision and recall per check. `--md` prints the table for docs/ACCURACY.md, `--json` the full report. A test fails when any number drops below its floor. On the current corpus: precision 97%, recall 100%, and the static scan of TutorNest finds all 11 expected findings with none extra. The precision and recall numbers are measured on **our own labelled corpus of 152 cases** (74 true positives, 2 false positives, 0 misses, 76 true negatives, written by us). They are **not a real-world benchmark** and describe that corpus only, not code in general; live checks (API, database, browser) are not in it. [docs/ACCURACY.md](docs/ACCURACY.md) has the table, every miss and the history of each change.
 
 ## CS-01 coverage map
 
@@ -268,7 +268,7 @@ Health is "unknown" whenever the latest scan is incomplete or failed, never gree
 
 The Slack bot is a separate process (`python -m dpdp_lens.slackbot`, started from `engine/`) built on slack-bolt in Socket Mode, so it needs no public URL. It talks to the engine only through the HTTP API with the `X-DPDP-Token` header. Install it with `pip install -e "engine[slack]"`. Setup steps, the Slack app manifest (paste it under Create New App, From a manifest) and a manual checklist are in [docs/slack-bot.md](docs/slack-bot.md).
 
-Commands: `/dpdp connect owner/repo [branch]`, `scan`, `status`, `diff` (latest scan against the baseline), `baseline`, `watch <minutes>|off`, `help`. Each finding gets one card with View Details, Change Status and, for repos in `DPDP_FIX_REPOS`, Fix and verify. "VERIFIED" is shown only when the engine returns `verified: true`, and a cached replay is labelled as one. An incomplete scan starts with "Scan incomplete: results are partial", a scan with no result says "Scan failed", and health reads Unknown in both cases, never green.
+Commands: `/dpdp connect owner/repo [branch]`, `/dpdp connect` (no argument: connect through the GitHub App, approvers), `repos` (approvers), `scan`, `status`, `findings [open|all]`, `report [owner/repo]` (approvers), `diff` (latest scan against the baseline), `baseline`, `watch <minutes>|off`, `help`. `/dpdp findings` answers ephemerally with interactive rows, critical first, paged in messages of at most 50 blocks so nothing is dropped; each row has View Details, Change Status and, for approvers on repos in `DPDP_FIX_REPOS`, Fix and verify. Ids on cards and rows are plain text. Each finding also gets one card with View Details, Change Status and, for repos in `DPDP_FIX_REPOS`, Fix and verify. "VERIFIED" is shown only when the engine returns `verified: true`, and a cached replay is labelled as one. An incomplete scan starts with "Scan incomplete: results are partial", a scan with no result says "Scan failed", and health reads Unknown in both cases, never green. `/dpdp report` replies (ephemeral) with a signed 15 minute link to the readiness report and a one line summary.
 
 | Env var (bot) | Meaning |
 |---------------|---------|
@@ -278,6 +278,10 @@ Commands: `/dpdp connect owner/repo [branch]`, `scan`, `status`, `diff` (latest 
 | `SLACK_ALLOWED_CHANNELS` | Comma separated channel ids that accept commands (replaces `SLACK_CHANNEL` for that purpose). |
 | `SLACK_APPROVERS` | Comma separated Slack member ids who may change a status, run a fix, set a baseline or schedule scans. Empty: nobody. |
 | `DPDP_FIX_REPOS` | Which repos get a Fix and verify button (the engine enforces it too). |
+| `DPDP_ALLOW_PR` | Default off. `1` lets an approver open a pull request with a verified fix, only for repos in `DPDP_FIX_REPOS` that are connected through the GitHub App. |
+| `GITHUB_APP_ID` | The GitHub App id (a number). With the next two, `/dpdp connect` with no argument installs the app and lists the shared repos. All three or the app flow is off. |
+| `GITHUB_APP_SLUG` | The app's slug (the last part of `github.com/apps/<slug>`), used for the install link. |
+| `GITHUB_APP_PRIVATE_KEY_PATH` | Path of the app's `.pem` file (mode 600, never in the repo). The engine reads it only to sign a short lived JWT. |
 | `ENGINE_URL`, `DASHBOARD_URL` | Defaults `http://127.0.0.1:8100` and `http://localhost:5174`. |
 
 Limits:
@@ -287,6 +291,14 @@ Limits:
 - The "already alerted" memory is in the bot process: after a restart, a repo that is still unhealthy can get one more alert.
 - The outbox poller starts at the end of the outbox, so status changes made while the bot was down are not replayed to Slack (the next change refreshes the card).
 - Tokens come from the environment only and are removed from every log line and every error shown in Slack. Cards and replies hold masked evidence only.
+
+## GitHub App, readiness report and pull requests
+
+**GitHub App.** Instead of one fixed repo, `/dpdp connect` with no argument shows a Connect GitHub button. You install the app on your account, pick repositories, and a dropdown in Slack lists the shared ones. The old path (`DPDP_ALLOWED_REPOS` plus `GITHUB_TOKEN`, and `/dpdp connect owner/repo`) keeps working. Setup, permissions and limits: [docs/github-app-setup.md](docs/github-app-setup.md). Scans and clones use a read-only installation token. Limits: single tenant, no webhooks, no OAuth user login, a connected repo gets the static checks only, and a fix runs only for repos in `DPDP_FIX_REPOS`.
+
+**Readiness report.** `GET /repos/{id}/report` (HTML to print, or `?format=json`) is titled "DPDP readiness report": scope (which of the 26 checks ran and why others did not), health, findings with clause references and masked evidence, fix results, the audit chain check and a limits section. An incomplete scan or Unknown health is said in the first lines. A browser opens it through a signed 15 minute link (`POST /repos/{id}/report-link`), from `/dpdp report` in Slack or the Report button in the Feed. Details: [docs/readiness-report.md](docs/readiness-report.md).
+
+**Open pull request (off by default).** With `DPDP_ALLOW_PR=1`, an approver can click Open pull request after a live VERIFIED fix of a repo in `DPDP_FIX_REPOS` that is connected through the GitHub App. The engine pushes a new branch `dpdp-lens/fix-<id>-<sha7>` from the scanned commit and opens a pull request; it never merges, never touches the default branch, never force-pushes. It uses a separate installation token limited to that one repository (Contents and Pull requests write) that is never used for scans. The app needs those two write permissions for this only. Limits: one pull request per finding, live verified fixes only (a cached replay is refused), the finding stays Fixed and is resolved only by a later scan of the merged code, and the store is at schema version 4. Details: [docs/github-app-setup.md](docs/github-app-setup.md).
 
 ## Limits (what it does NOT do)
 
@@ -300,8 +312,11 @@ Limits:
 - Connected repos: only repos in `DPDP_ALLOWED_REPOS` can be connected (empty means none), and they get the static checks only (16 of 26, no live probes). Only repos in `DPDP_FIX_REPOS` get a live fix, because the fix runs that repo's own `seed.py`, app and tests.
 - Live Fix and verify can show a CACHED label: when the checkout or the sandbox fails, the engine replays a saved verified result for that fix and says so. A replay is not proof for the current state of the repo.
 - `VITE_DPDP_TOKEN` is bundled into the dashboard page. It is for the localhost demo only, not a secret.
-- The accuracy numbers are on our own small corpus.
-- The two GitHub workflows (`.github/workflows/dpdp-lens.yml` for this repo and the example for another repo) have not run on GitHub: `gh run list` shows no run. The example installs the engine from the `evolve` branch of this repo (`DPDP_LENS_REF`) until it is pinned to a commit.
+- The precision and recall numbers are measured on our own 152 case corpus, not a real-world benchmark.
+- Fix proposals are verified in a sandbox copy. The repository is unchanged unless an approver opens a pull request, and then a person must still review and merge it.
+- The audit hash chain is tamper-evident, not tamper-proof.
+- A static scan of a connected repo runs only the file-based checks (16 of 26). The 10 checks that need a running app (API, database, browser, notice) run only against the demo app.
+- The CI check has run for real on GitHub against `Tanish18906/acme-tutornest`: it fails a pull request that adds a new leak and passes with the baseline of the 11 accepted findings. The example workflow installs the engine from the `evolve` branch of this repo (`DPDP_LENS_REF`) until it is pinned to a commit.
 - The audit log is tamper-evident, not tamper-proof: every event holds the hash of the one before, so an edited or deleted event is detected by `GET /audit/verify`, but anyone who can write the database file can rewrite the whole chain or cut events off the end.
 
 ## Safe use
@@ -310,9 +325,11 @@ Use only on your own apps. Use synthetic data. Treat reports as sensitive. Never
 
 ## AI tools used
 
-Claude Code with Claude models: planning briefs and coding (engine, scanners, docs, dashboard, the Slack bot and CI work). Antigravity: target app, dashboard scaffold and target app tests, as recorded in `AGENTS.md`, `GEMINI.md` and `docs/14-git-rules.md`. TODO (Tanish): confirm whether Antigravity was also used for docs, and the exact tool list for the submission form.
+- **Claude (chat):** planning, and writing the prompts and briefs for the other tools.
+- **Claude Code (Claude models):** writing and testing the code: the engine and scanners, the fix templates and verification, the Slack bot, the dashboard, CI, the GitHub App flow, the readiness report, and the docs.
+- **Antigravity:** creating the repositories, the CI wiring, bringing up the local stack, the target app and its tests, the dashboard scaffold, and the cloud configuration checks (Terraform and Kubernetes), as also recorded in `AGENTS.md`, `GEMINI.md` and `docs/14-git-rules.md`.
 
-Dates, from `git log`: the first commit is "Initial commit" on 22 Nov 2026 22:23 IST, and every commit is dated 22 to 24 Nov 2026. The first scanner commits (`api_scan`, `db_scan`, `log_scan`) are dated 23 Nov 2026. The log does not record when hacking began, so TODO (Tanish): confirm that the first commit is after the event start. Both team members can explain every file.
+Dates, from `git log`: the first commit is "Initial commit" on 22 Nov 2026 22:23 IST, and every commit is dated 22 to 24 Nov 2026. The log does not record when hacking began. Both team members can explain every file.
 
 ## Contract schema
 
@@ -330,7 +347,8 @@ Dates, from `git log`: the first commit is "Initial commit" on 22 Nov 2026 22:23
 | HTTPX | BSD-3-Clause |
 | python-stdnum | LGPL-2.1-or-later |
 | Pydantic | MIT |
-| PyJWT | MIT |
+| PyJWT (the GitHub App JWT) | MIT |
+| cryptography (RS256 signing for the GitHub App) | Apache-2.0 or BSD-3-Clause |
 | PyYAML | MIT |
 | jsonschema | MIT |
 | pytest | MIT |

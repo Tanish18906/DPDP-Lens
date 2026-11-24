@@ -137,7 +137,7 @@ with sync_playwright() as p:
             "blocking finding" in (ok_pill.locator("[title]").first.get_attribute("title") or "")
             and "incomplete" in (big_pill.locator("[title]").first.get_attribute("title") or "")
             and "Health reasons" in big_pill.locator(".sr-only").first.inner_text(), ok_pill.locator("[title]").first.get_attribute("title"))
-    g.check("health: static scans say Static checks only (n of 19)", re.search(r"Static checks only \(\d+ of 19\)", ok_pill.inner_text()) is not None, ok_pill.inner_text())
+    g.check("health: static scans say Static checks only (n of 26)", re.search(r"Static checks only \(\d+ of 26\)", ok_pill.inner_text()) is not None, ok_pill.inner_text())
     banner = page.get_by_role("alert").filter(has_text="Scan incomplete: results are partial")
     g.check("banner: Scan incomplete, names the repo and the scanner that hit the 1 MB cap",
             banner.count() == 1 and "gate/big" in banner.inner_text() and "log_scan (capped)" in banner.inner_text(), banner.all_inner_texts().__str__())

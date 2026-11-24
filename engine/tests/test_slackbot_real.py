@@ -73,7 +73,7 @@ def test_real_engine_connect_cards_status_outbox_fix_and_audit(real):
     total = found["total"]
     assert total >= 9 and len(posts) == 2 + total
     summary = json.dumps(posts[1]["blocks"])
-    assert "Scan incomplete" not in summary and "Coverage: static checks only (" in summary and " of 19)" in summary
+    assert "Scan incomplete" not in summary and "Coverage: static checks only (" in summary and " of 26)" in summary
     assert f"New {total}" in summary
     assert all(i["slack"] for i in found["items"])  # every card's ts is stored in the engine
 
