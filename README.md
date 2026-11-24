@@ -318,6 +318,7 @@ Limits:
 - A static scan of a connected repo runs only the file-based checks (16 of 26). The 10 checks that need a running app (API, database, browser, notice) run only against the demo app.
 - The CI check has run for real on GitHub against `Tanish18906/acme-tutornest`: it fails a pull request that adds a new leak and passes with the baseline of the 11 accepted findings. The example workflow installs the engine from the `evolve` branch of this repo (`DPDP_LENS_REF`) until it is pinned to a commit.
 - The audit log is tamper-evident, not tamper-proof: every event holds the hash of the one before, so an edited or deleted event is detected by `GET /audit/verify`, but anyone who can write the database file can rewrite the whole chain or cut events off the end.
+- Reconnecting a repo that was connected before the GitHub App was installed does not update its installation, so the pull request button only appears for repos connected through the picker.
 
 ## Safe use
 
