@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: app:latest
+          securityContext:
+            privileged: false
+            runAsUser: 10001
+            allowPrivilegeEscalation: false

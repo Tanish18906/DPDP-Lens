@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostnet-app
+spec:
+  template:
+    spec:
+      hostNetwork: true
+      containers:
+        - name: app
+          image: nginx:latest

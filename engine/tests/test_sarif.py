@@ -29,8 +29,9 @@ def test_sarif_shape_and_one_result_per_open_finding():
     assert s["version"] == "2.1.0" and "sarif-2.1.0" in s["$schema"] and len(s["runs"]) == 1
     run = s["runs"][0]
     assert run["tool"]["driver"]["name"] == "DPDP Lens"
-    open_ids = [f.id for f in SAMPLE.findings if f.status == "open"]
+    open_ids = [f.id for f in SAMPLE.findings if f.status == "open" and f.evidence.location.file]  # live findings have no file and stay out
     assert [r["properties"]["findingId"] for r in run["results"]] == open_ids
+    assert 0 < len(open_ids) < len([f for f in SAMPLE.findings if f.status == "open"])  # the file filter really leaves findings out
     rule_ids = [r["id"] for r in run["tool"]["driver"]["rules"]]
     assert len(rule_ids) == len(set(rule_ids)) and {r["ruleId"] for r in run["results"]} <= set(rule_ids)
     for r in run["results"]:
@@ -47,13 +48,18 @@ def test_levels_and_clauses_and_fixed_findings_are_left_out():
     assert "Act s8(5): reasonable security safeguards" in s["runs"][0]["tool"]["driver"]["rules"][0]["help"]["text"]
 
 
-def test_locations_file_url_and_table():
+def test_locations_are_repo_relative_files_only():
     file_loc = to_sarif(scan_of([finding("F-001")]))["runs"][0]["results"][0]["locations"][0]
     assert file_loc["physicalLocation"] == {"artifactLocation": {"uri": "app/main.py"}, "region": {"startLine": 87}}
-    url_loc = to_sarif(scan_of([finding("F-001", loc=Location(url="http://localhost:8000/api/students"))]))["runs"][0]["results"][0]["locations"][0]
-    assert url_loc["physicalLocation"] == {"artifactLocation": {"uri": "http://localhost:8000/api/students"}}
-    db_loc = to_sarif(scan_of([finding("F-001", loc=Location(table="students", column="aadhaar"))]))["runs"][0]["results"][0]["locations"][0]
-    assert db_loc == {"logicalLocations": [{"name": "students.aadhaar", "kind": "table"}]}
+    for loc in (Location(url="http://localhost:8000/api/students"), Location(table="students", column="aadhaar"),
+                Location(file="/etc/passwd", line=1), Location(file="../outside.py", line=1)):
+        assert to_sarif(scan_of([finding("F-001", loc=loc)]))["runs"][0]["results"] == []  # no file, absolute or outside the repo: left out
+
+
+def test_partial_fingerprint_is_the_finding_fingerprint():
+    f = finding("F-001").model_copy(update={"fingerprint": "0123456789abcdef"})
+    assert to_sarif(scan_of([f]))["runs"][0]["results"][0]["partialFingerprints"] == {"dpdpLens/v1": "0123456789abcdef"}
+    assert "partialFingerprints" not in to_sarif(scan_of([finding("F-001")]))["runs"][0]["results"][0]  # an old scan has none
 
 
 def test_only_masked_text_is_used():
@@ -71,6 +77,8 @@ def test_sarif_api_route(tmp_path):
 
 def test_cli_writes_json_and_sarif(target, target_db, tmp_path):
     out, sarif = tmp_path / "scan.json", tmp_path / "scan.sarif"
-    assert main(["scan", "--target", target, "--repo", str(BACKEND), "--db", str(target_db), "--out", str(out), "--sarif", str(sarif)]) == 0
+    # no frontend in the tests: browser_scan fails, the scan is incomplete (exit 2) but both files are still written
+    assert main(["scan", "--target", target, "--repo", str(BACKEND), "--db", str(target_db), "--out", str(out), "--sarif", str(sarif)]) == 2
     scan, s = json.loads(out.read_text()), json.loads(sarif.read_text())
-    assert len(s["runs"][0]["results"]) == len(scan["findings"]) and s["runs"][0]["properties"]["readinessScore"] == scan["score"]
+    with_file = [f for f in scan["findings"] if f["evidence"]["location"]["file"]]
+    assert len(s["runs"][0]["results"]) == len(with_file) and s["runs"][0]["properties"]["readinessScore"] == scan["score"]

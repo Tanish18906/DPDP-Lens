@@ -1,0 +1,5 @@
+services:
+  cache:
+    image: myorg/cache
+    ports:
+      - "6379:6379"

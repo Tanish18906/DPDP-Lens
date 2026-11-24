@@ -10,12 +10,22 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
+# 1 to 2 (block 05): repos.last_health (the status an alert was last decided on), outbox.repo_id and outbox.scan_id (scan_delta and health_changed rows)
+MIGRATIONS = {1: "ALTER TABLE repos ADD COLUMN last_health TEXT; ALTER TABLE outbox ADD COLUMN repo_id INTEGER; "
+                 "ALTER TABLE outbox ADD COLUMN scan_id TEXT NOT NULL DEFAULT '';",
+              # 2 to 3 (block 08): GitHub App installations, and which installation a repo was connected through (NULL: the env allowlist and GITHUB_TOKEN)
+              2: "CREATE TABLE installations(installation_id INTEGER PRIMARY KEY, account_login TEXT NOT NULL, account_type TEXT NOT NULL, "
+                 "created_at TEXT NOT NULL); ALTER TABLE repos ADD COLUMN installation_id INTEGER;",
+              # 3 to 4 (block 13): the url of the pull request opened for a verified fix
+              3: "ALTER TABLE findings ADD COLUMN pr_url TEXT NOT NULL DEFAULT '';"}
 
 SCHEMA = """
 CREATE TABLE repos(
   id INTEGER PRIMARY KEY, full_name TEXT NOT NULL UNIQUE, branch TEXT NOT NULL DEFAULT '', slack_channel TEXT NOT NULL DEFAULT '',
-  watch_minutes INTEGER, next_run_at TEXT, baseline_scan_id TEXT, created_at TEXT NOT NULL);
+  watch_minutes INTEGER, next_run_at TEXT, baseline_scan_id TEXT, created_at TEXT NOT NULL, last_health TEXT, installation_id INTEGER);
+CREATE TABLE installations(installation_id INTEGER PRIMARY KEY, account_login TEXT NOT NULL, account_type TEXT NOT NULL,
+  created_at TEXT NOT NULL);
 CREATE TABLE scans(
   scan_id TEXT PRIMARY KEY, repo_id INTEGER NOT NULL REFERENCES repos(id), trigger_kind TEXT NOT NULL, commit_sha TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL CHECK (status IN ('complete','incomplete','failed')), mode TEXT NOT NULL DEFAULT '',
@@ -27,7 +37,7 @@ CREATE TABLE findings(
   status TEXT NOT NULL CHECK (status IN ('open','in_progress','fixed','false_positive','wont_fix')),
   status_reason TEXT NOT NULL DEFAULT '', status_by TEXT NOT NULL DEFAULT '', status_at TEXT NOT NULL,
   first_seen_scan TEXT NOT NULL, last_seen_scan TEXT NOT NULL, last_finding_json TEXT NOT NULL,
-  slack_channel TEXT, slack_ts TEXT, UNIQUE(repo_id, fingerprint));
+  slack_channel TEXT, slack_ts TEXT, pr_url TEXT NOT NULL DEFAULT '', UNIQUE(repo_id, fingerprint));
 CREATE INDEX findings_repo_status ON findings(repo_id, status);
 CREATE TABLE scan_findings(scan_id TEXT NOT NULL REFERENCES scans(scan_id), human_id TEXT NOT NULL REFERENCES findings(human_id),
   PRIMARY KEY(scan_id, human_id));
@@ -37,7 +47,8 @@ CREATE TABLE events(
   prev_hash TEXT NOT NULL, hash TEXT NOT NULL);
 CREATE INDEX events_repo ON events(repo_id);
 CREATE INDEX events_human ON events(human_id);
-CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, human_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE outbox(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, human_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  repo_id INTEGER, scan_id TEXT NOT NULL DEFAULT '');
 """
 
 
@@ -62,6 +73,9 @@ class Store:
             if version > SCHEMA_VERSION:
                 db.close()
                 raise RuntimeError(f"{self.path} was written by a newer engine (schema {version}, this one knows {SCHEMA_VERSION})")
+            if 0 < version < SCHEMA_VERSION:  # an older file: apply each step, one transaction per step
+                for v in range(version, SCHEMA_VERSION):
+                    db.executescript(f"BEGIN;{MIGRATIONS[v]}PRAGMA user_version={v + 1};COMMIT;")
             if version == 0:
                 db.executescript(f"BEGIN;{SCHEMA}PRAGMA user_version={SCHEMA_VERSION};COMMIT;")
                 if not memory:

@@ -1,6 +1,7 @@
 """Turns scans into finding records with stable human IDs and a triage status (master sections 6, 7 and 10).
 Everything here works on the Store and plain models, so tests need no network and no running app."""
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -44,8 +45,28 @@ def _next_human_id(store: Store) -> str:
     return f"DPDP-{n:03d}"  # findings are never deleted, so an ID is never reused
 
 
-def _outbox(store: Store, kind: str, human_id: str):
-    store.run("INSERT INTO outbox(kind, human_id, created_at) VALUES (?,?,?)", (kind, human_id, audit.now()))
+def _outbox(store: Store, kind: str, human_id: str = "", repo_id: int | None = None, scan_id: str = ""):
+    """status_changed rows carry a human_id. scan_delta and health_changed rows carry repo_id and scan_id instead."""
+    store.run("INSERT INTO outbox(kind, human_id, created_at, repo_id, scan_id) VALUES (?,?,?,?,?)",
+              (kind, human_id, audit.now(), repo_id, scan_id))
+
+
+BAD = ("at_risk", "unknown")
+
+
+def sync_health(store: Store, repo_id: int, emit: bool, now: datetime | None = None):
+    """Remember the repo's health status and, when `emit`, queue a health_changed row if it moved into at_risk or unknown
+    (or back out of them). An unchanged status writes nothing, so a repo that stays unknown alerts once. Runs in the caller's
+    transaction, so the alert and the state change that caused it commit together. Returns (old, new) or None."""
+    with store.tx():
+        new = health(store, repo_id, now)["status"]
+        old = repo_row(store, repo_id)["last_health"]
+        if new == old:
+            return None
+        store.run("UPDATE repos SET last_health=? WHERE id=?", (new, repo_id))
+        if emit and (new in BAD or old in BAD):
+            _outbox(store, "health_changed", repo_id=repo_id)
+        return old, new
 
 
 def ingest_scan(store: Store, repo_id: int, scan: ScanResult, trigger: str, actor: str, started_at: str | None = None) -> ScanDelta:
@@ -112,6 +133,12 @@ def ingest_scan(store: Store, repo_id: int, scan: ScanResult, trigger: str, acto
         if scan.complete and repo["baseline_scan_id"] is None:  # the first complete scan only, a scan never replaces a baseline
             store.run("UPDATE repos SET baseline_scan_id=? WHERE id=?", (scan.scan_id, repo_id))
             audit.record(store, "baseline_set", "system", repo_id, scan.scan_id, None, scan.policy_version, "first complete scan")
+        scheduled = trigger == "schedule"  # only the monitor raises alerts, and only for what changed
+        blocking_new = [h for h in delta.new + delta.reopened if store.one(
+            f"SELECT 1 FROM findings WHERE human_id=? AND status='open' AND severity IN ({','.join('?' * len(BLOCKING))})", (h, *BLOCKING))]
+        if scheduled and blocking_new:
+            _outbox(store, "scan_delta", repo_id=repo_id, scan_id=scan.scan_id)
+        sync_health(store, repo_id, emit=scheduled)
     return delta
 
 
@@ -123,6 +150,7 @@ def record_scan_failed(store: Store, repo_id: int, scan_id: str, trigger: str, a
                   "VALUES (?,?,?, 'failed', ?,?,?)",
                   (scan_id, repo_id, trigger, started_at or ts, ts, json.dumps([{"scanner": "scan", "kind": "failed", "message": audit.clean(message)[:300]}])))
         audit.record(store, "scan_failed", actor, repo_id, scan_id, result=message[:300])
+        sync_health(store, repo_id, emit=trigger == "schedule")  # a failed scan makes the repo unknown: alert once
 
 
 # ---- manual transitions
@@ -181,7 +209,7 @@ def _parse(ts: str) -> datetime:
 def health(store: Store, repo_id: int, now: datetime | None = None) -> dict:
     """Master section 10. unknown beats at_risk: a scan that could not look at everything is never shown as green or as a
     complete list of problems. Suppressed findings (false_positive, wont_fix) never count."""
-    now = now or datetime.now(timezone.utc)
+    now = now or _parse(audit.now())  # one clock: audit.now(), so tests can set it
     repo = repo_row(store, repo_id)
     last = store.one("SELECT * FROM scans WHERE repo_id=? ORDER BY rowid DESC LIMIT 1", (repo_id,))
     last_ok = store.one("SELECT * FROM scans WHERE repo_id=? AND status='complete' ORDER BY rowid DESC LIMIT 1", (repo_id,))
@@ -212,11 +240,23 @@ def health(store: Store, repo_id: int, now: datetime | None = None) -> dict:
             reasons.append(f"{len(added)} added and {len(gone)} resolved since the baseline {base}")
     if blocking:
         reasons.append(f"{blocking} blocking finding(s) open")
+    streak, last_error = 0, None
+    for r in store.all("SELECT status, errors_json FROM scans WHERE repo_id=? ORDER BY rowid DESC LIMIT 20", (repo_id,)):
+        if r["status"] == "complete":
+            break
+        streak += 1
+        if last_error is None and (errs := json.loads(r["errors_json"] or "[]")):
+            last_error = f"{errs[0].get('scanner', 'scan')}: {errs[0].get('message', '')}"
+    if streak >= 2:
+        reasons.append(f"the last {streak} scans failed or were incomplete")
+    if streak and last_error:
+        reasons.append(f"last error: {last_error}")
     if last is not None and last["mode"] == "static":
         n = len(json.loads(last["coverage_json"] or "{}").get("checks_run", []))
         reasons.append(f"static checks only ({n} of {len(CHECKS)})")
     return {"status": status, "reasons": reasons, "last_complete_scan_at": last_ok["finished_at"] if last_ok else None,
-            "last_scan_status": last["status"] if last else None, "counts": counts}
+            "last_scan_status": last["status"] if last else None, "counts": counts,
+            "failed_streak": streak, "last_error": last_error if streak else None}
 
 
 def scan_summary(store: Store, scan_id: str) -> dict:
@@ -239,8 +279,16 @@ def delta_of(store: Store, scan_id: str) -> dict:
             "health": health(store, scan["repo_id"])}
 
 
-_SELECT = ("SELECT f.*, r.full_name, r.branch, s1.finished_at AS first_seen_at, s2.finished_at AS last_seen_at FROM findings f "
+_SELECT = ("SELECT f.*, r.full_name, r.branch, r.installation_id, s1.finished_at AS first_seen_at, s2.finished_at AS last_seen_at FROM findings f "
            "JOIN repos r ON r.id=f.repo_id LEFT JOIN scans s1 ON s1.scan_id=f.first_seen_scan LEFT JOIN scans s2 ON s2.scan_id=f.last_seen_scan")
+
+
+def pr_available(row, last: dict) -> bool:
+    """Whether "Open pull request" may be offered for this finding: the switch is on, the repo is in DPDP_FIX_REPOS and connected through the
+    GitHub App, the fix is verified and no pull request was opened yet. api_v2 checks all of it again, and the fix mode, when the button is used."""
+    fix_repos = {x.strip().lower() for x in os.environ.get("DPDP_FIX_REPOS", "").split(",") if x.strip()}
+    return bool(os.environ.get("DPDP_ALLOW_PR") == "1" and row["full_name"].lower() in fix_repos and row["installation_id"] is not None
+                and row["status"] == "fixed" and (last.get("fix") or {}).get("verified") and not row["pr_url"])
 
 
 def record_of(row) -> dict:
@@ -252,7 +300,8 @@ def record_of(row) -> dict:
             "status": row["status"], "status_reason": row["status_reason"], "status_by": row["status_by"], "status_at": row["status_at"],
             "first_seen_at": row["first_seen_at"], "last_seen_at": row["last_seen_at"],
             "location": {"file": loc.get("file", ""), "line": loc.get("line", 0), "url": loc.get("url", "")},
-            "fix_available": bool(last.get("fix", {}).get("available")),
+            "pr_url": row["pr_url"], "pr_available": pr_available(row, last),
+            "fix_available": bool(last.get("fix", {}).get("available")), "explanation": last.get("explanation", ""),
             "slack": {"channel": row["slack_channel"], "ts": row["slack_ts"]} if row["slack_channel"] and row["slack_ts"] else None}
 
 

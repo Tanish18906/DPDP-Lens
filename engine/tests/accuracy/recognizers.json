@@ -1,0 +1,294 @@
+[
+ {
+  "id": "aadhaar_labelled",
+  "text": "aadhaar: {{aadhaar}}",
+  "column": null,
+  "expect": [
+   "aadhaar"
+  ]
+ },
+ {
+  "id": "aadhaar_spaced_column",
+  "text": "{{aadhaar_spaced}}",
+  "column": "aadhaar",
+  "expect": [
+   "aadhaar"
+  ]
+ },
+ {
+  "id": "aadhaar_uid_label",
+  "text": "uid {{aadhaar}}",
+  "column": null,
+  "expect": [
+   "aadhaar"
+  ]
+ },
+ {
+  "id": "aadhaar_bad_checksum",
+  "text": "aadhaar: {{aadhaar_bad}}",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "aadhaar_no_context",
+  "text": "reference {{aadhaar}} thanks",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "aadhaar_order_id_column",
+  "text": "{{aadhaar}}",
+  "column": "order_id",
+  "expect": []
+ },
+ {
+  "id": "aadhaar_starts_with_1",
+  "text": "aadhaar: {{aadhaar_one}}",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "aadhaar_in_uuid_text",
+  "text": "uuid {{aadhaar}}",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "aadhaar_inside_longer_run",
+  "text": "aadhaar: 9{{aadhaar}}",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "pan_labelled",
+  "text": "pan ABCPD1234E",
+  "column": null,
+  "expect": [
+   "pan"
+  ]
+ },
+ {
+  "id": "pan_column",
+  "text": "ABCPD1234E",
+  "column": "parent_pan",
+  "expect": [
+   "pan"
+  ]
+ },
+ {
+  "id": "pan_bad_holder_letter",
+  "text": "ABCXD1234E",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "pan_zero_digits",
+  "text": "ABCPD0000E",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "pan_lowercase",
+  "text": "abcpd1234e",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "pan_inside_longer_token",
+  "text": "ABCPD1234EXTRA",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "pan_inside_hex_id",
+  "text": "id=ABCPD1234E-9f",
+  "column": null,
+  "expect": [
+   "pan"
+  ]
+ },
+ {
+  "id": "phone_labelled",
+  "text": "phone: 9876543210",
+  "column": null,
+  "expect": [
+   "phone"
+  ]
+ },
+ {
+  "id": "phone_plus91",
+  "text": "mobile +91 9876543210",
+  "column": null,
+  "expect": [
+   "phone"
+  ]
+ },
+ {
+  "id": "phone_column",
+  "text": "9876543210",
+  "column": "mobile",
+  "expect": [
+   "phone"
+  ]
+ },
+ {
+  "id": "phone_no_context",
+  "text": "order 9876543210",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_starts_with_5",
+  "text": "phone: 5876543210",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_in_longer_digit_run",
+  "text": "phone: 98765432101234",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_unix_timestamp",
+  "text": "contact_ts=1700000000",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_decimal_number",
+  "text": "mobile_score 3.9876543210",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_build_number",
+  "text": "mobile app build 9876543210 shipped",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "email_plain",
+  "text": "mail a.b@example.test now",
+  "column": null,
+  "expect": [
+   "email"
+  ]
+ },
+ {
+  "id": "email_column",
+  "text": "x@y.org",
+  "column": "email",
+  "expect": [
+   "email"
+  ]
+ },
+ {
+  "id": "email_no_domain_dot",
+  "text": "user@localhost",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "email_masked",
+  "text": "a***@example.test",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "dob_labelled",
+  "text": "dob 1999-04-12",
+  "column": null,
+  "expect": [
+   "dob"
+  ]
+ },
+ {
+  "id": "dob_birth_word",
+  "text": "birth date 2001-12-31",
+  "column": null,
+  "expect": [
+   "dob"
+  ]
+ },
+ {
+  "id": "dob_no_context",
+  "text": "created 2024-05-01",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "dob_not_a_date_run",
+  "text": "dob 19999-04-12",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "aadhaar_dashed",
+  "text": "aadhaar {{aadhaar_dashed}}",
+  "column": null,
+  "expect": [
+   "aadhaar"
+  ]
+ },
+ {
+  "id": "pan_in_sentence",
+  "text": "Her PAN is ABCPD1234E.",
+  "column": null,
+  "expect": [
+   "pan"
+  ]
+ },
+ {
+  "id": "phone_grouped_5_5",
+  "text": "phone 98765 43210",
+  "column": null,
+  "expect": [
+   "phone"
+  ]
+ },
+ {
+  "id": "phone_plus91_dashes",
+  "text": "mobile +91-98765-43210",
+  "column": null,
+  "expect": [
+   "phone"
+  ]
+ },
+ {
+  "id": "phone_version_dotted",
+  "text": "mobile version 6.9876543210",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_decimal_after",
+  "text": "mobile 9876543210.55",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "phone_invoice_number",
+  "text": "contact invoice 9876543210",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "uuid_text",
+  "text": "id 123e4567-e89b-12d3-a456-426614174000",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "masked_aadhaar",
+  "text": "aadhaar: XXXX XXXX 1234",
+  "column": null,
+  "expect": []
+ },
+ {
+  "id": "masked_phone",
+  "text": "phone 98XXXXXX10",
+  "column": null,
+  "expect": []
+ }
+]

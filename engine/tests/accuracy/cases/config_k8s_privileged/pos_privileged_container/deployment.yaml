@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-pod
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: app:latest
+          securityContext:
+            privileged: true

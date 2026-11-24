@@ -1,0 +1,35 @@
+# DPDP Lens default policy. A readiness policy, not legal advice and not a compliance certificate.
+# One rule per check id (clauses stay in contract/clauses.json, wording in dpdp_lens/checks.py).
+# Defaults by severity: critical and high block, medium warn, low info. A test keeps this file in step with the check registry.
+policy_id: dpdp-lens-default
+version: 1.0.0
+effective_date: 2026-11-24
+description: Block on critical and high findings, warn on medium, note low.
+source: DPDP Lens, mapped to the DPDP Act 2023 and DPDP Rules 2025 clauses in contract/clauses.json
+rules:
+  api_pii_exposure: {action: block}
+  api_idor: {action: block}
+  log_pii: {action: block}
+  db_plaintext_pii: {action: block}
+  tracker_before_consent: {action: block}
+  consent_bundled: {action: warn}
+  erasure_incomplete: {action: block}
+  children_no_parental_consent: {action: block}
+  missing_contact: {action: info}
+  notice_drift: {action: warn}
+  config_secret_committed: {action: block}
+  config_env_in_image: {action: block}
+  config_container_root: {action: warn}
+  config_cors_wildcard: {action: warn}
+  config_debug_enabled: {action: warn}
+  config_db_exposed: {action: block}
+  fe_pii_in_storage: {action: warn}
+  consent_not_recorded: {action: warn}
+  consent_no_withdrawal: {action: warn}
+  config_s3_public: {action: block}
+  config_security_group_ingress_anywhere: {action: block}
+  config_storage_unencrypted: {action: block}
+  config_tf_hardcoded_secret: {action: block}
+  config_k8s_privileged: {action: warn}
+  config_k8s_host_network: {action: warn}
+  config_k8s_secret_in_env: {action: block}

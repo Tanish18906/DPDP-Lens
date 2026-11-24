@@ -1,0 +1,16 @@
+{
+  "about": "Ground truth for the static scan of target-app/backend, written from README 'Planted violations': V3 log_pii, V9 .env secret and debug, V10 Dockerfile, V11 CORS, V12 compose, V13 localStorage, V14 no consent record, plus the one real unmarked finding (app/auth.py SECRET_KEY). Live checks (V1, V2, V4 to V8, V15) need the running app and are not in a static scan.",
+  "expected": [
+    {"check": "log_pii", "file": "backend/app/main.py", "why": "V3"},
+    {"check": "config_secret_committed", "file": "backend/.env", "why": "V9"},
+    {"check": "config_debug_enabled", "file": "backend/.env", "why": "V9"},
+    {"check": "config_env_in_image", "file": "backend/Dockerfile", "why": "V10"},
+    {"check": "config_container_root", "file": "backend/Dockerfile", "why": "V10"},
+    {"check": "config_cors_wildcard", "file": "backend/app/main.py", "why": "V11"},
+    {"check": "config_db_exposed", "file": "docker-compose.yml", "why": "V12"},
+    {"check": "config_secret_committed", "file": "docker-compose.yml", "why": "V12"},
+    {"check": "fe_pii_in_storage", "file": "frontend/src/App.jsx", "why": "V13"},
+    {"check": "consent_not_recorded", "file": "backend/app/main.py", "why": "V14 (reported at the signup handler)"},
+    {"check": "config_secret_committed", "file": "backend/app/auth.py", "why": "real, unmarked: hard-coded SECRET_KEY"}
+  ]
+}

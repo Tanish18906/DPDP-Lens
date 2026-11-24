@@ -7,7 +7,7 @@ set -m  # own process group for the demo stack, so it can be stopped cleanly
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$ROOT/.venv/bin/python"
-GATES=(rehearsal all_fixes children data_flow offline fix_states)
+GATES=(rehearsal all_fixes children data_flow offline fix_states feed ci)
 PORTS=(8000 5173 8100 5174)
 DEMO_PID=""
 
@@ -29,6 +29,9 @@ if [ "$up" -eq 0 ]; then
   LOG="$(mktemp -d -t dpdp-lens-gates.XXXXXX)/demo.log"
   echo "Starting the demo stack (log: $LOG)..."
   export DPDP_STATE_DIR="$(mktemp -d -t dpdp-lens-state.XXXXXX)"  # gate scans must not pile up in the repo
+  export DPDP_MONITOR=0  # no background scheduler in the gates
+  # gate_feed needs the repo API: a token the engine and the dashboard share, and two allowlisted local repos
+  export DPDP_API_TOKEN=gate-token VITE_DPDP_TOKEN=gate-token DPDP_ALLOWED_REPOS=gate/ok,gate/big
   "$ROOT/run_demo.sh" >"$LOG" 2>&1 &
   DEMO_PID=$!
   for _ in $(seq 1 120); do
@@ -44,7 +47,11 @@ fi
 
 FAILED=()
 for g in "${GATES[@]}"; do
-  out="$("$PY" "$ROOT/scripts/gates/gate_$g.py" 2>&1)"
+  if [ -f "$ROOT/scripts/gates/gate_$g.sh" ]; then  # a shell gate (gate_ci.sh) or a Playwright gate (gate_*.py)
+    out="$(bash "$ROOT/scripts/gates/gate_$g.sh" 2>&1)"
+  else
+    out="$("$PY" "$ROOT/scripts/gates/gate_$g.py" 2>&1)"
+  fi
   if [ $? -eq 0 ]; then
     echo "PASS  $g  ($(echo "$out" | tail -1))"
   else

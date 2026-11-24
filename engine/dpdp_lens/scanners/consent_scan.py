@@ -64,12 +64,12 @@ def has_consent_record(app_root) -> tuple[bool, int]:
     return False, read
 
 
-def _finding(check, layer, kind, title, summary, sample, explanation, **facts) -> Finding:
+def _finding(check, layer, kind, title, summary, sample, explanation, fix_available=False, **facts) -> Finding:
     return Finding(
         id="", check=check, layer=layer, severity="medium", title=title, severity_reason=reason(check, **facts),
         explanation=explanation, clauses=[],
         evidence=Evidence(kind=kind, summary=summary, masked_sample=sample, location=Location()),  # the runner adds the signup handler
-        fix=Fix(available=False))
+        fix=Fix(available=fix_available))
 
 
 def scan(target_url: str, app_root) -> list[Finding]:

@@ -1,0 +1,88 @@
+{
+ "checks": {
+  "config_container_root": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_cors_wildcard": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_db_exposed": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_debug_enabled": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_env_in_image": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_k8s_host_network": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_k8s_privileged": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_k8s_secret_in_env": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_s3_public": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_secret_committed": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_security_group_ingress_anywhere": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_storage_unencrypted": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "config_tf_hardcoded_secret": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "consent_not_recorded": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "fe_pii_in_storage": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "log_pii": {
+   "precision": 0.8,
+   "recall": 1.0
+  },
+  "pii_aadhaar": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_pan": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_phone": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_email": {
+   "precision": 1.0,
+   "recall": 1.0
+  },
+  "pii_dob": {
+   "precision": 1.0,
+   "recall": 1.0
+  }
+ }
+}

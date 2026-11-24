@@ -5,7 +5,7 @@ Clauses come from `contract/clauses.json`, checked against the DPDP Act 2023 and
 
 Score = 100 minus open finding weights (critical 10, high 5, medium 2, low 1), floor 0.
 
-## Checks (19)
+## Checks (26)
 
 Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in live data, `static` is read from files.
 
@@ -27,6 +27,13 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 | `config_cors_wildcard` | config | medium | Act s8(5), Rule 6(1)(b) | allow_origins holds "*", or the Access-Control-Allow-Origin header is *. | Allow only the exact front end origins you need. Never combine a wildcard with credentials. | static | no |
 | `config_debug_enabled` | config | medium | Act s8(5), Rule 6(1)(g) | DEBUG is true in an env file, debug=True is in app code, or a container command uses reload. | Turn debug off outside local development. | static | no |
 | `config_db_exposed` | config | high | Act s8(5), Rule 6(1)(b) | A compose file publishes a database port without binding it to 127.0.0.1. | Do not publish the database port. Keep it on the internal network or bind to 127.0.0.1, and use strong credentials. | static | no |
+| `config_s3_public` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A storage bucket or ACL grants public read access to stored files. | Disable public access on the storage bucket and enforce private bucket policies. | static | no |
+| `config_security_group_ingress_anywhere` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A security group or firewall rule allows inbound traffic from 0.0.0.0/0 on a database or administration port. | Restrict ingress rules to specific IP ranges or internal VPC subnets. Never expose database or SSH ports to the public internet. | static | no |
+| `config_storage_unencrypted` | config | high | Act s8(5), Rule 6(1)(a) | A database, volume, or storage resource has encryption explicitly disabled. | Enable encryption at rest with customer-managed or cloud-provider keys to protect stored personal data. | static | no |
+| `config_tf_hardcoded_secret` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A Terraform provider or resource block holds a hardcoded access key or secret. | Remove hardcoded credentials from Terraform files and use environment variables, IAM roles, or a secrets manager. | static | no |
+| `config_k8s_privileged` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest sets privileged true, runAsUser 0, or allowPrivilegeEscalation true. | Drop elevated container privileges, disallow privilege escalation, and run workloads as a non-root UID. | static | no |
+| `config_k8s_host_network` | config | medium | Act s8(5), Rule 6(1)(g) | A Kubernetes manifest configures hostNetwork true, exposing node network traffic. | Disable hostNetwork and rely on Kubernetes service networking or ingress controllers. | static | no |
+| `config_k8s_secret_in_env` | config | high | Act s8(5), Rule 6(1)(b), Rule 6(1)(g) | A Kubernetes container env entry sets a secret value as a literal string instead of referencing a Secret. | Store secrets in Kubernetes Secret objects and reference them using secretKeyRef. | static | no |
 | `fe_pii_in_storage` | frontend | medium | Act s8(5), Rule 6(1)(a) | localStorage or sessionStorage setItem is called with a key or value that names personal data. | Do not keep personal data in browser storage. Keep it on the server and use short lived session tokens. | static | no |
 | `consent_not_recorded` | code | medium | Act s6(10), Act s6(1) | No consent table, column or model field exists in the schema or the backend source. | Record each consent (who, what, when, which notice version) so you can prove it later. | static | no |
 | `consent_no_withdrawal` | api | medium | Act s6(4), Act s6(6) | No route in the OpenAPI spec is about consent, withdrawal, revoking, opting out or unsubscribing. | Add a way to withdraw consent that is as easy as giving it, and stop processing when it is used. | observed | no |
@@ -36,7 +43,7 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 ### Personal data recognizers
 - **Aadhaar**: 12 digits starting 2 to 9, Verhoeff checksum valid, and the column name or a nearby word says aadhaar, aadhar or uid
 - **PAN**: 5 letters (4th is one of P C H F A T B L J G), 4 digits, 1 letter, not 0000
-- **Indian mobile**: 10 digits starting 6 to 9, optional +91 or 0, and the column name or a nearby word says phone, mobile or contact
+- **Indian mobile**: 10 digits starting 6 to 9 (optionally written 5 + 5), optional +91 or 0, not inside a longer digit run and not a decimal, and the column name or a nearby word says phone, mobile or contact. A nearby word does not count when build, version, release, order, invoice, ticket, tracking, serial, batch, sku, ref, reference or id stands just before the number
 - **Email**: local part, @, domain with a dot
 - **Date of birth**: YYYY-MM-DD in 19xx or 20xx, and the column name or a nearby word says dob or birth
 - **Name**: a column or JSON key that is `name` or ends in `_name` (not `username`)
@@ -45,11 +52,13 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 
 ### Secret rule
 - A key matches `(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key|access[_-]?key|jwt)` and its value is a literal of 4 or more characters.
-- Not a literal: `${...}`, `$VAR`, `<...>`, `your-...`, `xxx`, `null`, `none` or an empty value.
+- Not a literal: `${...}`, `$VAR`, `<...>`, `your-...`, `xxx`, `null`, `none`, `changeme`, `replace-me`, `example`, `sample`, `dummy`, `placeholder`, `todo`, `redacted` or an empty value.
+- A value with a vendor token shape counts whatever the key is called: AWS access key id (`AKIA...`), GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), Slack (`xox...-`), Stripe secret (`sk_live_`, `rk_live_`). JavaScript, TypeScript and shell files are read for these shapes only.
 - A URL with `user:password@host` counts, with the password as the secret.
+- A constant whose name ends in field, name, label, column, header, param, attr, prop, placeholder, title, prompt, help, hint, message, msg, text or selector, with a value of plain words and no digits, is a label and not a secret (`PASSWORD_FIELD = "password"`). `SECRET_KEY = "abc"` is still a secret.
 - `.env.example`, `.env.sample` and `.env.template` are never flagged.
-- Python is read with `ast` (assignments of a string literal to a secret-like name), other config files line by line.
-- Test folders, `test_*.py` and `conftest.py` are skipped. JavaScript and TypeScript source is not scanned for secrets.
+- Python is read with `ast` (assignments of a string literal to a secret-like name), other config files line by line. JSON files are also read for `"key": "value"` pairs anywhere in the text, so a one-line file works.
+- Test folders, `test_*.py` and `conftest.py` are skipped. JavaScript and TypeScript source is not scanned for secrets by key name.
 - A secret is shown as its first 2 characters plus `***`, never in full. One finding per file.
 
 ### Config rules
@@ -60,8 +69,9 @@ Proof: `probed` is behaviour confirmed by a live request, `observed` is seen in 
 - Compose: a database image or a database port (5432, 3306, 27017, 6379, 1433) published without a 127.0.0.1 binding. A common default password is added to the reason (`config_db_exposed`).
 
 ### Front end, consent and location rules
+- Logs: Python `logging` and `print` calls through `ast`. JavaScript and TypeScript (`.js .jsx .ts .tsx .mjs .cjs`) `console.*` and `logger.*` calls through a small tokenizer that ignores comments and the text of strings (template `${...}` code is read). A name is personal data when one of its words (split on `_` and camelCase) is email, phone, aadhaar, pan, dob, password or token, unless its last word is count, total, sent, length, size, id, ids, type or status. JavaScript test files are skipped. Regex literals are not recognised (`log_pii`).
 - Front end: `name=` or `id=` of input, select and textarea in `.html`, `.jsx`, `.tsx`, `.js` feed the notice drift block as `frontend:<file>:<line>`.
-- Front end: `localStorage.setItem` or `sessionStorage.setItem` whose key or value names personal data (`fe_pii_in_storage`).
+- Front end: `localStorage.setItem` or `sessionStorage.setItem` whose key or value names personal data (`fe_pii_in_storage`). Files read: `.html .js .jsx .ts .tsx` under `frontend/`. JavaScript and TypeScript files are read without their comments, so a commented-out call is not a finding.
 - Consent: a consent table, column or model field counts as a record. Comments, strings, the front end and tests do not (`consent_not_recorded`).
 - Consent: a route in the OpenAPI spec that mentions consent, withdraw, revoke, opt out or unsubscribe (`consent_no_withdrawal`).
 - Locations: routes through an `ast` walk of decorators, columns through `CREATE TABLE` or model classes, text through a file search. All paths are relative to the app folder.

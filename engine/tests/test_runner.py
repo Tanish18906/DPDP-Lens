@@ -72,6 +72,8 @@ def test_default_scanner_order():
 
 def test_cli_scan_writes_valid_json(target, target_db, tmp_path, capsys):
     out = tmp_path / "scan.json"
-    assert main(["scan", "--target", target, "--repo", str(BACKEND), "--db", str(target_db), "--out", str(out)]) == 0
+    # the tests have no frontend, so browser_scan fails: the scan is incomplete and the command says so with exit 2
+    assert main(["scan", "--target", target, "--repo", str(BACKEND), "--db", str(target_db), "--out", str(out)]) == 2
     jsonschema.validate(json.loads(out.read_text()), SCHEMA)
-    assert "score 57, 8 findings" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "score 57, 8 findings" in captured.out and "INCOMPLETE: 1 scanner errors (browser_scan)" in captured.err

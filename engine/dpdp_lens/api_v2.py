@@ -2,8 +2,10 @@
 `core` is what api.py shares with the legacy routes: the scans dict (so /scan/{id}, /report/{id} and the SARIF route work for
 repo scans), the state files, the S-NNN counter and the fix settings. Mutating routes need the X-DPDP-Token header."""
 import hmac
+import html
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -13,9 +15,10 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from . import audit, ingest, repo_scan
+from . import audit, github_app, ingest, pr, readiness, repo_scan
 from .models import ScanResult
 from .store import Store
 
@@ -35,6 +38,7 @@ class RepoIn(BaseModel):
     branch: str = Field("", max_length=200)
     slack_channel: str = Field("", max_length=100)
     actor: str = Field("api", min_length=1, max_length=100)
+    installation_id: Optional[int] = Field(None, ge=1)  # the GitHub App installation that shares this repo (block 08)
 
 
 class ScanIn(BaseModel):
@@ -45,6 +49,15 @@ class ScanIn(BaseModel):
 class BaselineIn(BaseModel):
     scan_id: Optional[str] = None
     actor: str = Actor
+
+
+class ReportLinkIn(BaseModel):
+    scan_id: Optional[str] = None  # default: the latest complete scan
+    actor: str = Field("api", min_length=1, max_length=100)
+
+
+class PrIn(BaseModel):
+    actor: str = Field("api", min_length=1, max_length=100)
 
 
 class WatchIn(BaseModel):
@@ -71,17 +84,79 @@ def _status_error(e: ingest.StatusError) -> HTTPException:
     return HTTPException(e.status, e.detail)
 
 
+def _page(title: str, text: str, status: int = 200) -> HTMLResponse:
+    """A small plain page for the browser steps of the GitHub install. Everything is escaped, nothing is echoed from the query."""
+    body = (f"<!doctype html><meta charset=utf-8><title>{html.escape(title)}</title>"
+            f"<body style='font:16px system-ui;max-width:32em;margin:4em auto'><h1>{html.escape(title)}</h1><p>{html.escape(text)}</p></body>")
+    return HTMLResponse(body, status_code=status, headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+                                                          "X-Content-Type-Options": "nosniff"})
+
+
+def _github_error(e: github_app.GitHubAppError) -> HTTPException:
+    return HTTPException({"config": 503, "notfound": 404}.get(e.kind, 502), str(e))
+
+
 def create_router(store: Store, core) -> APIRouter:
     router = APIRouter()
     guard = [Depends(require_token)]
     running: set = set()  # repo ids with a scan in progress: one at a time per repo
     running_lock = threading.Lock()
+    scan_slot = threading.Lock()  # one clone and scan at a time, whoever asked (API call or monitor)
 
     def repo_out(row) -> dict:
         h = ingest.health(store, row["id"])
         return {"id": row["id"], "full_name": row["full_name"], "branch": row["branch"], "slack_channel": row["slack_channel"],
                 "health": h["status"], "reasons": h["reasons"], "last_scan_at": h["last_complete_scan_at"],
                 "next_run_at": row["next_run_at"], "watch_minutes": row["watch_minutes"], "baseline_scan_id": row["baseline_scan_id"]}
+
+    gh_cache: dict = {}
+
+    def github():
+        """The GitHub App: core.github when a test injects one, else built from the environment. It is rebuilt only when the
+        settings change, so its installation token cache lives as long as they do. None when the app is not configured."""
+        if getattr(core, "github", None) is not None:
+            return core.github
+        sig = tuple(os.environ.get(n, "") for n in ("GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_SLUG"))
+        if gh_cache.get("sig") != sig:
+            gh_cache.update(sig=sig, app=github_app.GitHubApp.from_env())
+        return gh_cache["app"]
+
+    def need_github():
+        app = github()
+        if app is None:
+            raise HTTPException(503, "the GitHub App is not configured on the engine (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY_PATH, GITHUB_APP_SLUG)")
+        return app
+
+    def repo_token(repo) -> Optional[str]:
+        """The token git gets for this repo: a fresh installation token when it was connected through the app, else GITHUB_TOKEN."""
+        if repo["installation_id"] is None:
+            return os.environ.get("GITHUB_TOKEN")
+        return need_github().token(repo["installation_id"])
+
+    def authorise_repo(body: "RepoIn") -> Optional[int]:
+        """The env allowlist as before, or a repo the named installation shares right now (asked from GitHub, not remembered).
+        Returns the installation id to store, or None for a repo that goes through GITHUB_TOKEN. Raises 422 or 403."""
+        try:
+            repo_scan.check_name(body.full_name)
+            listed = True
+        except repo_scan.RepoError as e:
+            if e.kind != "refused" or body.installation_id is None:
+                raise _repo_error(e)
+            listed = False
+        if body.installation_id is None:
+            return None
+        iid, shared = body.installation_id, False
+        try:
+            if store.one("SELECT 1 FROM installations WHERE installation_id=?", (iid,)) is not None:
+                shared = body.full_name.lower() in {r["full_name"].lower() for r in need_github().repos(iid)}
+        except (github_app.GitHubAppError, HTTPException) as e:
+            if not listed:  # an allowlisted repo still connects through GITHUB_TOKEN when GitHub cannot be asked
+                raise _github_error(e) if isinstance(e, github_app.GitHubAppError) else e
+        if shared:
+            return iid
+        if listed:
+            return None
+        raise HTTPException(403, f"{body.full_name} is not in DPDP_ALLOWED_REPOS and installation {iid} does not share it")
 
     def need_repo(repo_id: int):
         try:
@@ -93,16 +168,13 @@ def create_router(store: Store, core) -> APIRouter:
 
     @router.post("/repos", status_code=201, dependencies=guard)
     def connect_repo(body: RepoIn):
-        try:
-            repo_scan.check_name(body.full_name)
-        except repo_scan.RepoError as e:
-            raise _repo_error(e)
+        installation_id = authorise_repo(body)
         with store.tx():
             row = store.one("SELECT * FROM repos WHERE full_name=? COLLATE NOCASE", (body.full_name,))
             if row is not None:  # connecting twice is harmless: same repo back, no new event
                 return repo_out(row)
-            cur = store.run("INSERT INTO repos(full_name, branch, slack_channel, created_at) VALUES (?,?,?,?)",
-                            (body.full_name, body.branch, body.slack_channel, audit.now()))
+            cur = store.run("INSERT INTO repos(full_name, branch, slack_channel, created_at, installation_id) VALUES (?,?,?,?,?)",
+                            (body.full_name, body.branch, body.slack_channel, audit.now(), installation_id))
             audit.record(store, "repo_connected", body.actor, cur.lastrowid, result=body.full_name)
             return repo_out(store.one("SELECT * FROM repos WHERE id=?", (cur.lastrowid,)))
 
@@ -125,12 +197,14 @@ def create_router(store: Store, core) -> APIRouter:
         """Clone, scan, store, ingest. Any failure is stored as a failed scan, so health turns unknown."""
         started = audit.now()
         try:
-            audit.record(store, "scan_started", actor, repo["id"], scan_id, meta={"mode": mode, "trigger": trigger})
-            with repo_scan.checkout(repo["full_name"], repo["branch"] or None, os.environ.get("GITHUB_TOKEN")) as path:
-                result = repo_scan.scan_checkout(path, scan_id, mode, repo["full_name"], repo["branch"])
-            core.scans[scan_id] = result
-            core.save(scan_id)
-            ingest.ingest_scan(store, repo["id"], result, trigger, actor, started)
+            with scan_slot:
+                audit.record(store, "scan_started", actor, repo["id"], scan_id, meta={"mode": mode, "trigger": trigger})
+                with repo_scan.checkout(repo["full_name"], repo["branch"] or None, repo_token(repo),
+                                                       via_app=repo["installation_id"] is not None) as path:
+                    result = repo_scan.scan_checkout(path, scan_id, mode, repo["full_name"], repo["branch"])
+                core.scans[scan_id] = result
+                core.save(scan_id)
+                ingest.ingest_scan(store, repo["id"], result, trigger, actor, started)
         except Exception as e:  # clone, scan or storage failed: nothing is shown as healthy
             message = audit.redact(f"{type(e).__name__}: {e}")[:300]
             core.scans[scan_id] = {"status": "error", "detail": message}
@@ -141,6 +215,19 @@ def create_router(store: Store, core) -> APIRouter:
         finally:
             with running_lock:
                 running.discard(repo["id"])
+
+    def scan_repo_now(repo, trigger: str = "schedule", actor: str = "monitor", mode: str = "static"):
+        """Run one scan to the end in the calling thread (the monitor's). Returns the scan id, or None when a scan of this
+        repo is already running, so the monitor tries again at its next tick."""
+        with running_lock:
+            if repo["id"] in running:
+                return None
+            running.add(repo["id"])
+        scan_id = core.new_scan_id((f"repo:{repo['full_name']}", ""))
+        run_repo_scan(repo, scan_id, trigger, actor, mode)
+        return scan_id
+
+    core.scan_repo_now = scan_repo_now
 
     @router.get("/scans/{scan_id}/delta")
     def scan_delta(scan_id: str):
@@ -163,8 +250,68 @@ def create_router(store: Store, core) -> APIRouter:
             m = ingest.scan_summary(store, r["scan_id"])
             out.append({"scan_id": r["scan_id"], "trigger": r["trigger_kind"], "commit": r["commit_sha"], "status": r["status"],
                         "mode": r["mode"], "started_at": r["started_at"], "finished_at": r["finished_at"],
-                        "findings": m.get("findings", 0), "new": m.get("new", 0), "resolved": m.get("resolved", 0)})
+                        "findings": m.get("findings", 0), "new": m.get("new", 0), "resolved": m.get("resolved", 0),
+                        "errors": json.loads(r["errors_json"] or "[]")})  # scanner, kind, message of a failed or incomplete scan
         return out
+
+    @router.get("/repos/{repo_id}/diff")
+    def repo_diff(repo_id: int, scan_id: Optional[str] = None):
+        """A scan (default: the latest) against the repo's baseline, as human ids. `resolved` only holds findings whose check the
+        scan covered, the same rule ingest uses, so an incomplete, failed or static scan never reports what it could not look at
+        as resolved. Read `complete` before trusting the lists."""
+        repo = need_repo(repo_id)
+        base = repo["baseline_scan_id"]
+        if base is None:
+            raise HTTPException(404, f"{repo['full_name']} has no baseline yet: the first complete scan sets one, or POST /repos/{repo_id}/baseline")
+        sql = "SELECT * FROM scans WHERE repo_id=?"
+        scan = store.one(sql + " AND scan_id=?", (repo_id, scan_id)) if scan_id else store.one(sql + " ORDER BY rowid DESC LIMIT 1", (repo_id,))
+        if scan is None:
+            raise HTTPException(404, f"no scan {scan_id} for {repo['full_name']}" if scan_id else f"{repo['full_name']} has no scan yet")
+        ids = lambda sid: {r["human_id"] for r in store.all("SELECT human_id FROM scan_findings WHERE scan_id=?", (sid,))}  # noqa: E731
+        before, now = ids(base), ids(scan["scan_id"])
+        covered = set(json.loads(scan["coverage_json"] or "{}").get("checks_run", []))
+        checks = {r["human_id"]: r["check_id"] for r in store.all("SELECT human_id, check_id FROM findings WHERE repo_id=?", (repo_id,))}
+        return {"repo": repo["full_name"], "baseline_scan_id": base, "scan_id": scan["scan_id"], "complete": scan["status"] == "complete",
+                "new": sorted(now - before), "resolved": sorted(h for h in before - now if checks.get(h) in covered),
+                "persistent": sorted(now & before)}
+
+    # ---- readiness report (block 11)
+
+    def build_report(repo_id: int, scan_id: Optional[str]) -> dict:
+        try:
+            return readiness.build(store, repo_id, scan_id)
+        except ingest.StatusError as e:
+            raise _status_error(e)
+        except readiness.ReportError as e:
+            raise HTTPException(e.status, e.detail)
+
+    @router.get("/repos/{repo_id}/report")  # the token header OR a signed link: a browser cannot send the header
+    def repo_report(repo_id: int, scan_id: Optional[str] = None, format: Literal["html", "json"] = "html", sig: str = "",
+                    x_dpdp_token: Optional[str] = Header(None)):
+        if x_dpdp_token is not None:
+            require_token(x_dpdp_token)
+        elif not sig:
+            raise HTTPException(401, "send the X-DPDP-Token header, or open the signed link from POST /repos/{id}/report-link")
+        elif not (scan_id and readiness.check_link(os.environ.get("DPDP_API_TOKEN", ""), sig, repo_id, scan_id)):
+            raise HTTPException(403, "this report link is invalid, expired, or for another repo or scan")
+        report = build_report(repo_id, scan_id)
+        if format == "json":
+            return report
+        nonce = secrets.token_urlsafe(12)
+        return HTMLResponse(readiness.render(report, nonce), headers={
+            "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'",
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+    @router.post("/repos/{repo_id}/report-link", dependencies=guard)
+    def report_link(repo_id: int, body: ReportLinkIn = ReportLinkIn()):
+        report = build_report(repo_id, body.scan_id)  # also decides which scan "latest complete" means, so the link is bound to a real scan id
+        sid = report["scan"]["scan_id"]
+        sig = readiness.sign_link(os.environ["DPDP_API_TOKEN"], repo_id, sid)
+        audit.record(store, "report_link_created", body.actor, repo_id, sid)
+        return {"url": f"/repos/{repo_id}/report?scan_id={sid}&sig={sig}", "scan_id": sid, "expires_in": readiness.LINK_TTL,
+                "summary": {"findings": report["summary"]["findings"], "open_by_severity": report["summary"]["open_by_severity"],
+                            "health": report["health"]["status"], "coverage": readiness.coverage_line(report), "complete": report["complete"],
+                            "warnings": report["warnings"]}}
 
     @router.post("/repos/{repo_id}/baseline", dependencies=guard)
     def set_baseline(repo_id: int, body: BaselineIn):
@@ -189,6 +336,58 @@ def create_router(store: Store, core) -> APIRouter:
             store.run("UPDATE repos SET watch_minutes=?, next_run_at=? WHERE id=?", (body.minutes, due, repo_id))
             audit.record(store, "watch_changed", body.actor, repo_id, result=str(body.minutes), meta={"minutes": body.minutes})
         return {"watch_minutes": body.minutes, "next_run_at": due}
+
+    # ---- GitHub App (block 08)
+
+    @router.get("/github/install-url", dependencies=guard)
+    def install_url():
+        return {"url": need_github().install_url(github_app.sign_state(os.environ["DPDP_API_TOKEN"])), "expires_in": github_app.STATE_TTL}
+
+    @router.get("/github/connect")  # not token guarded: a browser opens it from the Slack button, so the signed state never appears in Slack
+    def github_connect():
+        app, secret = github(), os.environ.get("DPDP_API_TOKEN", "")
+        if app is None or not secret:
+            return _page("GitHub is not set up", "The engine has no GitHub App settings or no DPDP_API_TOKEN.", 503)
+        return RedirectResponse(app.install_url(github_app.sign_state(secret)), status_code=302)
+
+    @router.get("/github/setup")  # GitHub redirects the browser here after the install (the app's Setup URL). The state is the check.
+    def github_setup(installation_id: Optional[int] = None, setup_action: str = "", state: str = ""):
+        app = github()
+        if app is None:
+            return _page("GitHub is not set up", "The engine has no GitHub App settings.", 503)
+        if not github_app.check_state(os.environ.get("DPDP_API_TOKEN", ""), state):
+            return _page("Link expired", "This link is invalid or expired. Run /dpdp connect in Slack again.", 400)
+        if installation_id is None:
+            return _page("Not installed yet", "GitHub did not return an installation. If an owner has to approve it, wait for that, then run /dpdp connect again.", 400)
+        try:
+            info = app.installation(installation_id)
+        except github_app.GitHubAppError as e:
+            return _page("GitHub did not confirm the install", str(e), 404 if e.kind == "notfound" else 502)
+        with store.tx():
+            store.run("INSERT INTO installations(installation_id, account_login, account_type, created_at) VALUES (?,?,?,?) "
+                      "ON CONFLICT(installation_id) DO UPDATE SET account_login=excluded.account_login, account_type=excluded.account_type",
+                      (info["installation_id"], info["account_login"], info["account_type"], audit.now()))
+            audit.record(store, "github_installed", "github", result=info["account_login"],
+                         meta={"installation_id": info["installation_id"], "account_type": info["account_type"], "setup_action": setup_action[:20]})
+            ingest._outbox(store, "github_installed", str(info["installation_id"]))  # the installation id rides in human_id
+        return _page("GitHub connected, return to Slack", f"The app is installed for {info['account_login']}. Run /dpdp connect in Slack to pick a repository.")
+
+    @router.get("/github/installations", dependencies=guard)  # guarded read: it shows who installed the app
+    def list_installations():
+        need_github()
+        return [dict(r) for r in store.all("SELECT * FROM installations ORDER BY installation_id")]
+
+    @router.get("/github/installations/{installation_id}/repos", dependencies=guard)  # guarded read: private repo names
+    def installation_repos(installation_id: int):
+        app = need_github()
+        if store.one("SELECT 1 FROM installations WHERE installation_id=?", (installation_id,)) is None:
+            raise HTTPException(404, f"installation {installation_id} is not registered: install the app from the link in Slack first")
+        try:
+            repos = app.repos(installation_id)
+        except github_app.GitHubAppError as e:
+            raise _github_error(e)
+        connected = {r["full_name"].lower() for r in store.all("SELECT full_name FROM repos")}
+        return [{**r, "connected": r["full_name"].lower() in connected} for r in repos]
 
     # ---- findings
 
@@ -238,7 +437,7 @@ def create_router(store: Store, core) -> APIRouter:
     def fix_human(human_id: str, mode: str, actor: str):
         """POST /findings/{human_id}/fix. The stored scan JSON is never changed: the result goes to events and last_finding_json."""
         from .api import FixError, apply_fix  # late import: api.py imports this module
-        row = store.one("SELECT f.*, r.full_name FROM findings f JOIN repos r ON r.id=f.repo_id WHERE f.human_id=?", (human_id,))
+        row = store.one("SELECT f.*, r.full_name, r.installation_id FROM findings f JOIN repos r ON r.id=f.repo_id WHERE f.human_id=?", (human_id,))
         if row is None:
             raise HTTPException(404, f"Unknown finding {human_id}")
         try:
@@ -257,7 +456,7 @@ def create_router(store: Store, core) -> APIRouter:
                 out, fallback = None, None
                 if mode == "live":
                     try:
-                        with repo_scan.checkout(row["full_name"], scan.commit or None, os.environ.get("GITHUB_TOKEN"), "DPDP_FIX_REPOS") as d, \
+                        with repo_scan.checkout(row["full_name"], scan.commit or None, repo_token(row), "DPDP_FIX_REPOS") as d, \
                                 tempfile.TemporaryDirectory(prefix="dpdp-fixdb-") as tmp:
                             backend = d / "backend" if (d / "backend").is_dir() else d
                             db = Path(tmp) / "fix.db"
@@ -274,7 +473,8 @@ def create_router(store: Store, core) -> APIRouter:
             except FixError as e:
                 audit.record(store, "fix_failed", actor, row["repo_id"], scan.scan_id, human_id, result=str(e.status), meta={"detail": e.detail})
                 raise HTTPException(e.status, e.detail)
-            meta = {"mode": used, "fallback_reason": reason, "rescan_passed": fixed.fix.rescan_passed, "tests_passed": fixed.fix.tests_passed}
+            meta = {"mode": used, "fallback_reason": reason, "rescan_passed": fixed.fix.rescan_passed, "tests_passed": fixed.fix.tests_passed,
+                    "commit": scan.commit}  # the commit the fix was verified on: a pull request is made from exactly that
             if fixed.status == "verified_fixed":
                 ingest.mark_fixed(store, human_id, actor, fixed, meta)
             else:
@@ -283,6 +483,46 @@ def create_router(store: Store, core) -> APIRouter:
 
     core.fix_human = fix_human
 
+    # ---- pull request for a verified fix (block 13)
+
+    @router.post("/findings/{human_id}/pr", dependencies=guard)
+    def open_pr(human_id: str, body: PrIn = PrIn()):
+        """Push a branch with the verified fix and open a pull request. Never merges. Off unless DPDP_ALLOW_PR=1, only for a repo in
+        DPDP_FIX_REPOS that is connected through the GitHub App, only after a verified live fix."""
+        row = store.one("SELECT f.*, r.full_name, r.installation_id FROM findings f JOIN repos r ON r.id=f.repo_id WHERE f.human_id=?", (human_id,))
+        if row is None:
+            raise HTTPException(404, f"Unknown finding {human_id}")
+        if os.environ.get("DPDP_ALLOW_PR") != "1":
+            raise HTTPException(403, "pull requests are switched off on this engine: set DPDP_ALLOW_PR=1 to allow them")
+        try:
+            repo_scan.check_name(row["full_name"], "DPDP_FIX_REPOS")
+        except repo_scan.RepoError:
+            raise HTTPException(403, f"{row['full_name']} is not in DPDP_FIX_REPOS, so no pull request is opened for it")
+        app = github()
+        if row["installation_id"] is None or app is None:
+            raise HTTPException(403, f"{row['full_name']} is not connected through the GitHub App installation, so no pull request is opened for it")
+        last = json.loads(row["last_finding_json"])
+        fix = last.get("fix") or {}
+        if row["status"] != "fixed" or not fix.get("verified") or not fix.get("diff"):
+            raise HTTPException(409, f"the fix of {human_id} is not verified, so there is nothing to open a pull request for")
+        if row["pr_url"]:
+            return {"pr_url": row["pr_url"], "reused": True, "record": ingest.get_record(store, human_id)}
+        ev = store.one("SELECT meta_json FROM events WHERE type='fix_verified' AND human_id=? ORDER BY id DESC LIMIT 1", (human_id,))
+        meta = json.loads(ev["meta_json"]) if ev else {}
+        if meta.get("mode") != "live" or not meta.get("commit"):
+            raise HTTPException(409, "the verified fix was a cached replay (or has no commit recorded): run Fix and verify live first")
+        try:
+            out = pr.open_pull_request(app, row["installation_id"], row["full_name"], human_id, row["title"], row["severity"], last.get("clauses", []),
+                                       fix["diff"], meta["commit"])
+        except pr.PrError as e:
+            audit.record(store, "pr_failed", body.actor, row["repo_id"], None, human_id, result=e.kind, meta={"reason": str(e)[:300]})
+            raise HTTPException({"refused": 409, "exists": 409}.get(e.kind, 502), str(e))
+        with store.tx():
+            store.run("UPDATE findings SET pr_url=? WHERE human_id=?", (out["pr_url"], human_id))
+            audit.record(store, "pr_opened", body.actor, row["repo_id"], None, human_id, result=out["pr_url"],
+                         meta={"branch": out["branch"], "number": out["number"], "reused": out["reused"], "commit": meta["commit"]})
+        return {**out, "record": ingest.get_record(store, human_id)}
+
     # POST /findings/{human_id}/fix is served by the legacy route in api.py (same path, FastAPI matches the first one
     # registered). It calls require_token and core.fix_human for DPDP- ids.
 
@@ -290,7 +530,8 @@ def create_router(store: Store, core) -> APIRouter:
 
     @router.get("/outbox")
     def get_outbox(after: int = 0):
-        return [{"id": r["id"], "kind": r["kind"], "human_id": r["human_id"]}
+        # status_changed rows have a human_id. scan_delta and health_changed rows have repo_id and scan_id instead.
+        return [{"id": r["id"], "kind": r["kind"], "human_id": r["human_id"], "repo_id": r["repo_id"], "scan_id": r["scan_id"]}
                 for r in store.all("SELECT * FROM outbox WHERE id>? ORDER BY id LIMIT 500", (after,))]
 
     @router.get("/audit/events")

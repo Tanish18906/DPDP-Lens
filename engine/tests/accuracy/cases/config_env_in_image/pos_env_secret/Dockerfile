@@ -1,0 +1,3 @@
+FROM python:3.12
+ENV SECRET_KEY=abc123xyz987
+USER app

@@ -36,11 +36,12 @@ def allowed(env_name: str = "DPDP_ALLOWED_REPOS") -> list[str]:
     return [x.strip().lower() for x in os.environ.get(env_name, "").split(",") if x.strip()]
 
 
-def check_name(full_name: str, env_name: str = "DPDP_ALLOWED_REPOS") -> str:
-    """Valid owner/repo and on the allowlist. An empty allowlist refuses everything."""
+def check_name(full_name: str, env_name: str = "DPDP_ALLOWED_REPOS", via_app: bool = False) -> str:
+    """Valid owner/repo and on the allowlist. An empty allowlist refuses everything. via_app: a GitHub App installation shared the
+    repo when it was connected, so the allowlist is skipped and the installation token is the check (the name is still validated)."""
     if not NAME.fullmatch(full_name or "") or any(p in (".", "..") for p in full_name.split("/")):
         raise RepoError("invalid", "repo must look like owner/name (letters, digits, _ . -)")
-    if full_name.lower() not in allowed(env_name):
+    if not via_app and full_name.lower() not in allowed(env_name):
         raise RepoError("refused", f"{full_name} is not in {env_name}")
     return full_name
 
@@ -61,9 +62,10 @@ def _size(path: Path) -> int:
 
 
 @contextmanager
-def checkout(full_name: str, ref: str | None = None, token: str | None = None, env_name: str = "DPDP_ALLOWED_REPOS"):
-    """Yield the path of a shallow clone (a branch, a tag, or a 40 character commit). The temp folder is always removed."""
-    check_name(full_name, env_name)
+def checkout(full_name: str, ref: str | None = None, token: str | None = None, env_name: str = "DPDP_ALLOWED_REPOS", via_app: bool = False):
+    """Yield the path of a shallow clone (a branch, a tag, or a 40 character commit). The temp folder is always removed.
+    The fix sandbox never passes via_app: only DPDP_FIX_REPOS repos are ever cloned for a fix."""
+    check_name(full_name, env_name, via_app)
     if ref and not (REF.fullmatch(ref) and ".." not in ref):
         raise RepoError("invalid", "ref is not a valid branch, tag or commit")
     base = GIT_BASE.rstrip("/")
